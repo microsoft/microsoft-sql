@@ -8,10 +8,12 @@
     "node": ">=20.19.0"
   },
   "scripts": {
+    "generate": "node scripts/generate.mjs",
     "validate": "node scripts/validate-catalog.mjs",
+    "parity": "node scripts/generate.mjs --check",
     "sidecars:check": "node scripts/backfill-container-sidecars.mjs --check",
     "contract:check": "node scripts/check-prefill-contract.mjs",
-    "test": "npm run validate && npm run sidecars:check && npm run contract:check"
+    "test": "npm run validate && npm run parity && npm run sidecars:check && npm run contract:check"
   },
   "license": "MIT"
 }
