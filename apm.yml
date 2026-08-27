@@ -27,3 +27,4 @@ skills:
   - ./skills/azure-sql-database-container/azuresql-db-seed
   - ./skills/azure-sql-database-container/azuresql-db-sidecar
   - ./skills/azure-sql-database-container/azuresql-db-testing
+  - ./skills/provisioning-and-local-dev/provision-azure-sql-db
