@@ -84,6 +84,26 @@ function frontmatter(text, where) {
 const ALLOWED_FRONTMATTER = new Set(['name', 'description', 'license', 'compatibility']);
 const onDisk = new Set();
 
+// LAY001. The Agent Plugins specification fixes discovery at skills/ and states
+// clients MUST NOT recurse. A skill one level deeper is invisible to every
+// conforming client, and the closed manifest schema has no field to point at
+// it. Grouping by domain looks tidy and would ship a catalog that loads
+// nothing, so it is checked here rather than left to review. The skill linter
+// cannot do this: it is handed individual directories and does not know where
+// the root is.
+for (const name of skillDirs) {
+  const nested = join(SKILLS, name);
+  if (!existsSync(join(nested, 'SKILL.md'))) {
+    for (const inner of readdirSync(nested).filter((n) => statSync(join(nested, n)).isDirectory())) {
+      if (existsSync(join(nested, inner, 'SKILL.md'))) {
+        errors.push(`${join(nested, inner)}: LAY001, a skill must be an immediate child of ${SKILLS}/. ` +
+          `It sits inside "${name}/", where no conforming client will find it. ` +
+          `Move it up and record the domain in its sidecar; the grouping is generated.`);
+      }
+    }
+  }
+}
+
 for (const name of skillDirs) {
     const base = join(SKILLS, name);
     onDisk.add(name);
