@@ -1,0 +1,38 @@
+{
+  "$schema": "../../../spec/schemas/skill.spec.schema.json",
+  "id": "provision-azure-sql-db",
+  "domain": "provisioning-and-local-dev",
+  "value": ["not-in-training-data", "changes-too-fast-to-memorize"],
+  "correction": "Asked to create an Azure SQL database, an agent writes a plausible az sql db create and stops there, producing a database nothing can reach: it omits the firewall rule, which is a separate command that az sql db create has no flag for, and it fills the free offer's exhaustion behavior from the documented value BillForUsage, which the CLI rejects because the only accepted values are AutoPause and BillOverUsage.",
+  "posture": ["read", "write", "provision"],
+  "maturity": "preview",
+  "applies_to": ["azure-sql-db"],
+  "last_verified": "2026-08-27",
+  "related": ["connect-to-azure-sql", "entra-id-auth", "provision-hyperscale"],
+  "validation": {
+    "target": "cloud",
+    "setup": ["a resource group in a subscription with no existing free database"],
+    "assert": [
+      "a firewall rule exists, created by a separate command",
+      "the free offer uses BillOverUsage or AutoPause, never BillForUsage",
+      "the connection string names the user database, not master"
+    ]
+  },
+  "triggering": {
+    "explicit": ["Use the provision-azure-sql-db skill"],
+    "implicit": [
+      "create an Azure SQL database for me",
+      "set up a free Azure SQL database",
+      "provision a SQL database in Azure and give me the connection string"
+    ],
+    "routing": [
+      "I need a database in Azure for this app",
+      "spin up SQL in my subscription"
+    ],
+    "negative": [
+      "run Azure SQL locally in a container",
+      "create a PostgreSQL database in Azure",
+      "resize my existing database to Hyperscale"
+    ]
+  }
+}

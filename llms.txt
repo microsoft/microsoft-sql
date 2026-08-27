@@ -7,6 +7,12 @@
 Every skill is a directory containing SKILL.md. The domain segment in the path is a source
 convention and is stripped on install, so an installed skill lands one level deep.
 
+## Provisioning and local dev
+
+Get a developer to a working database in minutes, and onto the right service tier when the workload is real
+
+- [provision-azure-sql-db](https://github.com/microsoft/azure-sql-skills/blob/main/skills/provisioning-and-local-dev/provision-azure-sql-db/SKILL.md): Creates an Azure SQL Database and returns a connection string that actually works, covering the free offer and paid tiers, the firewall rule, and Microsoft Entra-only administration. Use when a user asks to "create an Azure SQL database", "set up a free SQL database in Azure", "provision SQL for this app", "give me a connection string", or when an application needs a cloud database and none exists yet. Also use when a provisioning attempt succeeded but nothing can connect, which is almost always the missing firewall rule. Covers the free offer's one-per-subscription limit and the exhaustion behavior value the CLI accepts, which is not the one its own help text describes.
+
 ## Azure SQL Database container
 
 Local-first development against the same engine that runs in the cloud
@@ -31,5 +37,5 @@ Local-first development against the same engine that runs in the cloud
 
 ## Planned
 
-125 further skills are in the catalog and not yet written. They are listed with
+124 further skills are in the catalog and not yet written. They are listed with
 their domain, wave and intent in catalog/catalog.json.
