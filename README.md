@@ -28,7 +28,12 @@ skills/<domain>/<skill-name>/
     references/           progressive disclosure, one level deep
     skill.spec.jsonc      the maintainer sidecar. The agent never reads it
 catalog/catalog.json      all 142 skills: domain, wave, priority, status, value
+catalog/taxonomy.json     the 16 domains, and the authority on which are valid
 ```
+
+A domain directory appears when its first skill does, so today only
+`azure-sql-database-container` exists on disk. `catalog/taxonomy.json` is what defines the other
+fifteen, because the domain list is data rather than filesystem state.
 
 **The domain directory is a source convention, not something a consumer sees.**
 `skills/{scope}/*/SKILL.md` is a documented discovery pattern, and every install tool **strips the

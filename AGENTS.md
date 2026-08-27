@@ -44,6 +44,16 @@ syndication unless the destination asks for it, because it names our domains, ou
 CI checks it against the filesystem both ways: every skill on disk must have an entry, and every
 entry marked shipped must have a directory. Neither can be forgotten.
 
+## Domains are data, not directories
+
+`catalog/taxonomy.json` is the authority on which domains exist. A domain directory under `skills/`
+appears only when its first skill does, because git does not track empty directories.
+
+This is worth knowing because it already caused a failure: the first CI run of this gate derived
+the valid domain set from the filesystem. That **passed locally**, where fifteen empty directories
+existed, and **failed on a fresh checkout**, where they did not. If a check reads the filesystem to
+decide what is valid, ask what a clean clone actually contains.
+
 ## House conventions
 
 - **Feature branch and a pull request, always.** Never commit to `main`.

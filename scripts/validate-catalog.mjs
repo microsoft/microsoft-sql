@@ -19,6 +19,7 @@ import { join } from 'node:path';
 
 const SKILLS = 'skills';
 const CATALOG = 'catalog/catalog.json';
+const TAXONOMY = 'catalog/taxonomy.json';
 
 const errors = [];
 const warnings = [];
@@ -27,7 +28,24 @@ const warn = (ok, msg) => { if (!ok) warnings.push(msg); };
 
 const catalog = JSON.parse(readFileSync(CATALOG, 'utf8'));
 const byId = Object.fromEntries(catalog.skills.map((s) => [s.id, s]));
-const domains = readdirSync(SKILLS).filter((d) => statSync(join(SKILLS, d)).isDirectory()).sort();
+
+// The authoritative domain list is DATA, not filesystem state. Git does not
+// track empty directories, so a domain with no skills yet has no directory, and
+// deriving the valid set from the filesystem would make every unwritten domain
+// look invalid. That is exactly what happened the first time this ran in CI:
+// it passed locally, where the empty directories existed, and failed on a fresh
+// checkout, where they did not.
+const taxonomy = JSON.parse(readFileSync(TAXONOMY, 'utf8'));
+const validDomains = new Set(taxonomy.domains.map((d) => d.slug));
+check(validDomains.size === 16, `${TAXONOMY} has ${validDomains.size} domains, expected 16`);
+
+// A domain directory appears when its first skill does.
+const domains = existsSync(SKILLS)
+  ? readdirSync(SKILLS).filter((d) => statSync(join(SKILLS, d)).isDirectory()).sort()
+  : [];
+for (const d of domains) {
+  check(validDomains.has(d), `${SKILLS}/${d}/ is not a domain in ${TAXONOMY}`);
+}
 
 // Frontmatter, read without a YAML dependency. Deliberately narrow: it reads
 // the two keys the spec requires and the shape our house rule allows, and
@@ -129,13 +147,14 @@ for (const s of catalog.skills) {
   }
 }
 
-// ---- every manifest domain is a real directory
+// ---- every manifest domain is a real domain
 for (const s of catalog.skills) {
-  check(domains.includes(s.domain), `${CATALOG}: "${s.id}" names domain "${s.domain}", which has no directory`);
+  check(validDomains.has(s.domain),
+    `${CATALOG}: "${s.id}" names domain "${s.domain}", which is not in ${TAXONOMY}`);
 }
 
 const shipped = catalog.skills.filter((s) => s.status === 'shipped-pilot').length;
-console.log(`domains        ${domains.length}`);
+console.log(`domains        ${validDomains.size} defined, ${domains.length} with content`);
 console.log(`skills on disk ${onDisk.size}`);
 console.log(`manifest       ${catalog.skills.length} entries, ${shipped} marked shipped`);
 console.log(`synced from    ${catalog.synced_from?.workbook} (${catalog.synced_from?.synced})`);
