@@ -1,0 +1,23 @@
+# Review routing for the catalog.
+#
+# The carried-over container family is the product's content, not this
+# repository's. Changes there should originate in
+# microsoft/azure-sql-database-container and arrive by sync, so a direct edit
+# here wants a deliberate look.
+#
+# Add Iqra and Yo-Lei once they have write access.
+
+*                                       @croblesm
+
+# The manifest and the schema. Every generated surface is built from these.
+/catalog/                               @croblesm
+
+# The gates.
+/scripts/                               @croblesm
+/.github/workflows/                     @croblesm
+
+# The prefill contract the feedback skill fills by field id.
+/.github/ISSUE_TEMPLATE/                @croblesm
+
+# Carried over unchanged from the pilot. Edits here need a reason.
+/skills/azure-sql-database-container/   @croblesm

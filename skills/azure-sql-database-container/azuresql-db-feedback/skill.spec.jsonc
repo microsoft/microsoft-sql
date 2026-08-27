@@ -1,0 +1,33 @@
+{
+  "$schema": "../../../catalog/skill.spec.schema.json",
+  "id": "azuresql-db-feedback",
+  "domain": "azure-sql-database-container",
+  "value": [
+    "not-in-training-data"
+  ],
+  "correction": "Told that something did not work, an agent says \"file an issue\" and leaves the user to it. A skill problem and a product problem use different templates, the report needs context the agent already has, and secrets in a pasted connection string would become world-readable, so the report is built, redacted, and never submitted without explicit confirmation.",
+  "posture": [
+    "read"
+  ],
+  "maturity": "preview",
+  "applies_to": [
+    "azure-sql-db-container"
+  ],
+  "last_verified": "2026-08-20",
+  "validation": {
+    "target": "none"
+  },
+  "triggering": {
+    "explicit": [
+      "Use the azuresql-db-feedback skill"
+    ],
+    "implicit": [
+      "the skill told my agent the wrong thing, how do I report it"
+    ],
+    "negative": [
+      "set up a local PostgreSQL database with docker compose",
+      "provision an Azure SQL Database in my subscription",
+      "connect to SQL Server on my company network"
+    ]
+  }
+}

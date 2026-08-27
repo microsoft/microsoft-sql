@@ -1,0 +1,17 @@
+{
+  "name": "azure-sql-skills",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Agent skills for Azure SQL Database. The published catalog.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "validate": "node scripts/validate-catalog.mjs",
+    "sidecars:check": "node scripts/backfill-container-sidecars.mjs --check",
+    "contract:check": "node scripts/check-prefill-contract.mjs",
+    "test": "npm run validate && npm run sidecars:check && npm run contract:check"
+  },
+  "license": "MIT"
+}
