@@ -1,0 +1,39 @@
+{
+  "$schema": "../../../catalog/skill.spec.schema.json",
+  "id": "azuresql-db-functions",
+  "domain": "azure-sql-database-container",
+  "value": [
+    "not-in-training-data"
+  ],
+  "correction": "The Azure SQL trigger binding has a prerequisite no model volunteers: change tracking must be enabled on the database and the table, or the trigger simply never fires and nothing reports an error. Change Event Streaming is cloud-only and cannot stand in for it locally.",
+  "posture": [
+    "read",
+    "write",
+    "execute"
+  ],
+  "maturity": "preview",
+  "applies_to": [
+    "azure-sql-db-container"
+  ],
+  "last_verified": "2026-08-20",
+  "validation": {
+    "target": "container",
+    "assert": [
+      "change tracking enabled before using a SQL trigger",
+      "does not propose Change Event Streaming against the container"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the azuresql-db-functions skill"
+    ],
+    "implicit": [
+      "build a serverless HTTP API over my SQL tables with Azure Functions"
+    ],
+    "negative": [
+      "set up a local PostgreSQL database with docker compose",
+      "provision an Azure SQL Database in my subscription",
+      "connect to SQL Server on my company network"
+    ]
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "../../../catalog/skill.spec.schema.json",
+  "id": "azuresql-db-seed",
+  "domain": "azure-sql-database-container",
+  "value": [
+    "not-in-training-data"
+  ],
+  "correction": "To load a CSV an agent writes BULK INSERT or OPENROWSET against a local path. The engine rejects that with Msg 12713, because it reads from Azure Blob Storage rather than the local filesystem. Local files go in through bcp or a driver.",
+  "posture": [
+    "read",
+    "write",
+    "execute"
+  ],
+  "maturity": "preview",
+  "applies_to": [
+    "azure-sql-db-container"
+  ],
+  "last_verified": "2026-08-20",
+  "validation": {
+    "target": "container",
+    "assert": [
+      "no local-file BULK INSERT or OPENROWSET",
+      "respects foreign key order when seeding related tables"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the azuresql-db-seed skill"
+    ],
+    "implicit": [
+      "fill my local database with realistic sample data across related tables"
+    ],
+    "negative": [
+      "set up a local PostgreSQL database with docker compose",
+      "provision an Azure SQL Database in my subscription",
+      "connect to SQL Server on my company network"
+    ]
+  }
+}

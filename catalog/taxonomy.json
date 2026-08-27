@@ -1,0 +1,118 @@
+{
+  "$comment": "Generated from spec/taxonomy.yaml in microsoft/azure-sql-skills-lab. The authoritative list of domains. Slugs are source directory names under skills/ and are stripped on install; number is display order only and has already changed once, so never derive an id from it.",
+  "version": 1,
+  "domains": [
+    {
+      "slug": "provisioning-and-local-dev",
+      "number": 1,
+      "title": "Provisioning and local dev",
+      "goal": "Get a developer to a working database in minutes, and onto the right service tier when the workload is real",
+      "business_outcome": "Acquire"
+    },
+    {
+      "slug": "drivers-and-connectivity",
+      "number": 2,
+      "title": "Drivers and connectivity",
+      "goal": "Connect from any language first try, and fix it fast when it fails",
+      "business_outcome": "Attach and retain"
+    },
+    {
+      "slug": "schema-and-orm",
+      "number": 3,
+      "title": "Schema and ORM",
+      "goal": "Model data and wire up the ORM the developer already uses",
+      "business_outcome": "Attach and retain"
+    },
+    {
+      "slug": "tsql-correctness-and-patterns",
+      "number": 4,
+      "title": "T-SQL correctness and patterns",
+      "goal": "Where agents trained on PostgreSQL go wrong on Azure SQL Database",
+      "business_outcome": "Attach and retain"
+    },
+    {
+      "slug": "identity-and-access",
+      "number": 5,
+      "title": "Identity and access (Entra ID)",
+      "goal": "Passwordless by default, and unblock the setup that fails silently",
+      "business_outcome": "Attach and retain"
+    },
+    {
+      "slug": "security-and-safe-sql",
+      "number": 6,
+      "title": "Security and safe SQL",
+      "goal": "Stop the agent writing the vulnerability, and lock the database down by default",
+      "business_outcome": "Attach and retain"
+    },
+    {
+      "slug": "schema-change-and-cicd",
+      "number": 7,
+      "title": "Schema change and CI/CD",
+      "goal": "Ship schema changes safely across every migration tool developers actually use",
+      "business_outcome": "Attach and retain"
+    },
+    {
+      "slug": "azure-patterns-and-deploy",
+      "number": 8,
+      "title": "Azure patterns and deploy",
+      "goal": "Take a working local app to Azure the way Microsoft intends",
+      "business_outcome": "Attach and retain"
+    },
+    {
+      "slug": "apis-and-application-patterns",
+      "number": 9,
+      "title": "APIs and application patterns",
+      "goal": "Expose and consume the database over HTTP and from serverless, without hand-written plumbing",
+      "business_outcome": "Attach and retain"
+    },
+    {
+      "slug": "ai-vector-and-rag",
+      "number": 10,
+      "title": "AI, vector and RAG",
+      "goal": "Build, run and debug AI features directly on SQL, locally and in the cloud",
+      "business_outcome": "Consume more"
+    },
+    {
+      "slug": "performance-and-diagnostics",
+      "number": 11,
+      "title": "Performance and diagnostics",
+      "goal": "When something is slow, stuck or throttled, give the agent the playbook",
+      "business_outcome": "Lower cost to serve"
+    },
+    {
+      "slug": "operate-and-recover",
+      "number": 12,
+      "title": "Operate and recover",
+      "goal": "For the developer handed a database, using only what Azure SQL actually has",
+      "business_outcome": "Lower cost to serve"
+    },
+    {
+      "slug": "migration-to-azure-sql",
+      "number": 13,
+      "title": "Migration to Azure SQL",
+      "goal": "Move on-premises and hosted SQL Server workloads to Azure SQL Database",
+      "business_outcome": "Migrate"
+    },
+    {
+      "slug": "data-movement",
+      "number": 14,
+      "title": "Data movement",
+      "goal": "Get data in, out and between databases with the tools that actually exist on this platform",
+      "business_outcome": "Migrate"
+    },
+    {
+      "slug": "azure-sql-database-container",
+      "number": 15,
+      "title": "Azure SQL Database container",
+      "goal": "Local-first development against the same engine that runs in the cloud",
+      "business_outcome": "Acquire"
+    },
+    {
+      "slug": "docs-and-feedback",
+      "number": 16,
+      "title": "Docs and feedback",
+      "goal": "Orient the agent, point it at the right documentation, and close the loop from inside the agent that used the skill",
+      "business_outcome": "Ecosystem"
+    }
+  ]
+}

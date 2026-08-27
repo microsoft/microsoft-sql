@@ -1,0 +1,107 @@
+name: Agent skill feedback
+description: Report a problem with an Azure SQL agent skill, or suggest an improvement to one.
+title: "[Skill]: "
+labels: ["skills", "needs-triage", "via-skill"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is for feedback about the **skills**: the instructions your AI agent loads.
+
+        If the **product** is what misbehaved, that belongs in its own repository. Rule of thumb: if
+        the skill told your agent to do the right thing and it still failed, that is a product bug.
+        If the skill told your agent the **wrong** thing, or did not tell it enough, it is a skill
+        bug and it belongs here.
+
+        The `skill-feedback` skill can build this report for you from context your agent already
+        has, and it will redact secrets before showing it to you. It never submits without asking.
+
+  - type: input
+    id: skill
+    attributes:
+      label: Which skill
+      description: The skill name, for example connect-from-python or azuresql-db-container.
+      placeholder: skill-name
+    validations:
+      required: true
+
+  - type: dropdown
+    id: problem-type
+    attributes:
+      label: What kind of problem
+      options:
+        - The skill said something wrong
+        - The skill was missing something it should have covered
+        - The wrong skill loaded, or none did
+        - The skill is out of date
+        - Suggestion or improvement
+    validations:
+      required: true
+
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Which agent
+      options:
+        - GitHub Copilot
+        - Claude Code
+        - Codex
+        - Cursor
+        - Grok Build
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: How did you install the skills
+      options:
+        - gh skill install
+        - npx skills add
+        - Plugin marketplace
+        - apm install
+        - Committed to the repository
+        - Other or unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you asked for, and what the agent did.
+    validations:
+      required: true
+
+  - type: textarea
+    id: skill-said
+    attributes:
+      label: What the skill said, and what you had to do instead
+      description: >-
+        The most useful field in this form. If you had to correct or work around the skill to
+        finish the task, that is the bug, even if the task eventually succeeded.
+    validations:
+      required: false
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: >-
+            I have removed passwords, connection strings, tokens and resource identifiers from this
+            report. Issues here are readable by anyone.
+          required: true

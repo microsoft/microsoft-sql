@@ -1,0 +1,41 @@
+{
+  "$schema": "../../../catalog/skill.spec.schema.json",
+  "id": "azuresql-db-ci",
+  "domain": "azure-sql-database-container",
+  "value": [
+    "not-in-training-data"
+  ],
+  "correction": "An agent adds the SQL Server image as a CI service and queries it immediately. This image comes from a private registry that needs credentials as secrets, the health check has to run sqlcmd inside the container because the runner has no client tools, and the user database must exist before the tests do.",
+  "posture": [
+    "read",
+    "write",
+    "execute",
+    "provision"
+  ],
+  "maturity": "preview",
+  "applies_to": [
+    "azure-sql-db-container"
+  ],
+  "last_verified": "2026-08-20",
+  "validation": {
+    "target": "container",
+    "assert": [
+      "registry credentials handled as secrets",
+      "health check runs inside the container",
+      "user database provisioned before tests"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the azuresql-db-ci skill"
+    ],
+    "implicit": [
+      "my workflow tests against SQL, set up CI for it"
+    ],
+    "negative": [
+      "set up a local PostgreSQL database with docker compose",
+      "provision an Azure SQL Database in my subscription",
+      "connect to SQL Server on my company network"
+    ]
+  }
+}
