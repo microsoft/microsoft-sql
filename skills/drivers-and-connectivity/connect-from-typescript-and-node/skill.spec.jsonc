@@ -1,0 +1,55 @@
+{
+  "$schema": "../../../spec/schemas/skill.spec.schema.json",
+  "id": "connect-from-typescript-and-node",
+  "domain": "drivers-and-connectivity",
+  "value": ["corrects-a-wrong-assumption", "changes-too-fast-to-memorize"],
+  "correction": "Agents give every request or serverless invocation its own mssql connection pool, and close it when the handler returns, because they read sql.connect() as opening one connection; it actually creates a process-wide pool whose default ceiling is ten connections, so the per-invocation version pays a full TLS and login handshake on every call and the paired sql.close() tears the pool out from under every other in-flight request.",
+  "posture": ["read", "write", "execute"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "last_verified": "2026-08-27",
+  "related": [
+    "connect-to-azure-sql",
+    "diagnose-connection-errors",
+    "connect-from-edge-runtimes",
+    "typeorm-and-sequelize-azure-sql",
+    "prisma-azure-sql"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a Node.js 22 or later project with mssql installed",
+      "a reachable Azure SQL database, or the local container"
+    ],
+    "assert": [
+      "exactly one ConnectionPool is constructed per process, at module scope",
+      "the resolved tedious options report encrypt true and trustServerCertificate false",
+      "pool.max is set deliberately rather than left at the default of 10",
+      "no request handler calls sql.close()",
+      "@types/mssql is a devDependency when the project is TypeScript"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the connect-from-typescript-and-node skill",
+      "Connect my Node.js app to Azure SQL Database",
+      "Which npm package do I use to talk to Azure SQL from TypeScript"
+    ],
+    "implicit": [
+      "my Express API opens a new database connection on every request and gets slower under load",
+      "connect to Azure SQL from an Azure Function in TypeScript without a password",
+      "how do I type the rows coming back from a SQL query in TypeScript",
+      "set pool size for the mssql package"
+    ],
+    "routing": [
+      "add a database layer to my Node backend",
+      "passwordless SQL connection for a Node app on App Service"
+    ],
+    "negative": [
+      "connect to Azure SQL from Python with pyodbc",
+      "set up Microsoft.Data.SqlClient managed identity in my .NET API",
+      "my first connection to a paused serverless database fails with error 40613",
+      "run a query from the command line against my database"
+    ]
+  }
+}

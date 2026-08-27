@@ -1,0 +1,55 @@
+{
+  "$schema": "../../../spec/schemas/skill.spec.schema.json",
+  "id": "connect-from-dotnet",
+  "domain": "drivers-and-connectivity",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption"],
+  "correction": "Agents treat Microsoft Entra authentication in .NET as a connection string setting alone, writing Authentication=Active Directory Default against a single Microsoft.Data.SqlClient package reference; since version 7.0 the core package no longer carries the Entra dependencies, so every Active Directory mode throws ArgumentException, Cannot find an authentication provider, at Open time until Microsoft.Data.SqlClient.Extensions.Azure is added as a second package reference.",
+  "posture": ["read", "write", "execute"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "last_verified": "2026-08-27",
+  "related": [
+    "connect-to-azure-sql",
+    "diagnose-connection-errors",
+    "ef-core-azure-sql",
+    "dapper-and-ado-net-azure-sql",
+    "managed-identity-across-azure-services"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a .NET project referencing Microsoft.Data.SqlClient 7.0 or later",
+      "a reachable Azure SQL database, or the local container"
+    ],
+    "assert": [
+      "a project using any Active Directory authentication mode also references Microsoft.Data.SqlClient.Extensions.Azure",
+      "the project references Microsoft.Data.SqlClient and not System.Data.SqlClient",
+      "Encrypt is absent or set to Mandatory or Strict, and TrustServerCertificate is absent or false",
+      "a user-assigned managed identity supplies its client id in User Id",
+      "connection strings differ only where a separate pool is intended"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the connect-from-dotnet skill",
+      "Connect my .NET app to Azure SQL Database",
+      "Set up managed identity authentication with Microsoft.Data.SqlClient"
+    ],
+    "implicit": [
+      "Cannot find an authentication provider for ActiveDirectoryDefault",
+      "my API worked locally with a password but fails in Azure with a login error",
+      "should I use System.Data.SqlClient or Microsoft.Data.SqlClient",
+      "how do I size the connection pool for a .NET service on Azure SQL"
+    ],
+    "routing": [
+      "add a data access layer to my ASP.NET service",
+      "passwordless database access for a .NET app running in Azure"
+    ],
+    "negative": [
+      "connect to Azure SQL from Python with mssql-python",
+      "set the mssql pool size in my Node.js API",
+      "add an EF Core migration for a new column",
+      "why does my first connection to a paused database fail"
+    ]
+  }
+}

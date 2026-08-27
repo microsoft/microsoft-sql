@@ -1,0 +1,54 @@
+{
+  "$schema": "../../../spec/schemas/skill.spec.schema.json",
+  "id": "diagnose-connection-errors",
+  "domain": "drivers-and-connectivity",
+  "value": ["changes-too-fast-to-memorize", "multi-step-with-silent-failures"],
+  "correction": "Shown a failed connection to Azure SQL Database, an agent reads every error as a credential or connection-string problem and starts editing the connection string, when the error number already names the layer that rejected it: 40615 is a missing firewall rule that no connection string can fix, 40613 on the first connect to a paused serverless or free database is expected behaviour whose only correct response is to retry, 42101 and 47073 mean public network access is turned off, and a certificate-chain failure is a client trust store problem that trusting the server certificate hides rather than fixes.",
+  "posture": ["read", "inspect"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "last_verified": "2026-08-27",
+  "related": [
+    "connect-to-azure-sql",
+    "provision-azure-sql-db",
+    "entra-id-auth",
+    "diagnose-resource-pressure",
+    "private-endpoints-and-firewall"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a reachable database and a client that can attempt a connection",
+      "a second attempt with a deliberately wrong password",
+      "a second attempt naming a database that does not exist"
+    ],
+    "assert": [
+      "a wrong password returns 18456 and the skill routes it to credentials, not to the firewall",
+      "a database name that does not exist returns 4060 and the skill routes it to the database, not to the login",
+      "an error carrying no SQL number is classified from its message text rather than reported as unknown",
+      "40613 is classified as expected and retryable when the target is a serverless or free database"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the diagnose-connection-errors skill on this stack trace"
+    ],
+    "implicit": [
+      "Login failed for user, what do I do",
+      "Cannot open server requested by the login. Client with IP address is not allowed to access the server",
+      "Database on server is not currently available. Please retry the connection later",
+      "The certificate chain was issued by an authority that is not trusted",
+      "my app connects fine on my laptop but gets a timeout once it is deployed"
+    ],
+    "routing": [
+      "why can my database not be reached",
+      "the connection worked yesterday and fails today"
+    ],
+    "negative": [
+      "write the retry policy for my data access layer",
+      "which driver should I use from Python",
+      "my query is slow, find out why",
+      "create a firewall rule for a new database I am provisioning"
+    ]
+  }
+}

@@ -14,6 +14,7 @@
     "setup": ["a resource group in a subscription with no existing free database"],
     "assert": [
       "a firewall rule exists, created by a separate command",
+      "the free offer limit is stated as 10 per subscription, not 1",
       "the free offer uses BillOverUsage or AutoPause, never BillForUsage",
       "the connection string names the user database, not master"
     ]
