@@ -20,6 +20,7 @@ import { join } from 'node:path';
 const SKILLS = 'skills';
 const CATALOG = 'catalog/catalog.json';
 const TAXONOMY = 'catalog/taxonomy.json';
+const SIDECAR_SCHEMA = 'catalog/skill.spec.schema.json';
 
 const errors = [];
 const warnings = [];
@@ -36,6 +37,14 @@ const byId = Object.fromEntries(catalog.skills.map((s) => [s.id, s]));
 // it passed locally, where the empty directories existed, and failed on a fresh
 // checkout, where they did not.
 const taxonomy = JSON.parse(readFileSync(TAXONOMY, 'utf8'));
+
+// The sidecar schema is a COPY of the one in azure-sql-skills-lab, which owns it.
+// Nothing syncs the two automatically, so validating every sidecar against this
+// copy is what turns a stale copy into a build failure here. It caught exactly
+// that: the copy forbade a key that all 17 shipped sidecars carry.
+const sidecarSchema = JSON.parse(readFileSync(SIDECAR_SCHEMA, 'utf8'));
+const sidecarAllowed = new Set(Object.keys(sidecarSchema.properties ?? {}));
+const sidecarRequired = sidecarSchema.required ?? [];
 const validDomains = new Set(taxonomy.domains.map((d) => d.slug));
 check(validDomains.size === 16, `${TAXONOMY} has ${validDomains.size} domains, expected 16`);
 
@@ -118,6 +127,18 @@ for (const domain of domains) {
           `${sidecar}: no value test, or convenience-only alone. Convenience only never ships.`);
         check(typeof spec.correction === 'string' && spec.correction.length >= 40,
           `${sidecar}: no correction. If you cannot state the correction, the skill is not ready.`);
+        // Schema conformance, the parts a JSON Schema validator would do. No
+        // dependency here, so this covers the two clauses that actually catch
+        // mistakes: unknown keys and missing required ones.
+        if (sidecarSchema.additionalProperties === false) {
+          for (const k of Object.keys(spec)) {
+            check(sidecarAllowed.has(k),
+              `${sidecar}: key "${k}" is not allowed by ${SIDECAR_SCHEMA}. Either the key is wrong, or that schema is a stale copy of the one in azure-sql-skills-lab.`);
+          }
+        }
+        for (const k of sidecarRequired) {
+          check(k in spec, `${sidecar}: missing required key "${k}" per ${SIDECAR_SCHEMA}`);
+        }
         check((spec.triggering?.negative ?? []).length > 0,
           `${sidecar}: no negative controls. Without them a broad description scores well and routes badly.`);
       }

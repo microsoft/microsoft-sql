@@ -39,26 +39,14 @@ jobs:
       - name: Feedback prefill contract
         run: node scripts/check-prefill-contract.mjs
 
-      - name: The container family is byte-identical to the pilot
-        run: |
-          # The 17 carried-over skills must never be edited here. The catalog is
-          # their new home, not a fork: the product is in Private Preview until
-          # November 2026 and its users install the same files.
-          if git log --oneline -1 --name-only -- skills/azure-sql-database-container \
-             | grep -qE 'skills/azure-sql-database-container/.*/SKILL\.md'; then
-            echo "::warning::a carried-over container SKILL.md changed in this commit. It should not, unless the change came from the product repository."
-          fi
-          echo "checked"
-
+      # Identical to `npm test`. The gate is a script rather than inline YAML so
+      # the two cannot drift.
       - name: House rules on the files we author
-        run: |
-          # ST007, no em-dashes. Scoped to what this repository authors. The 17
-          # carried-over skills are excluded: they are the product's files, and
-          # this repository does not get to reformat them.
-          # Built from its code point so this file does not trip its own check.
-          DASH=$(printf '\u2014')
-          if grep -rn "$DASH" scripts catalog README.md AGENTS.md llms.txt apm.yml .github/workflows .github/ISSUE_TEMPLATE; then
-            echo "::error::em-dash found. House rule ST007."
-            exit 1
-          fi
-          echo "no em-dashes in authored files"
+        run: node scripts/check-house-rules.mjs
+
+      # NOT COVERED HERE: the skill CONTENT rules. The linter lives in
+      # azure-sql-skills-lab and this workflow cannot reach it, so nothing in
+      # this repository checks frontmatter, body budget, references, security or
+      # the value gate against the skills it ships. That is what
+      # azure-sql-skills-eval must provide. Tracked in issue 6. Until it lands,
+      # run the lab's linter against this repository by hand before a release.

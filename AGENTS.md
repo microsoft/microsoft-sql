@@ -70,6 +70,27 @@ way; only the marked region is replaced.
 beside the skills. There is no endpoint yet, and writing a plausible URL would produce a manifest
 that looks correct and resolves to nothing.
 
+## What this repository does NOT check
+
+Skill **content** rules are not gated here. The linter that enforces the 29
+constitution rules lives in `azure-sql-skills-lab`, and this workflow cannot reach it, so
+nothing in this repository checks frontmatter limits, body budget, reference depth, security
+patterns or the value gate against the skills it ships.
+
+What IS checked here: structure, manifest parity in both directions, sidecar schema conformance,
+generated-surface parity, the feedback prefill contract, and the house rules on files this
+repository authors.
+
+Closing the gap is what `azure-sql-skills-eval` is for. Until then, run the lab's linter against
+this repository by hand before a release:
+
+```bash
+node ../azure-sql-skills-lab/scripts/lint-skills.mjs skills
+```
+
+Saying this out loud rather than leaving it implied, because a green build here currently means
+less than it looks like it means.
+
 ## House conventions
 
 - **Feature branch and a pull request, always.** Never commit to `main`.

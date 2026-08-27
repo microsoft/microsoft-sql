@@ -1,12 +1,28 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/microsoft/azure-sql-skills-lab/spec/schemas/skill.spec.schema.json",
+  "$comment": "Copied from spec/schemas/skill.spec.schema.json in microsoft/azure-sql-skills-lab, which is the source. Sidecars point at this path so editors validate on save. validate-catalog.mjs checks every sidecar against it, so a stale copy fails the build here rather than drifting silently.",
   "title": "skill.spec.jsonc",
   "description": "Everything about a skill that the agent must NOT read. Sits beside SKILL.md. The eval reads this file; the agent never does. There is deliberately no `personas` key: the primitive is the domain, and a persona is a maintained selection over domain plus posture (spec/personas.yaml). A per-skill persona list would make every persona rename a 142-file edit.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "domain", "value", "correction", "posture", "maturity", "applies_to", "last_verified", "validation", "triggering"],
+  "required": [
+    "id",
+    "domain",
+    "value",
+    "correction",
+    "posture",
+    "maturity",
+    "applies_to",
+    "last_verified",
+    "validation",
+    "triggering"
+  ],
   "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Points at this schema so editors validate on save. Permitted explicitly because additionalProperties is false and every shipped sidecar carries one."
+    },
     "id": {
       "type": "string",
       "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
@@ -17,11 +33,21 @@
       "type": "string",
       "description": "One slug from spec/taxonomy.yaml. Also the parent directory under skills/. Stripped on install.",
       "enum": [
-        "provisioning-and-local-dev", "drivers-and-connectivity", "schema-and-orm",
-        "tsql-correctness-and-patterns", "identity-and-access", "security-and-safe-sql",
-        "schema-change-and-cicd", "azure-patterns-and-deploy", "apis-and-application-patterns",
-        "ai-vector-and-rag", "performance-and-diagnostics", "operate-and-recover",
-        "migration-to-azure-sql", "data-movement", "azure-sql-database-container",
+        "provisioning-and-local-dev",
+        "drivers-and-connectivity",
+        "schema-and-orm",
+        "tsql-correctness-and-patterns",
+        "identity-and-access",
+        "security-and-safe-sql",
+        "schema-change-and-cicd",
+        "azure-patterns-and-deploy",
+        "apis-and-application-patterns",
+        "ai-vector-and-rag",
+        "performance-and-diagnostics",
+        "operate-and-recover",
+        "migration-to-azure-sql",
+        "data-movement",
+        "azure-sql-database-container",
         "docs-and-feedback"
       ]
     },
@@ -32,8 +58,10 @@
       "description": "The value bar. A skill must pass at least one of the first four. `convenience-only` alone is a reject, enforced by rule VAL001 rather than by this schema, so the rejection message can explain itself.",
       "items": {
         "enum": [
-          "not-in-training-data", "corrects-a-wrong-assumption",
-          "changes-too-fast-to-memorize", "multi-step-with-silent-failures",
+          "not-in-training-data",
+          "corrects-a-wrong-assumption",
+          "changes-too-fast-to-memorize",
+          "multi-step-with-silent-failures",
           "convenience-only"
         ]
       }
@@ -48,14 +76,34 @@
       "minItems": 1,
       "uniqueItems": true,
       "description": "Descriptive only. NEVER an authorization control: a persona changes what is installed, never what is permitted.",
-      "items": { "enum": ["read", "write", "inspect", "execute", "provision", "admin"] }
+      "items": {
+        "enum": [
+          "read",
+          "write",
+          "inspect",
+          "execute",
+          "provision",
+          "admin"
+        ]
+      }
     },
-    "maturity": { "enum": ["draft", "preview", "ga"] },
+    "maturity": {
+      "enum": [
+        "draft",
+        "preview",
+        "ga"
+      ]
+    },
     "applies_to": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "enum": ["azure-sql-db", "azure-sql-db-container"] },
+      "items": {
+        "enum": [
+          "azure-sql-db",
+          "azure-sql-db-container"
+        ]
+      },
       "description": "Scope is fixed (rules SCP001 to SCP003). Managed Instance, Fabric SQL and SQL Server on VMs are not values here and never will be."
     },
     "last_verified": {
@@ -67,33 +115,77 @@
     "related": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "Must resolve to other catalog ids, checked in CI. On fan-out, any entry outside the copied subset is rewritten to a canonical catalog URL or dropped."
     },
     "validation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["target"],
+      "required": [
+        "target"
+      ],
       "properties": {
         "target": {
-          "enum": ["container", "cloud", "both", "none"],
+          "enum": [
+            "container",
+            "cloud",
+            "both",
+            "none"
+          ],
           "description": "Which substrate lane 4 runs this against."
         },
-        "setup": { "type": "array", "items": { "type": "string" } },
-        "assert": { "type": "array", "items": { "type": "string" } }
+        "setup": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "assert": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "triggering": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["explicit", "implicit", "negative"],
+      "required": [
+        "explicit",
+        "implicit",
+        "negative"
+      ],
       "description": "Evals before content. At least three scenarios including one negative control, so a skill is written against measured failures rather than imagined ones.",
       "properties": {
-        "explicit": { "type": "array", "minItems": 1, "items": { "type": "string" } },
-        "implicit": { "type": "array", "minItems": 1, "items": { "type": "string" } },
-        "routing": { "type": "array", "items": { "type": "string" } },
+        "explicit": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "implicit": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "routing": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "negative": {
-          "type": "array", "minItems": 1, "items": { "type": "string" },
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          },
           "description": "Prompts this skill must NOT fire on. Without these, a broad description scores well and routes badly."
         }
       }
