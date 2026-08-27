@@ -33,18 +33,24 @@ const emit = (path, body) => outputs.set(path, body);
 // content: an install that resolves nothing is the failure mode this project
 // keeps guarding against.
 // ---------------------------------------------------------------------------
+// skills/ is FLAT, per the Agent Plugins specification, which discovers skills
+// only as immediate children and forbids recursion. The domain comes from the
+// sidecar, and the grouping below is generated from it.
 const present = [];
 if (existsSync('skills')) {
-  for (const domain of readdirSync('skills').filter((d) => statSync(join('skills', d)).isDirectory())) {
-    for (const name of readdirSync(join('skills', domain)).filter((n) => statSync(join('skills', domain, n)).isDirectory())) {
-      if (existsSync(join('skills', domain, name, 'SKILL.md'))) present.push({ domain, name });
-    }
+  for (const name of readdirSync('skills').filter((d) => statSync(join('skills', d)).isDirectory())) {
+    if (!existsSync(join('skills', name, 'SKILL.md'))) continue;
+    const sidecar = join('skills', name, 'skill.spec.jsonc');
+    const domain = existsSync(sidecar)
+      ? JSON.parse(readFileSync(sidecar, 'utf8').replace(/^\s*\/\/.*$/gm, '')).domain
+      : undefined;
+    present.push({ domain, name });
   }
 }
 present.sort((a, b) => a.name.localeCompare(b.name));
 
-const description = (domain, name) => {
-  const text = readFileSync(join('skills', domain, name, 'SKILL.md'), 'utf8');
+const description = (name) => {
+  const text = readFileSync(join('skills', name, 'SKILL.md'), 'utf8');
   const end = text.indexOf('\n---', 4);
   const fm = text.slice(4, end);
   const m = /^description:\s*(.*)$/m.exec(fm);
@@ -63,7 +69,9 @@ const domainOf = Object.fromEntries(TAXONOMY.domains.map((d) => [d.slug, d]));
 // skills/ directory; ours is skills/<domain>/<skill>/, and whether a loader
 // recurses into a second level is not documented for every target. Naming each
 // skill removes the question.
-const skillPaths = present.map((p) => `./skills/${p.domain}/${p.name}`);
+// Claude Code is the one target outside the Agent Plugins standard, so it keeps
+// its own marketplace format and its own enumerated skill paths.
+const skillPaths = present.map((p) => `./skills/${p.name}`);
 
 const KEYWORDS = ['azure-sql', 'sql', 'database', 'tsql', 'agent-skills', 'vector-search', 'entra-id'];
 const SUMMARY =
@@ -86,7 +94,7 @@ const SUMMARY =
     if (here.length === 0) continue;
     lines.push(`## ${d.title}`, '', `${d.goal}`, '');
     for (const p of here) {
-      lines.push(`- [${p.name}](${REPO}/blob/main/skills/${p.domain}/${p.name}/SKILL.md): ${description(p.domain, p.name)}`);
+      lines.push(`- [${p.name}](${REPO}/blob/main/skills/${p.name}/SKILL.md): ${description(p.name)}`);
     }
     lines.push('');
   }
@@ -143,24 +151,28 @@ emit('.claude-plugin/marketplace.json', j({
   name: NAME,
   owner: { name: 'Microsoft', url: REPO },
   metadata: { description: SUMMARY },
-  // One entry today. Wave 2 adds one per persona, each with "source": "./" and
-  // its own skills array, which the marketplace schema documents as the
-  // complete set for that entry.
+  // Wave 2 adds one entry per persona, each with its own skills array.
   plugins: [{ name: NAME, source: './', description: SUMMARY, version: PKG.version, skills: skillPaths }],
 }));
-emit('.codex-plugin/plugin.json', j({ ...base, skills: skillPaths }));
-emit('.cursor-plugin/plugin.json', j({ ...base, displayName: DISPLAY, skills: skillPaths }));
-emit('.grok-plugin/plugin.json', j({ ...base, skills: skillPaths }));
-emit('.agents/plugins/marketplace.json', j({
+
+// The Agent Plugins package IS the repository root: plugin.json beside a flat
+// skills/. Nothing to generate into a subdirectory, and no per-vendor manifest
+// for Codex, Cursor, Grok or the neutral schema, because every one of those is
+// an Agent Plugins client and the portable package serves them all.
+//
+// plugin.json is generated here so its version and description cannot drift
+// from package.json and the catalog.
+emit('plugin.json', JSON.stringify({
+  $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',
   name: NAME,
-  interface: { displayName: DISPLAY },
-  plugins: [{
-    name: NAME,
-    source: { source: 'local', path: '.' },
-    policy: { installation: 'AVAILABLE', authentication: 'NONE' },
-    category: 'Databases',
-  }],
-}));
+  version: PKG.version,
+  description: SUMMARY,
+  author: { name: 'Microsoft', url: 'https://microsoft.com' },
+  homepage: HOMEPAGE,
+  repository: REPO,
+  license: 'MIT',
+  keywords: KEYWORDS,
+}, null, 2) + '\n');
 
 // ---------------------------------------------------------------------------
 // apm.yml. APM authors skills flat under .apm/skills/ and installs whole

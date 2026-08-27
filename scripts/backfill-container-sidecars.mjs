@@ -21,7 +21,10 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 const DOMAIN = 'azure-sql-database-container';
-const ROOT = join('skills', DOMAIN);
+// skills/ is flat: the Agent Plugins specification discovers only immediate
+// children and forbids recursion, so the domain lives in the sidecar rather
+// than in the path.
+const ROOT = 'skills';
 const CATALOG = 'catalog/catalog.json';
 
 // The container is Private Preview until November 2026, so every skill in this
@@ -187,7 +190,7 @@ for (const [id, a] of Object.entries(AUTHORED)) {
   if (entry.domain !== DOMAIN) { problems.push(`${id} is in domain ${entry.domain}`); continue; }
 
   const spec = {
-    $schema: '../../../catalog/skill.spec.schema.json',
+    $schema: '../../catalog/skill.spec.schema.json',
     id,
     domain: entry.domain,
     value: entry.value,

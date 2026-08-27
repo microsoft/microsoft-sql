@@ -1,0 +1,40 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "azuresql-db-auth",
+  "domain": "azure-sql-database-container",
+  "value": [
+    "not-in-training-data"
+  ],
+  "correction": "Asked for a least-privilege user, an agent writes CREATE USER ... WITH PASSWORD, which fails here with Msg 15007, and then tries SET CONTAINMENT = PARTIAL, which fails with Msg 12824. Contained users are not available: create a server login and map a database user to it.",
+  "posture": [
+    "read",
+    "write",
+    "admin"
+  ],
+  "maturity": "preview",
+  "applies_to": [
+    "azure-sql-db",
+    "azure-sql-db-container"
+  ],
+  "last_verified": "2026-08-20",
+  "validation": {
+    "target": "both",
+    "assert": [
+      "uses CREATE LOGIN plus CREATE USER FOR LOGIN",
+      "application does not connect as sa"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the azuresql-db-auth skill"
+    ],
+    "implicit": [
+      "my app connects as sa, set up a least-privilege database user instead"
+    ],
+    "negative": [
+      "set up a local PostgreSQL database with docker compose",
+      "provision an Azure SQL Database in my subscription",
+      "connect to SQL Server on my company network"
+    ]
+  }
+}

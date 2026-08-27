@@ -48,13 +48,16 @@ const sidecarRequired = sidecarSchema.required ?? [];
 const validDomains = new Set(taxonomy.domains.map((d) => d.slug));
 check(validDomains.size === 16, `${TAXONOMY} has ${validDomains.size} domains, expected 16`);
 
-// A domain directory appears when its first skill does.
-const domains = existsSync(SKILLS)
+// skills/ is FLAT. The Agent Plugins specification discovers skills only as
+// immediate children of skills/ and forbids clients from recursing, so a domain
+// cannot be a directory here. Domain is metadata in the sidecar, and the
+// grouping is generated into the README, llms.txt and the Hub.
+//
+// This also satisfies the GitHub Copilot one-level rule and gh skill's
+// skills/*/SKILL.md convention, so one layout serves every channel.
+const skillDirs = existsSync(SKILLS)
   ? readdirSync(SKILLS).filter((d) => statSync(join(SKILLS, d)).isDirectory()).sort()
   : [];
-for (const d of domains) {
-  check(validDomains.has(d), `${SKILLS}/${d}/ is not a domain in ${TAXONOMY}`);
-}
 
 // Frontmatter, read without a YAML dependency. Deliberately narrow: it reads
 // the two keys the spec requires and the shape our house rule allows, and
@@ -81,12 +84,28 @@ function frontmatter(text, where) {
 const ALLOWED_FRONTMATTER = new Set(['name', 'description', 'license', 'compatibility']);
 const onDisk = new Set();
 
-for (const domain of domains) {
-  const dir = join(SKILLS, domain);
-  const skillDirs = readdirSync(dir).filter((n) => statSync(join(dir, n)).isDirectory());
+// LAY001. The Agent Plugins specification fixes discovery at skills/ and states
+// clients MUST NOT recurse. A skill one level deeper is invisible to every
+// conforming client, and the closed manifest schema has no field to point at
+// it. Grouping by domain looks tidy and would ship a catalog that loads
+// nothing, so it is checked here rather than left to review. The skill linter
+// cannot do this: it is handed individual directories and does not know where
+// the root is.
+for (const name of skillDirs) {
+  const nested = join(SKILLS, name);
+  if (!existsSync(join(nested, 'SKILL.md'))) {
+    for (const inner of readdirSync(nested).filter((n) => statSync(join(nested, n)).isDirectory())) {
+      if (existsSync(join(nested, inner, 'SKILL.md'))) {
+        errors.push(`${join(nested, inner)}: LAY001, a skill must be an immediate child of ${SKILLS}/. ` +
+          `It sits inside "${name}/", where no conforming client will find it. ` +
+          `Move it up and record the domain in its sidecar; the grouping is generated.`);
+      }
+    }
+  }
+}
 
-  for (const name of skillDirs) {
-    const base = join(dir, name);
+for (const name of skillDirs) {
+    const base = join(SKILLS, name);
     onDisk.add(name);
 
     // ---- required files
@@ -113,15 +132,17 @@ for (const domain of domains) {
       warn(fm.bodyLines < 500, `${md}: body is ${fm.bodyLines} lines, over the 500 line guidance`);
     }
 
-    // ---- sidecar agrees with where it sits
+    // ---- the sidecar is now the ONLY source of a skill's domain
+    let spec;
     if (existsSync(sidecar)) {
-      let spec;
       try { spec = JSON.parse(readFileSync(sidecar, 'utf8')); }
       catch (e) { errors.push(`${sidecar}: not valid JSON (${e.message})`); }
       if (spec) {
         check(spec.id === name, `${sidecar}: id "${spec.id}" does not match the directory "${name}"`);
-        check(spec.domain === domain,
-          `${sidecar}: domain "${spec.domain}" does not match its parent directory "${domain}"`);
+        // The directory no longer carries the domain, so the sidecar is the
+        // only source and it must name a real one.
+        check(validDomains.has(spec.domain),
+          `${sidecar}: domain "${spec.domain}" is not in ${TAXONOMY}`);
         const substantive = (spec.value ?? []).filter((v) => v !== 'convenience-only');
         check(substantive.length > 0,
           `${sidecar}: no value test, or convenience-only alone. Convenience only never ships.`);
@@ -148,18 +169,17 @@ for (const domain of domains) {
     const entry = byId[name];
     check(entry !== undefined,
       `${base}: "${name}" is not in ${CATALOG}. Add it there, or the generated surfaces will not know it exists.`);
-    if (entry) {
-      check(entry.domain === domain,
-        `${CATALOG}: "${name}" says domain "${entry.domain}" but it lives under "${domain}"`);
+    if (entry && spec) {
+      check(entry.domain === spec.domain,
+        `${CATALOG}: "${name}" is domain "${entry.domain}" in the manifest but "${spec.domain}" in its sidecar`);
     }
-  }
 }
 
 // ---- direction 2: claimed shipped implies on disk
 for (const s of catalog.skills) {
   if (s.status === 'shipped-pilot') {
     check(onDisk.has(s.id),
-      `${CATALOG}: "${s.id}" is marked shipped-pilot but has no directory under ${SKILLS}/${s.domain}/`);
+      `${CATALOG}: "${s.id}" is marked shipped-pilot but has no directory under ${SKILLS}/`);
   } else {
     // Not an error. Most of the catalog is roadmap, and roadmap entries are the
     // whole reason the manifest lists more than what exists.
@@ -175,7 +195,9 @@ for (const s of catalog.skills) {
 }
 
 const shipped = catalog.skills.filter((s) => s.status === 'shipped-pilot').length;
-console.log(`domains        ${validDomains.size} defined, ${domains.length} with content`);
+const represented = new Set();
+for (const n of onDisk) { const e = byId[n]; if (e) represented.add(e.domain); }
+console.log(`domains        ${validDomains.size} defined, ${represented.size} with content`);
 console.log(`skills on disk ${onDisk.size}`);
 console.log(`manifest       ${catalog.skills.length} entries, ${shipped} marked shipped`);
 console.log(`synced from    ${catalog.synced_from?.source} (${catalog.synced_from?.synced})`);
