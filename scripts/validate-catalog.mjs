@@ -157,7 +157,7 @@ const shipped = catalog.skills.filter((s) => s.status === 'shipped-pilot').lengt
 console.log(`domains        ${validDomains.size} defined, ${domains.length} with content`);
 console.log(`skills on disk ${onDisk.size}`);
 console.log(`manifest       ${catalog.skills.length} entries, ${shipped} marked shipped`);
-console.log(`synced from    ${catalog.synced_from?.workbook} (${catalog.synced_from?.synced})`);
+console.log(`synced from    ${catalog.synced_from?.source} (${catalog.synced_from?.synced})`);
 
 if (warnings.length) {
   console.log('\nwarnings:');

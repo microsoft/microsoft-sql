@@ -2,7 +2,7 @@
   "$schema": "../spec/schemas/catalog.schema.json",
   "version": 1,
   "synced_from": {
-    "workbook": "Azure-SQL-Agent-Skills-Catalog.xlsx",
+    "source": "planning workbook",
     "sheet": "Catalog",
     "synced": "2026-08-27",
     "sha256": "98c51761e5d88d9215bec7909564b4a28e1bd0690b793d255be83b229e0b5078"

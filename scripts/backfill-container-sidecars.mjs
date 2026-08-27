@@ -11,7 +11,7 @@
 //   node scripts/backfill-container-sidecars.mjs [--check]
 //
 // Sources:
-//   domain, value        data/catalog.json (imported from the planning workbook)
+//   domain, value        data/catalog.json
 //   triggering.implicit  the pilot's eval/trigger-evals.md prompt set, which was
 //                        run for real rather than imagined
 //   correction, posture  authored here, from behaviour verified against a live
