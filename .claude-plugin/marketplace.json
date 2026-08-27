@@ -32,7 +32,13 @@
         "./skills/azure-sql-database-container/azuresql-db-seed",
         "./skills/azure-sql-database-container/azuresql-db-sidecar",
         "./skills/azure-sql-database-container/azuresql-db-testing",
-        "./skills/provisioning-and-local-dev/provision-azure-sql-db"
+        "./skills/drivers-and-connectivity/connect-from-dotnet",
+        "./skills/drivers-and-connectivity/connect-from-python",
+        "./skills/drivers-and-connectivity/connect-from-typescript-and-node",
+        "./skills/drivers-and-connectivity/connect-to-azure-sql",
+        "./skills/drivers-and-connectivity/diagnose-connection-errors",
+        "./skills/provisioning-and-local-dev/provision-azure-sql-db",
+        "./skills/tsql-correctness-and-patterns/t-sql-correctness"
       ]
     }
   ]

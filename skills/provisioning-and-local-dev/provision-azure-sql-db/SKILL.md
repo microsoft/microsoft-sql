@@ -82,14 +82,27 @@ Choose deliberately:
 
 | Value | Behaviour when the monthly allowance runs out |
 |---|---|
-| `AutoPause` | The database pauses for the rest of the month. Nothing bills. Connections fail |
+| `AutoPause` | The database is inaccessible until the start of the next calendar month. Nothing bills |
 | `BillOverUsage` | The database stays online and the overage is billed |
 
 `AutoPause` is the safer default for a developer sandbox, and the one to pick when the user says
 "free". Do not silently choose `BillOverUsage` for someone who asked for a free database.
 
-**`--use-free-limit` is allowed on one database per subscription.** If the subscription already has
-one, creation fails. Check before promising a free database.
+### How many free databases, and how much
+
+**Up to 10 free databases per subscription**, each with its own monthly allowance of **100,000
+vCore seconds, 32 GB data storage and 32 GB backup storage**. The allowance is per database, not
+shared, and unused vCore seconds do not carry into the next month.
+
+**The CLI help text for `--use-free-limit` says "Allowed on one database in a subscription".** That
+is the second wrong statement in this command's own documentation, and it is wrong in the direction
+that makes an agent refuse work it could do. The free offer FAQ states the limit as 10, twice.
+
+If the limit is reached, creating another fails until one is removed, and **a deleted slot takes up
+to an hour to free**.
+
+A free database cannot be created by restoring an existing one, and converting one to a paid tier
+is one way: it cannot revert.
 
 ## Microsoft Entra-only administration
 
