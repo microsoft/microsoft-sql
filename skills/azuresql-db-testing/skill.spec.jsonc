@@ -1,0 +1,39 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "azuresql-db-testing",
+  "domain": "azure-sql-database-container",
+  "value": [
+    "not-in-training-data"
+  ],
+  "correction": "Testcontainers has an MsSql preset, so an agent uses it and gets SQL Server. Testing against the Azure SQL Database engine means configuring a generic container with this image, its EULA and password requirements, and a readiness wait.",
+  "posture": [
+    "read",
+    "write",
+    "execute"
+  ],
+  "maturity": "preview",
+  "applies_to": [
+    "azure-sql-db-container"
+  ],
+  "last_verified": "2026-08-20",
+  "validation": {
+    "target": "container",
+    "assert": [
+      "does not use the Testcontainers MsSql preset",
+      "waits for readiness before running tests"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the azuresql-db-testing skill"
+    ],
+    "implicit": [
+      "run my integration tests against a real database that starts and stops per test"
+    ],
+    "negative": [
+      "set up a local PostgreSQL database with docker compose",
+      "provision an Azure SQL Database in my subscription",
+      "connect to SQL Server on my company network"
+    ]
+  }
+}

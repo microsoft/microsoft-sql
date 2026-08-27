@@ -1,0 +1,55 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "t-sql-correctness",
+  "domain": "tsql-correctness-and-patterns",
+  "value": ["corrects-a-wrong-assumption"],
+  "correction": "Asked for SQL against Azure SQL Database, an agent writes PostgreSQL under a T-SQL name and produces LIMIT, RETURNING, SERIAL, ILIKE, NOW(), true and false, ON CONFLICT and double-quoted string literals, none of which are valid here; and when it is told the target is T-SQL it overcorrects into syntax that is a decade out of date, avoiding the ANSI double-pipe concatenation operator, IS DISTINCT FROM, GREATEST and STRING_AGG, all of which Azure SQL Database supports today.",
+  "posture": ["read", "write"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "last_verified": "2026-08-27",
+  "related": [
+    "t-sql-upserts-merge",
+    "t-sql-json-and-openjson",
+    "t-sql-regex-and-new-functions",
+    "t-sql-error-handling",
+    "t-sql-programmability-objects",
+    "post-migration-compatibility-level"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a database with one table carrying an identity column",
+      "a copy of that table with an enabled AFTER INSERT trigger"
+    ],
+    "assert": [
+      "the generated pagination uses ORDER BY with OFFSET and FETCH, and does not combine TOP with OFFSET",
+      "the generated insert returns its new key with OUTPUT, and uses OUTPUT INTO when the target has an enabled trigger",
+      "no generated statement contains LIMIT, RETURNING, SERIAL, ILIKE, NOW(), true, false or ON CONFLICT",
+      "a bit column is compared with = 1 rather than used bare as a predicate",
+      "string literals use single quotes and double quotes appear only around identifiers"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the t-sql-correctness skill before writing this query"
+    ],
+    "implicit": [
+      "write me a paginated query for Azure SQL",
+      "how do I get the id of the row I just inserted",
+      "port this PostgreSQL schema and these queries to Azure SQL Database",
+      "why does LIMIT 10 not work",
+      "is my WHERE clause case sensitive here"
+    ],
+    "routing": [
+      "translate this query for our SQL database",
+      "review this SQL before it goes in"
+    ],
+    "negative": [
+      "write an upsert that inserts or updates a row",
+      "parse this JSON column with OPENJSON",
+      "why is this query slow",
+      "write a PostgreSQL migration for my Postgres database"
+    ]
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "azuresql-db-container",
+  "domain": "azure-sql-database-container",
+  "value": [
+    "not-in-training-data"
+  ],
+  "correction": "Asked for a local SQL database, an agent reaches for mcr.microsoft.com/mssql/server. That is SQL Server, not Azure SQL Database: the container runs the PaaS engine, where SERVERPROPERTY('EngineEdition') returns 5 and Edition is 'SQL Azure', and it does not auto-create databases, so a plan that connects straight after docker run has nothing to connect to.",
+  "posture": [
+    "read",
+    "write",
+    "execute",
+    "provision"
+  ],
+  "maturity": "preview",
+  "applies_to": [
+    "azure-sql-db-container"
+  ],
+  "last_verified": "2026-08-20",
+  "validation": {
+    "target": "container",
+    "assert": [
+      "engine reports EngineEdition 5",
+      "user database created explicitly, not assumed"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the azuresql-db-container skill"
+    ],
+    "implicit": [
+      "spin up a local mssql container I can query"
+    ],
+    "negative": [
+      "set up a local PostgreSQL database with docker compose",
+      "provision an Azure SQL Database in my subscription",
+      "connect to SQL Server on my company network"
+    ]
+  }
+}

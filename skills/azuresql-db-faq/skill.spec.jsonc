@@ -1,0 +1,38 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "azuresql-db-faq",
+  "domain": "azure-sql-database-container",
+  "value": [
+    "not-in-training-data"
+  ],
+  "correction": "Asked what the container supports, an agent answers from general SQL Server knowledge and is confidently wrong. BACKUP and RESTORE are rejected with Msg 40510, USE against a user database fails with Msg 40508, and the current limitation list is a live document rather than something to recall.",
+  "posture": [
+    "read",
+    "inspect"
+  ],
+  "maturity": "preview",
+  "applies_to": [
+    "azure-sql-db-container"
+  ],
+  "last_verified": "2026-08-20",
+  "validation": {
+    "target": "container",
+    "assert": [
+      "answers from the documented limitation list",
+      "links the live known-limitations page rather than reciting from memory"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the azuresql-db-faq skill"
+    ],
+    "implicit": [
+      "can I take a backup of this container?"
+    ],
+    "negative": [
+      "set up a local PostgreSQL database with docker compose",
+      "provision an Azure SQL Database in my subscription",
+      "connect to SQL Server on my company network"
+    ]
+  }
+}

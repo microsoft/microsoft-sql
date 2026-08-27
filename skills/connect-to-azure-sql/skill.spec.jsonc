@@ -1,0 +1,59 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "connect-to-azure-sql",
+  "domain": "drivers-and-connectivity",
+  "value": ["corrects-a-wrong-assumption", "changes-too-fast-to-memorize"],
+  "correction": "Agents write Azure SQL Database connection code as a single attempt and treat retry as a later hardening step, when retry is mandatory rather than optional on this service: the first connection to an auto-paused serverless or free database is documented to fail with error 40613 while the resume happens, so the generated code fails on its very first run and the failure reads as an outage or a bad credential. The same reflex then downgrades security, because an agent that meets a certificate error reaches for TrustServerCertificate=true or Encrypt=false instead of fixing the name it is connecting to.",
+  "posture": ["read", "write"],
+  "maturity": "preview",
+  "applies_to": ["azure-sql-db"],
+  "last_verified": "2026-08-27",
+  "related": [
+    "connect-from-dotnet",
+    "connect-from-python",
+    "connect-from-typescript-and-node",
+    "diagnose-connection-errors",
+    "diagnose-resource-pressure",
+    "provision-azure-sql-db",
+    "entra-id-auth",
+    "sqlcmd-cli"
+  ],
+  "validation": {
+    "target": "cloud",
+    "setup": [
+      "a General Purpose serverless database with auto-pause enabled, left idle past its auto-pause delay",
+      "a client with the server firewall already open, so a failure is not a firewall failure"
+    ],
+    "assert": [
+      "the first connection to the paused database fails with error 40613 and the retry succeeds within about one minute",
+      "the connection string sets encryption on and certificate trust off, and carries no password literal",
+      "the connect timeout is at least the retry count multiplied by the retry interval, so the last retry is not cancelled by the outer timeout",
+      "a login failure (18456) or a firewall rejection (40615) is not retried",
+      "the pool ceiling is sized against the worker limit, not against the 30,000 session limit"
+    ]
+  },
+  "triggering": {
+    "explicit": ["Use the connect-to-azure-sql skill"],
+    "implicit": [
+      "how do I connect my app to Azure SQL Database",
+      "which driver should I use to talk to Azure SQL",
+      "add retry logic to my Azure SQL data access layer",
+      "what should my Azure SQL connection string contain",
+      "my first connection fails with error 40613 and the second one works"
+    ],
+    "routing": [
+      "make the database layer resilient",
+      "the connection to Azure keeps dropping under load",
+      "should I set TrustServerCertificate to true to get past this certificate error",
+      "how many connections can my database take"
+    ],
+    "negative": [
+      "install the ODBC driver in my Alpine Python image",
+      "set the max pool size in my Node.js app",
+      "create an Azure SQL database and open the firewall for my IP",
+      "connect to my Azure SQL Managed Instance",
+      "run Azure SQL locally in a container",
+      "what does error 40615 mean and how do I fix it"
+    ]
+  }
+}
