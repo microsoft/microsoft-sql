@@ -17,7 +17,7 @@ const EM_DASH = String.fromCharCode(0x2014);
 // rather than listing theirs: an exclusion list goes stale silently, and
 // OpenSpec ships its own prose full of em-dashes.
 const ROOTS = [
-  'scripts', 'catalog',
+  'scripts', 'catalog', 'skills',
   '.github/workflows', '.github/ISSUE_TEMPLATE',
   'README.md', 'AGENTS.md', 'llms.txt', 'apm.yml', '.github/CODEOWNERS',
 ];
@@ -26,7 +26,10 @@ const ROOTS = [
 // product's files, byte-identical to microsoft/azure-sql-database-container,
 // and this repository does not get to reformat them. A change there originates
 // upstream.
-const EXCLUDE = [/^skills\/azure-sql-database-container\//];
+// Nothing is excluded. This used to skip skills/azure-sql-database-container/,
+// a path that stopped existing when the layout went flat, so the exclusion had
+// been doing nothing for some time while skills/ was outside ROOTS entirely.
+const EXCLUDE = [];
 
 const SKIP_DIRS = new Set(['node_modules', '.git']);
 
