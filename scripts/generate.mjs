@@ -66,7 +66,7 @@ const byId = Object.fromEntries(CATALOG.skills.map((s) => [s.id, s]));
 const domainOf = Object.fromEntries(TAXONOMY.domains.map((d) => [d.slug, d]));
 
 // Skill paths, explicit rather than a directory. Prior art points at a FLAT
-// skills/ directory; ours is skills/<domain>/<skill>/, and whether a loader
+// skills/ directory; ours is flat, skills/<skill>/, and whether a loader
 // recurses into a second level is not documented for every target. Naming each
 // skill removes the question.
 // Claude Code is the one target outside the Agent Plugins standard, so it keeps
@@ -181,7 +181,7 @@ emit('plugin.json', JSON.stringify({
 {
   const lines = [`# ${BANNER}`, '', 'version: 1', `name: ${NAME}`, `description: >-`, `  ${SUMMARY}`,
     `version_number: "${PKG.version}"`, `homepage: ${HOMEPAGE}`, `repository: ${REPO}`, 'license: MIT', '', 'skills:'];
-  for (const p of present) lines.push(`  - ./skills/${p.domain}/${p.name}`);
+  for (const p of present) lines.push(`  - ./skills/${p.name}`);
   lines.push('');
   emit('apm.yml', lines.join('\n'));
 }
