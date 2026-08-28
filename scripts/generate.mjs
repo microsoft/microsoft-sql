@@ -85,8 +85,9 @@ const SUMMARY =
 {
   const lines = [`# ${DISPLAY}`, '', `> ${SUMMARY}`, '', `<!-- ${BANNER} -->`, ''];
   lines.push(
-    'Every skill is a directory containing SKILL.md. The domain segment in the path is a source',
-    'convention and is stripped on install, so an installed skill lands one level deep.',
+    'Every skill is an immediate child of skills/, containing SKILL.md. The layout is flat because',
+    'the Agent Plugins specification fixes discovery at skills/ and forbids a conforming client from',
+    'searching deeper. Domain is metadata in the sidecar, not a directory.',
     ''
   );
   for (const d of TAXONOMY.domains) {
@@ -109,16 +110,27 @@ const SUMMARY =
 // stays hand-written.
 // ---------------------------------------------------------------------------
 {
-  const rows = ['<!-- BEGIN GENERATED CATALOG -->', `<!-- ${BANNER} -->`, '',
-    '| Domain | Skills | Wave 1 | Shipped |', '|---|---:|---:|---:|'];
+  // One entry per skill that exists, grouped by domain and collapsed, so the
+  // list stays scannable as the catalog grows. A count table told a reader
+  // nothing about what any skill does.
+  const first = (name) => {
+    const d = description(name).replace(/\s+/g, ' ').trim();
+    const cut = d.search(/\.\s/);
+    return cut > 0 ? d.slice(0, cut + 1) : d;
+  };
+  const rows = ['<!-- BEGIN GENERATED CATALOG -->', `<!-- ${BANNER} -->`, ''];
+  rows.push(`**${present.length} skills** are installed by the commands above. Expand a group to see what each one does.`, '');
   for (const d of TAXONOMY.domains) {
-    const all = CATALOG.skills.filter((s) => s.domain === d.slug);
-    const w1 = all.filter((s) => s.wave === 1).length;
-    const on = present.filter((p) => p.domain === d.slug).length;
-    rows.push(`| ${d.title} | ${all.length} | ${w1} | ${on} |`);
+    const here = present.filter((p) => p.domain === d.slug);
+    if (here.length === 0) continue;
+    rows.push('<details>', `<summary><strong>${d.title}</strong> (${here.length})</summary>`, '');
+    for (const p of here) {
+      rows.push(`**[${p.name}](skills/${p.name}/SKILL.md)**`, '', first(p.name), '');
+    }
+    rows.push('</details>', '');
   }
-  const total = CATALOG.skills.length;
-  rows.push(`| **Total** | **${total}** | **${CATALOG.skills.filter((s) => s.wave === 1).length}** | **${present.length}** |`,
+  const planned = CATALOG.skills.length - present.length;
+  rows.push(`A further ${planned} skills are planned. The full list, with the domain and intent of each, is in [catalog/catalog.json](catalog/catalog.json).`,
     '', '<!-- END GENERATED CATALOG -->');
   const readme = readFileSync('README.md', 'utf8');
   const begin = readme.indexOf('<!-- BEGIN GENERATED CATALOG -->');
