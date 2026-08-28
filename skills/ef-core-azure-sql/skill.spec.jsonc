@@ -1,0 +1,73 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "ef-core-azure-sql",
+  "domain": "schema-and-orm",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption"],
+  "correction": "Every current answer for Entity Framework Core on Azure SQL Database turns retry on, whether by the corpus shape UseSqlServer with EnableRetryOnFailure or by the EF Core 9 call UseAzureSql, and both install SqlServerRetryingExecutionStrategy. The agent then treats the InvalidOperationException that follows, 'does not support user-initiated transactions', as the whole problem, because the exception dictates its own remedy: wrap the transaction in a delegate passed to Database.CreateExecutionStrategy(). That remedy is incomplete and its incompleteness is silent. Measured on 2026-08-27 against a live Azure SQL engine on 9.0.19, a transient fault arriving after the Commit inside that delegate runs the delegate a second time, commits the row twice, and returns success to the caller with no exception, no warning and no log line, identically under UseSqlServer and under UseAzureSql. Turning retry on does not make a transaction resilient, it makes it repeatable, so a retriable unit is correct only once it carries an idempotency key or is handed to ExecuteInTransaction with a verifySucceeded predicate. Two commonly repeated claims are also wrong and were measured wrong: Database.BeginTransaction itself succeeds and the next query or SaveChanges is what throws, and ExecuteSqlRaw inside that transaction is not guarded at all.",
+  "posture": ["read", "write", "execute"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "last_verified": "2026-08-27",
+  "related": [
+    "connect-from-dotnet",
+    "connect-to-azure-sql",
+    "entra-id-auth",
+    "design-azure-sql-schema",
+    "schema-migrations-safely",
+    "sql-database-projects",
+    "ef-core-migrations-azure-sql",
+    "dapper-and-ado-net-azure-sql",
+    "build-app-on-azure-sql"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a .NET project referencing Microsoft.EntityFrameworkCore.SqlServer 9.0 or later",
+      "an Azure SQL database reachable from the build host, or the local container"
+    ],
+    "assert": [
+      "every delegate passed to Database.CreateExecutionStrategy carries an idempotency key with a unique index, or uses ExecuteInTransaction with a verifySucceeded predicate, or records why replaying it cannot duplicate anything",
+      "no non idempotent side effect, such as sending mail, enqueuing a message or taking a payment, sits inside a retried delegate",
+      "no code path calls Database.BeginTransaction outside a delegate passed to Database.CreateExecutionStrategy",
+      "the retry budget is smaller than the deadline of whatever calls the application, and a CancellationToken reaches every async database call",
+      "the context is configured with UseAzureSql rather than UseSqlServer plus a hand written EnableRetryOnFailure",
+      "indexed string properties state HasMaxLength rather than inheriting the nvarchar(450) narrowing",
+      "the compatibility level is stated explicitly rather than inherited from the provider default",
+      "on EF Core 10, a first migration taken after switching to UseAzureSql is inspected for ALTER COLUMN statements that retype JSON columns",
+      "the application does not apply migrations from its own startup path against a cloud database"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the ef-core-azure-sql skill",
+      "Set up EF Core against Azure SQL Database",
+      "Should I use UseAzureSql or UseSqlServer for my DbContext",
+      "Configure EnableRetryOnFailure for my Azure SQL DbContext",
+      "Wrap my EF Core transaction in an execution strategy so it can be retried"
+    ],
+    "implicit": [
+      "The configured execution strategy SqlServerRetryingExecutionStrategy does not support user-initiated transactions",
+      "my DbContext worked fine until I wrapped two SaveChanges calls in a transaction",
+      "our EF Core service writes the same order twice whenever Azure SQL has a blip, and nothing is in the logs",
+      "is it safe to put BeginTransaction and Commit inside CreateExecutionStrategy().Execute",
+      "my EF Core app works locally but times out intermittently once it is pointed at Azure",
+      "why did my next EF migration try to ALTER every JSON column",
+      "my Include query returns tens of thousands of rows and is slow against Azure",
+      "how do I get my EF Core app to connect to Azure SQL without a password in the connection string"
+    ],
+    "routing": [
+      "add a data access layer to my ASP.NET service that talks to Azure SQL",
+      "port my EF Core app from a self hosted database to Azure SQL Database",
+      "make my EF Core writes safe to retry against Azure SQL Database"
+    ],
+    "negative": [
+      "Use Prisma against Azure SQL Database",
+      "Set up SQLAlchemy models for Azure SQL",
+      "Open a SqlConnection and run a query with Microsoft.Data.SqlClient",
+      "How do I use EF Core",
+      "Write a LINQ GroupBy query",
+      "Create an Entra ID application identity and grant it access to my database",
+      "Deploy my EF Core migrations from a release pipeline"
+    ]
+  }
+}

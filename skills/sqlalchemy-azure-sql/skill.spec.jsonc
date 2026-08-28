@@ -1,0 +1,66 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "sqlalchemy-azure-sql",
+  "domain": "schema-and-orm",
+  "value": ["corrects-a-wrong-assumption", "not-in-training-data"],
+  "correction": "Agents treat SQLAlchemy against Azure SQL Database as the same job as SQLAlchemy against PostgreSQL, when the dialect silently appends OUTPUT inserted to every INSERT into a table whose key the server generates; that clause is rejected outright on any table carrying an enabled trigger, the dialect has no trigger detection and is not going to grow one, the only switch is implicit_returning=False declared per table by hand, and the same clause is why setting fast_executemany=True on ORM inserts appears to do nothing at all.",
+  "posture": ["read", "write", "execute"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "last_verified": "2026-08-27",
+  "related": [
+    "connect-from-python",
+    "connect-to-azure-sql",
+    "entra-id-auth",
+    "design-azure-sql-schema",
+    "schema-migrations-safely",
+    "ef-core-azure-sql",
+    "prisma-azure-sql",
+    "django-azure-sql",
+    "build-app-on-azure-sql"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "SQLAlchemy 2.0.10 or later and a driver the dialect accepts",
+      "a reachable Azure SQL database, or the local container",
+      "at least one table carrying an enabled trigger"
+    ],
+    "assert": [
+      "every mapped table that carries a trigger declares implicit_returning=False",
+      "no explicit returning() call targets a table that carries a trigger",
+      "fast_executemany is only claimed as a speedup for inserts that carry no returning clause",
+      "SQLAlchemy is pinned at 2.0.10 or later wherever fast_executemany is set",
+      "columns that must hold non-ASCII text are declared Unicode rather than String",
+      "no credential appears in the engine URL in source"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the sqlalchemy-azure-sql skill",
+      "Wire SQLAlchemy up to Azure SQL Database",
+      "Set up SQLAlchemy models and an engine against Azure SQL",
+      "Should I turn on fast_executemany for my Azure SQL bulk load"
+    ],
+    "implicit": [
+      "the target table of the DML statement cannot have any enabled triggers if the statement contains an OUTPUT clause without INTO clause",
+      "Msg 334 when my ORM inserts a row",
+      "I set fast_executemany True and the bulk insert is exactly as slow as before",
+      "session.add then commit blows up on one table only and I cannot see why",
+      "my Alembic migration cannot change a column to NOT NULL on Azure SQL"
+    ],
+    "routing": [
+      "add a Python data access layer to my Azure SQL app",
+      "load a few hundred thousand rows into Azure SQL from Python"
+    ],
+    "negative": [
+      "install the ODBC driver so my Python container can reach Azure SQL",
+      "which Python driver should I use, pyodbc or the Microsoft one",
+      "my Prisma schema will not accept a Json field",
+      "configure EnableRetryOnFailure for EF Core against Azure SQL",
+      "add retry with backoff for transient errors on Azure SQL",
+      "design the primary key and index strategy for a new table",
+      "set up Django models against Azure SQL"
+    ]
+  }
+}

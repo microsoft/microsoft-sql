@@ -10,6 +10,8 @@ repository: https://github.com/microsoft/azure-sql-skills
 license: MIT
 
 skills:
+  - ./skills/apis-and-application-patterns/azure-functions-sql-bindings
+  - ./skills/docs-and-feedback/azure-sql
   - ./skills/azure-sql-database-container/azuresql-db-auth
   - ./skills/azure-sql-database-container/azuresql-db-ci
   - ./skills/azure-sql-database-container/azuresql-db-connections
@@ -27,10 +29,21 @@ skills:
   - ./skills/azure-sql-database-container/azuresql-db-seed
   - ./skills/azure-sql-database-container/azuresql-db-sidecar
   - ./skills/azure-sql-database-container/azuresql-db-testing
+  - ./skills/apis-and-application-patterns/build-app-on-azure-sql
   - ./skills/drivers-and-connectivity/connect-from-dotnet
   - ./skills/drivers-and-connectivity/connect-from-python
   - ./skills/drivers-and-connectivity/connect-from-typescript-and-node
   - ./skills/drivers-and-connectivity/connect-to-azure-sql
+  - ./skills/apis-and-application-patterns/dab-rest-and-graphql
+  - ./skills/azure-patterns-and-deploy/deploy-app-to-azure
+  - ./skills/schema-and-orm/design-azure-sql-schema
   - ./skills/drivers-and-connectivity/diagnose-connection-errors
+  - ./skills/schema-and-orm/ef-core-azure-sql
+  - ./skills/identity-and-access/entra-id-auth
+  - ./skills/schema-and-orm/prisma-azure-sql
   - ./skills/provisioning-and-local-dev/provision-azure-sql-db
+  - ./skills/provisioning-and-local-dev/provision-hyperscale
+  - ./skills/ai-vector-and-rag/rag-on-azure-sql
+  - ./skills/schema-and-orm/sqlalchemy-azure-sql
   - ./skills/tsql-correctness-and-patterns/t-sql-correctness
+  - ./skills/ai-vector-and-rag/vector-search-azure-sql

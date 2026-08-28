@@ -1,0 +1,77 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "build-app-on-azure-sql",
+  "domain": "apis-and-application-patterns",
+  "value": ["multi-step-with-silent-failures", "corrects-a-wrong-assumption"],
+  "correction": "Asked to build an application on Azure SQL Database, an agent starts inside the application: it picks a stack, writes a data layer, and puts a SQL user name and password in configuration. Every first-party Azure SQL Database quickstart starts outside the application instead, with three server-side prerequisites that no code can substitute for: a firewall rule covering the client address, a Microsoft Entra administrator on the logical server, and, once the application is deployed, a database user for its managed identity created from a connection that is itself authenticated with Microsoft Entra ID. All three fail silently. The firewall rule takes up to five minutes to take effect, so the first run can fail after the rule was created correctly; the missing Entra admin surfaces as a login failure that reads as a bad credential; and the missing database user surfaces only after deployment, as a server error from an application whose code is correct. The same start-inside-the-code reflex then hand-writes CRUD that Data API builder would generate, and carries the quickstart's create-the-table-at-startup step into a real application, which is the one part of that sample code Microsoft explicitly labels as testing only.",
+  "posture": ["read", "write", "provision"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db"],
+  "last_verified": "2026-08-27",
+  "related": [
+    "azure-sql",
+    "provision-azure-sql-db",
+    "connect-to-azure-sql",
+    "connect-from-typescript-and-node",
+    "connect-from-python",
+    "connect-from-dotnet",
+    "entra-id-auth",
+    "diagnose-connection-errors",
+    "dab-rest-and-graphql",
+    "azure-functions-sql-bindings",
+    "ef-core-azure-sql",
+    "prisma-azure-sql",
+    "sqlalchemy-azure-sql",
+    "django-azure-sql",
+    "design-azure-sql-schema",
+    "schema-migrations-safely",
+    "deploy-app-to-azure",
+    "least-privilege-database-roles",
+    "prevent-sql-injection",
+    "azuresql-db-scaffold"
+  ],
+  "validation": {
+    "target": "cloud",
+    "setup": [
+      "a subscription in which a logical server and database can be created",
+      "a signed-in Microsoft Entra identity that can be made server administrator",
+      "an empty project directory, so the ordering is exercised from nothing"
+    ],
+    "assert": [
+      "the plan verifies the firewall rule and the Microsoft Entra administrator before any application code is written",
+      "the generated configuration carries no password and no user name, and names the user database rather than master",
+      "the auth mode written into the configuration is the one the chosen driver actually accepts, and the local and deployed values are stated separately where they differ",
+      "no table is created during application startup; schema arrives through a migration or a schema project",
+      "the deployed identity has a database user created from a Microsoft Entra authenticated connection, verifiable in sys.database_principals with authentication_type_desc EXTERNAL",
+      "a hand-written CRUD layer is proposed only after the generated data API was considered and rejected for a stated reason",
+      "the roles granted to the application identity are named, and are not left at whatever a one-command tool granted"
+    ]
+  },
+  "triggering": {
+    "explicit": ["Use the build-app-on-azure-sql skill"],
+    "implicit": [
+      "build me an app on Azure SQL Database",
+      "I want to start a new project backed by Azure SQL, where do I begin",
+      "add Azure SQL Database to this application",
+      "what is the right way to structure an app against Azure SQL",
+      "scaffold an API over an Azure SQL database and deploy it"
+    ],
+    "routing": [
+      "which stack should I use with Azure SQL Database",
+      "should I write the CRUD endpoints myself or generate them",
+      "my app works locally but returns a server error once it is deployed to Azure",
+      "how do I get from a working local project to Azure without putting a password in the repo"
+    ],
+    "negative": [
+      "how do I connect to Azure SQL Database from Node.js",
+      "add retry logic to my Azure SQL data access layer",
+      "create an Azure SQL database and open the firewall for my address",
+      "what does error 40615 mean",
+      "expose my Orders table as a GraphQL endpoint with Data API builder",
+      "write a SQL trigger binding for my function app",
+      "scaffold an app against the local Azure SQL Database container",
+      "set up Microsoft Entra authentication for my Azure SQL database",
+      "deploy my existing app to Azure with azd"
+    ]
+  }
+}
