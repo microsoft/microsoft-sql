@@ -1,0 +1,76 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "entra-id-auth",
+  "domain": "identity-and-access",
+  "value": ["multi-step-with-silent-failures", "corrects-a-wrong-assumption", "changes-too-fast-to-memorize"],
+  "correction": "Agents present Microsoft Entra ID setup for an application identity as a linear sequence of commands that either succeed or report an error, when the sequence carries steps that succeed while achieving nothing and one error whose text names the wrong component. Msg 33134 reads 'Principal could not be resolved', which sends the agent to check the principal name, but the principal is almost always correct and the actual fault is that the logical server has no identity holding Microsoft Graph read permission. That fault only appears when a service principal rather than a signed-in user runs CREATE USER, so the same statement works by hand and fails in a pipeline. Agents also assume any administrator can create the Entra database user, when a SQL authenticated connection cannot create one at all, and that CREATE USER FROM EXTERNAL PROVIDER run against master helps an application that connects to a user database, when the statement adds the user to whichever database the connection is on and reports success either way. Finally they invent per driver authentication keywords, most often by writing ActiveDirectoryDefault into an ODBC connection string, which has no such value.",
+  "posture": ["provision", "admin", "execute"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db"],
+  "last_verified": "2026-08-27",
+  "related": [
+    "connect-to-azure-sql",
+    "connect-from-dotnet",
+    "connect-from-python",
+    "connect-from-typescript-and-node",
+    "diagnose-connection-errors",
+    "provision-azure-sql-db",
+    "build-app-on-azure-sql",
+    "deploy-app-to-azure",
+    "least-privilege-database-roles",
+    "entra-logins-and-server-roles",
+    "managed-identity-across-azure-services",
+    "entra-groups-and-access-reviews",
+    "secure-by-default-checklist"
+  ],
+  "validation": {
+    "target": "cloud",
+    "setup": [
+      "a logical server and a user database, reachable from the client address",
+      "a signed-in Microsoft Entra identity that can be made server administrator",
+      "an Azure resource carrying a managed identity, or an app registration, to stand in for the application"
+    ],
+    "assert": [
+      "the Microsoft Entra administrator is read back from the server before any CREATE USER statement is attempted",
+      "the connection running CREATE USER is authenticated with Microsoft Entra ID, not with a SQL login, and is on the user database rather than master",
+      "the application principal appears in sys.database_principals of the user database with type E and authentication_type_desc EXTERNAL",
+      "the SID stored for the new user is compared against the identity's client id, so a same named principal is caught",
+      "Msg 33134 is answered by checking the logical server identity and its Microsoft Graph permission, not by editing the principal name",
+      "the authentication keyword written into the connection string is one the chosen driver actually accepts, checked against the per driver table rather than transposed from another driver",
+      "roles granted to the application identity are named rather than left at whatever a one command tool applied",
+      "if Microsoft Entra-only authentication is enabled, the administrator was set first and the features it disables were stated"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Set up Microsoft Entra authentication for my Azure SQL database",
+      "Give my app a managed identity and let it connect to Azure SQL Database without a password",
+      "How do I create a database user for a managed identity in Azure SQL Database",
+      "Turn on Microsoft Entra-only authentication and enforce it with Azure Policy"
+    ],
+    "implicit": [
+      "I get Principal could not be resolved when my pipeline runs CREATE USER",
+      "My app connects fine from my laptop but gets login failed for user token-identified principal once it is deployed",
+      "CREATE USER FROM EXTERNAL PROVIDER says there is a duplicate display name",
+      "I am the server admin and I still cannot create the Entra user",
+      "How do I stop putting the SQL password in my configuration",
+      "Which Authentication value do I put in the connection string for a user-assigned managed identity"
+    ],
+    "routing": [
+      "the grant step of an azd deployment, where the database side user and roles have to be created",
+      "a login failure whose user name is an identity rather than a SQL login",
+      "a decision between a system-assigned and a user-assigned managed identity for database access"
+    ],
+    "negative": [
+      "how do I connect to Azure SQL Database from Node.js",
+      "add retry logic and size the connection pool for my Azure SQL data access layer",
+      "what does error 40613 mean, my first connection failed",
+      "the pre-login handshake failed and the connection timed out",
+      "deploy my app to Azure with azd and provision the infrastructure",
+      "create an Azure SQL database and open the firewall for my address",
+      "design the least-privilege database roles my reporting service needs",
+      "create a SQL login and password for the local Azure SQL Database container",
+      "how do I sign in to the Azure portal"
+    ]
+  }
+}

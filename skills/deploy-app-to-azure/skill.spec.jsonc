@@ -1,0 +1,84 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "deploy-app-to-azure",
+  "domain": "azure-patterns-and-deploy",
+  "value": ["corrects-a-wrong-assumption", "changes-too-fast-to-memorize", "multi-step-with-silent-failures"],
+  "correction": "Agents treat a first-party Azure sample's infrastructure as a reviewed baseline and spend their attention on the application code, so asked to reach Azure SQL Database without a password using the Azure Developer CLI they recommend the first-party template as the way to get there. `Azure-Samples/todo-csharp-sql` is the only Microsoft-published template in the gallery pairing a web application with Azure SQL Database, and it does not use an identity for the database at all: it provisions the logical server with an administrator login and a password, creates the application's database user with `create user ... with password` from a deployment script, and adds that user to `db_owner`, with `FROM EXTERNAL PROVIDER` appearing nowhere under its infrastructure directory. The template does create a managed identity, which is what lets the misreading survive a glance, but that identity authenticates to a vault and what the vault holds is a connection string with a password in it. The second half is worse, because it survives choosing correctly: all four Microsoft-published templates that build the logical server from the Azure Verified Module, including the three serverless quickstarts that are otherwise exemplary about identity, ship a firewall rule named `Azure Services` spanning `0.0.0.1` to `255.255.255.254`, which is every address a client can present, while the documented Allow Azure services rule uses `0.0.0.0` as both its start and its end address. So the identity defect is fixed by choosing a different template and the firewall defect is not fixed by choosing anything.",
+  "posture": ["provision", "execute", "admin"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db"],
+  "last_verified": "2026-08-27",
+  "related": [
+    "azure-sql",
+    "build-app-on-azure-sql",
+    "provision-azure-sql-db",
+    "entra-id-auth",
+    "connect-to-azure-sql",
+    "diagnose-connection-errors",
+    "github-actions-for-sql",
+    "schema-migrations-safely",
+    "least-privilege-database-roles",
+    "azure-functions-sql-bindings",
+    "cutover-and-connection-string-swap"
+  ],
+  "validation": {
+    "target": "cloud",
+    "setup": [
+      "a subscription in which a resource group, a logical server and a database can be created",
+      "a signed-in Microsoft Entra identity that can be made administrator of the logical server",
+      "an application project with source code and no infrastructure directory yet",
+      "the template gallery reachable, so candidate templates can be listed and their infrastructure read before one is chosen"
+    ],
+    "assert": [
+      "the source of the infrastructure is named, and where it is a template, what that template does about database authentication was read rather than assumed",
+      "no template is called passwordless on the strength of a managed identity appearing in it, without establishing what that identity authenticates to",
+      "every firewall rule in the infrastructure is judged by its address range rather than by its name, and a rule spanning the public address space is narrowed, with a rule added for whatever runs the post-provision hook",
+      "the role held by the application's database user is named, and db_owner is not carried over from a sample unexamined",
+      "the plan distinguishes what provisioning does from what deploying does, and places the database-side grant between them rather than after both",
+      "a step exists that creates a database user for the application identity and grants it named roles, and it is attached to a post-provision hook or an equivalent explicit step rather than left to the deployment tool",
+      "the step that runs the grant is authenticated with Microsoft Entra ID as the administrator of the logical server, not with a password",
+      "the connection string reaches the deployed application as an application setting written by the infrastructure, not through an environment value set on the command line",
+      "the connection string carries no password, names the user database rather than master, and keeps encryption on with certificate trust off",
+      "the plan states which identity is administrator of the logical server after provisioning, and whether that identity is the developer or a pipeline",
+      "the teardown step names what survives it: the local environment values, and any database or logical server the project did not create"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the deploy-app-to-azure skill",
+      "Deploy my app and its Azure SQL database to Azure with azd",
+      "Which azd template should I start from for a web app with Azure SQL Database, and is it passwordless",
+      "Set up azd for this project so I can run azd up",
+      "Add an azure.yaml and infra folder to this app so it deploys to Azure SQL Database"
+    ],
+    "implicit": [
+      "which azd template should I start from for a web app with a SQL database",
+      "I started from the Microsoft azd sample for Azure SQL and it created a SQL admin password, I thought it was passwordless",
+      "is the firewall rule that this azd template put in my infra folder safe to leave as it is",
+      "get this working local app into Azure without putting a database password anywhere",
+      "azd up finished successfully but my app returns a 500 as soon as it touches the database",
+      "my deployment is green but the app cannot log in to the database",
+      "how do I take my app and its database to Azure from my laptop"
+    ],
+    "routing": [
+      "what is the difference between azd provision, azd deploy and azd up",
+      "is there a todo-nodejs-sql template",
+      "where does the connection string for my deployed app come from if there is no password",
+      "how do I add a SQL database to my azd project",
+      "azd down deleted my resources, what is left behind",
+      "the managed identity exists in Azure but the database says login failed"
+    ],
+    "negative": [
+      "create an Azure SQL database and open the firewall for my address",
+      "narrow the firewall rule on my Azure SQL server to just my office IP range",
+      "set up Microsoft Entra authentication for my Azure SQL database and create the database user",
+      "build a GitHub Actions workflow that deploys schema changes to Azure SQL",
+      "run my EF Core migrations against Azure SQL Database",
+      "what does error 40615 mean",
+      "add retry logic to my Azure SQL data access layer",
+      "scaffold an app against the local Azure SQL Database container",
+      "expose my Orders table as a REST endpoint",
+      "grant my application identity the least privilege it needs on the database"
+    ]
+  }
+}

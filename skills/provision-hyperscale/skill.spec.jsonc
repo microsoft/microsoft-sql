@@ -1,0 +1,57 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "provision-hyperscale",
+  "domain": "provisioning-and-local-dev",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption"],
+  "correction": "Agents treat Hyperscale as an ordinary service objective change, reversible like any other, and treat the free offer as a starting point that grows into it. Neither holds. A free offer database cannot change tier at all until the free limit is turned off, and turning it off is permanent: the database can never return to the free offer. Coming back out of Hyperscale is not a tier change either. Reverse migration exists only for a database that was CONVERTED to Hyperscale, only within 45 days of that conversion, only to General Purpose, only outside an elastic pool and only at 2 vCores or more; a database created as Hyperscale is refused outright with 'ineligible for reverse migration. Database created as brand-new Hyperscale application.' The cost is a one-way door walked through by accident, because the exit from a brand-new Hyperscale database is a bacpac export and import that the portal, the CLI, PowerShell and the REST API do not support for Hyperscale at all, leaving a client-side tool documented as reliable only to about 150 GB.",
+  "posture": ["read", "write", "provision"],
+  "maturity": "preview",
+  "applies_to": ["azure-sql-db"],
+  "last_verified": "2026-08-28",
+  "related": [
+    "provision-azure-sql-db",
+    "connect-to-azure-sql",
+    "hyperscale-target-sizing",
+    "diagnose-resource-pressure",
+    "restore-and-recover"
+  ],
+  "validation": {
+    "target": "cloud",
+    "setup": [
+      "a General Purpose serverless database on a logical server the caller can update",
+      "a second database created directly in the Hyperscale service tier"
+    ],
+    "assert": [
+      "setting the free limit on a Hyperscale database is refused, so the free offer must be turned off before the tier changes",
+      "a converted database returns to General Purpose with a plain edition and service objective update, so the conversion is not one way for every database",
+      "a database created as Hyperscale is refused reverse migration, naming it as created brand new",
+      "read scale-out follows the high availability replica count, and the read-scale switch is accepted and ignored on Hyperscale",
+      "a Hyperscale database reports no maximum size, so no max size is chosen at creation",
+      "the premium-series hardware families are not the values the create command's help text lists"
+    ]
+  },
+  "triggering": {
+    "explicit": ["Use the provision-hyperscale skill"],
+    "implicit": [
+      "should I put this database on Hyperscale",
+      "convert my Azure SQL database to Hyperscale",
+      "how many vCores should I pick for Hyperscale",
+      "can I go back after moving to Hyperscale",
+      "my free Azure SQL database has outgrown the free offer and needs a bigger tier",
+      "add a read replica to my Hyperscale database"
+    ],
+    "routing": [
+      "our database is about to hit the four terabyte ceiling",
+      "writes are the bottleneck and scaling up did not help",
+      "we want one pool for a lot of tenant databases that each grow unpredictably"
+    ],
+    "negative": [
+      "create an Azure SQL database and open the firewall for my IP",
+      "give me a connection string for my new database",
+      "this query got slow after the last deployment",
+      "add retry logic to my data access layer",
+      "run Azure SQL locally in a container",
+      "restore my database to how it looked yesterday morning"
+    ]
+  }
+}

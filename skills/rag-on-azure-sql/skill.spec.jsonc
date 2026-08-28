@@ -1,0 +1,77 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "rag-on-azure-sql",
+  "domain": "ai-vector-and-rag",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
+  "correction": "Agents build retrieval augmented generation on Azure SQL Database by porting a vector store recipe: one chunk table holding extracted text and one embedding column, retrieved with the application's identity, top k pasted into the prompt. It demonstrates correctly and then fails in three ways that raise nothing. First, the chunk table is a second copy of the source text, so the row level security policy, the tenant column and the grants that protected the original table do not apply to it, and a retrieval that is otherwise perfect puts text the asking user may not read into the prompt where the model quotes it back; measured on 2026-08-28 against a live Azure SQL Database, a filter predicate placed on the chunk table IS honoured through approximate vector search, so the omission rather than the mechanism is the whole failure. Second, nothing records which model produced each stored vector, because a vector column carries a dimension count and a base type and nothing else, and the two most widely used embedding models both emit 1536 dimensions, so re-embedding part of a corpus with a different model inserts cleanly, matches on dimension and leaves two incompatible geometries in one column whose only symptom is that answers get worse. Third, the engine's ceiling is 1998 dimensions while the current large embedding model emits 3072 by default, and the dimension cannot be changed by ALTER COLUMN even on an empty table, so the model an agent reaches for first cannot be stored at all and the failure lands after the whole ingest is written. Being wrong costs a data leak that reads as a correct answer, a corpus whose retrieval quality decays with nothing to point at, and a rebuild of the ingest.",
+  "posture": ["read", "write", "execute"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db"],
+  "last_verified": "2026-08-28",
+  "related": [
+    "vector-search-azure-sql",
+    "embeddings-and-external-models",
+    "rag-local-with-container",
+    "langchain-and-llamaindex-on-azure-sql",
+    "chunking-strategies",
+    "design-azure-sql-schema",
+    "connect-to-azure-sql",
+    "full-text-and-hybrid-ranking",
+    "diagnose-vector-recall-drop",
+    "azuresql-db-rag"
+  ],
+  "validation": {
+    "target": "cloud",
+    "setup": [
+      "a database reachable with permission to create tables, indexes and a security policy",
+      "a source table of documents and an embedding model whose output dimension is 1998 or fewer"
+    ],
+    "assert": [
+      "the declared vector dimension is 1998 or fewer and equals the dimension requested from the model",
+      "every embedded row carries the model name, the dimension and a timestamp, and grouping by the model column returns exactly one row",
+      "the chunk table has a clustered primary key, a unique key on the chunk identity, and an index on the columns retrieval filters by",
+      "re-running the ingest over unchanged source text embeds nothing",
+      "the retrieval query carries the permission filter itself, and the chunk table has its own security predicate rather than relying on the source table's",
+      "the question is embedded with the same model as the corpus",
+      "the vector index is created after the load rather than imported as part of a schema package",
+      "the retrieved chunk identifiers are logged alongside the generated answer",
+      "no source document or test fixture in the repository contains real customer data"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the rag-on-azure-sql skill",
+      "Build a retrieval augmented generation pipeline on Azure SQL Database",
+      "Let users chat with our document library stored in Azure SQL Database",
+      "Add semantic search over the documents table in Azure SQL Database",
+      "How do I keep embeddings in sync when the source rows change"
+    ],
+    "implicit": [
+      "we switched embedding models last month and the answers got worse for no reason",
+      "our assistant quoted a document that user was not supposed to see",
+      "how many chunks should I put in the prompt and how do I cite them",
+      "do I re-embed everything every night or only what changed",
+      "where should the tenant filter go in a retrieval query",
+      "we want to replace our separate vector database and keep the documents in Azure SQL Database",
+      "the assistant answers confidently even when the retrieved context says nothing useful",
+      "how do I re-embed a whole corpus with a new model without downtime"
+    ],
+    "routing": [
+      "add a question answering feature over our own content on Azure SQL Database",
+      "design the tables for a document assistant backed by Azure SQL Database",
+      "productionise a RAG prototype that currently keeps embeddings in files"
+    ],
+    "negative": [
+      "What are the restrictions on the vector data type in Azure SQL Database",
+      "Why does my similarity query scan the whole table instead of using the vector index",
+      "Show me the syntax for VECTOR_DISTANCE and the distance metrics",
+      "Create an external model and call the embedding function from T-SQL",
+      "Which permissions does an external model endpoint need and how does the allowlist work",
+      "Run a local RAG prototype offline against the Azure SQL Database container",
+      "Build a RAG scenario on the container",
+      "Set up full text search and rank the results",
+      "Add retry and connection pooling to my data access layer",
+      "Design the schema for my orders and customers tables"
+    ]
+  }
+}

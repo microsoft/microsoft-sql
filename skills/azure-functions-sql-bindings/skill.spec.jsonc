@@ -1,0 +1,61 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "azure-functions-sql-bindings",
+  "domain": "apis-and-application-patterns",
+  "value": ["not-in-training-data", "multi-step-with-silent-failures"],
+  "correction": "Agents treat change tracking as an optimisation the Azure SQL trigger can run without, when it is the mechanism the trigger is built on: the listener asks the database for the change tracking minimum valid version of the monitored table, gets a null back when tracking is off, and throws before it ever polls. The Functions host then retries that one listener in the background with exponential backoff, so the app starts, stays running, keeps serving every other function, and the trigger never fires while the only sign of the problem is a listener startup error buried in the host log. The identity permissions are wrong for the same reason: db_datareader and db_datawriter are enough for the input and output bindings and are explicitly not enough for the trigger, which also needs to read change tracking and to create its own state tables.",
+  "posture": ["read", "write", "execute"],
+  "maturity": "preview",
+  "applies_to": ["azure-sql-db"],
+  "last_verified": "2026-08-27",
+  "related": [
+    "azuresql-db-functions",
+    "build-app-on-azure-sql",
+    "dab-rest-and-graphql",
+    "connect-from-dotnet",
+    "connect-from-python",
+    "connect-from-typescript-and-node",
+    "entra-id-auth",
+    "deploy-app-to-azure",
+    "connect-to-azure-sql"
+  ],
+  "validation": {
+    "target": "cloud",
+    "setup": [
+      "an Azure SQL Database with a table that has a primary key",
+      "a function app on the isolated worker model with the Azure SQL extension referenced"
+    ],
+    "assert": [
+      "change tracking is enabled at the database and again on the monitored table, as two separate statements",
+      "with change tracking off, the app starts and reports healthy while the trigger never fires, and the only evidence is a listener startup error in the host log",
+      "the trigger's identity holds more than db_datareader and db_datawriter: it can read change tracking on the table and create the state schema and tables",
+      "the output binding upserts on the primary key rather than inserting, so a repeated write updates the existing row instead of failing",
+      "the connection setting names an app setting, and the deployed value carries an identity rather than a password"
+    ]
+  },
+  "triggering": {
+    "explicit": ["Use the azure-functions-sql-bindings skill"],
+    "implicit": [
+      "add a SQL input binding to my Azure Functions app",
+      "write to Azure SQL from an Azure Function without writing ADO code",
+      "run a function when a row changes in my Azure SQL table",
+      "my SQL trigger function never fires and there is no error",
+      "how do I enable change tracking for the Azure Functions SQL trigger"
+    ],
+    "routing": [
+      "build a serverless CRUD API over these tables",
+      "react to inserts and updates in the database",
+      "the function app is healthy but nothing is being processed",
+      "why did my second POST overwrite the first row instead of failing"
+    ],
+    "negative": [
+      "use Azure Functions with the local Azure SQL Database container",
+      "set up the SQL trigger against my local container",
+      "expose these tables as REST and GraphQL with Data API builder",
+      "run Data API builder against my local Azure SQL Database container",
+      "reuse a connection pool across serverless invocations in Node.js",
+      "install the ODBC driver for Python in my function image",
+      "scaffold a new application on Azure SQL"
+    ]
+  }
+}

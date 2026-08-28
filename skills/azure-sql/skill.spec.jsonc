@@ -1,0 +1,60 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "azure-sql",
+  "domain": "docs-and-feedback",
+  "value": ["changes-too-fast-to-memorize"],
+  "correction": "Asked what Azure SQL Database can do, an agent answers from a snapshot of the service that is at least a year stale, and states it with the same confidence as something it verified a minute ago. The three most expensive versions of that: it sets or assumes compatibility level 150 or 160 when the default for a new database is now 170, it steers a new workload to General Purpose when the documentation now names Hyperscale the recommended default tier for new OLTP and HTAP workloads, and it either denies that native vector search exists in this service or presents the approximate vector index as generally available when the index is still preview. It also treats the whole Azure SQL family as one product, so behaviour from a sibling engine arrives as fact. What being wrong costs is that none of it fails at authoring time. A stale capability answer surfaces as a tier that has to be migrated, a design built around a feature that is not generally available, or a capability refused that shipped months ago, and each of those is found late and paid for in rework.",
+  "posture": ["read"],
+  "maturity": "preview",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "last_verified": "2026-08-28",
+  "related": [
+    "provision-azure-sql-db",
+    "provision-hyperscale",
+    "connect-to-azure-sql",
+    "build-app-on-azure-sql",
+    "t-sql-correctness",
+    "entra-id-auth",
+    "skill-feedback"
+  ],
+  "validation": {
+    "target": "none",
+    "setup": [
+      "no infrastructure. Every claim here is checked against a first-party page or a command's own output"
+    ],
+    "assert": [
+      "the default compatibility level for a new database is stated as 170, not 150 or 160",
+      "the vector type and the distance function are stated as generally available while the vector index is stated as preview",
+      "every dated claim carries the date it was verified and a page to refetch",
+      "no routing entry names a skill that is not on disk or already shipped",
+      "the scope statement names the other engines in the family only to exclude them"
+    ]
+  },
+  "triggering": {
+    "explicit": ["Use the azure-sql skill"],
+    "implicit": [
+      "what can Azure SQL Database actually do in 2026",
+      "is that feature generally available in Azure SQL Database or still preview",
+      "which service tier should I start on",
+      "how current is what you know about Azure SQL Database",
+      "which tool should I use for this Azure SQL Database task",
+      "where is this documented for Azure SQL Database"
+    ],
+    "routing": [
+      "I am new to Azure SQL Database, where do I start",
+      "we are considering Azure SQL Database for this project, what should I know",
+      "does Azure SQL Database support this, or am I thinking of a different product"
+    ],
+    "negative": [
+      "how do I connect my app to Azure SQL Database",
+      "add retry logic to my data access layer",
+      "create an Azure SQL database and give me a connection string",
+      "what does this login error number mean",
+      "set up a managed identity for my app",
+      "how do I paginate a query in T-SQL",
+      "expose my tables as a REST API",
+      "convert my database to Hyperscale",
+      "run the engine locally in a container"
+    ]
+  }
+}

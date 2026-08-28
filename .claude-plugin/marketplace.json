@@ -15,6 +15,8 @@
       "description": "Agent skills for Azure SQL Database. They teach a coding agent what it otherwise gets wrong, usually because it learned SQL from PostgreSQL or from documentation written before Azure existed.",
       "version": "0.1.0",
       "skills": [
+        "./skills/azure-functions-sql-bindings",
+        "./skills/azure-sql",
         "./skills/azuresql-db-auth",
         "./skills/azuresql-db-ci",
         "./skills/azuresql-db-connections",
@@ -32,13 +34,24 @@
         "./skills/azuresql-db-seed",
         "./skills/azuresql-db-sidecar",
         "./skills/azuresql-db-testing",
+        "./skills/build-app-on-azure-sql",
         "./skills/connect-from-dotnet",
         "./skills/connect-from-python",
         "./skills/connect-from-typescript-and-node",
         "./skills/connect-to-azure-sql",
+        "./skills/dab-rest-and-graphql",
+        "./skills/deploy-app-to-azure",
+        "./skills/design-azure-sql-schema",
         "./skills/diagnose-connection-errors",
+        "./skills/ef-core-azure-sql",
+        "./skills/entra-id-auth",
+        "./skills/prisma-azure-sql",
         "./skills/provision-azure-sql-db",
-        "./skills/t-sql-correctness"
+        "./skills/provision-hyperscale",
+        "./skills/rag-on-azure-sql",
+        "./skills/sqlalchemy-azure-sql",
+        "./skills/t-sql-correctness",
+        "./skills/vector-search-azure-sql"
       ]
     }
   ]

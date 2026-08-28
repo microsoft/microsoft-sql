@@ -1,0 +1,76 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "vector-search-azure-sql",
+  "domain": "ai-vector-and-rag",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption", "changes-too-fast-to-memorize"],
+  "correction": "Agents write similarity search on Azure SQL Database as SELECT TOP (k) ... ORDER BY VECTOR_DISTANCE('cosine', embedding, @q) and believe a vector index accelerates it. Measured on 2026-08-28 against a live Azure SQL Database carrying a current DiskANN index, and reproduced identically on the local Azure SQL Database container, that query compiles to a Clustered Index Scan with a per row Compute Scalar and never touches the index; only SELECT TOP (N) WITH APPROXIMATE over VECTOR_SEARCH ordered by the distance column produces a Vector Index Seek. Every wrong shape returns the correct rows and raises nothing, including WITH APPROXIMATE against a table that has no vector index at all, so the mistake passes every test at development scale and appears in production only as latency and compute burn on every single query, on a table that will keep growing. The older TOP_N parameter that most published examples still show now fails outright with Msg 42274. The second half of the correction is that a vector column is not an ordinary column: it cannot be a key, a CHECK or DEFAULT constraint, a statistics target, a partition key or a persisted computed column, it cannot be compared, sorted, grouped, deduplicated, aggregated or carried across a UNION, its dimension cannot be changed by ALTER COLUMN even on an empty table, the ceiling is 1998 dimensions so a 3072 dimension embedding model does not fit, and the index it needs refuses to build under 100 rows and then blocks TRUNCATE TABLE, ALTER INDEX and data-tier package import for the life of the table.",
+  "posture": ["read", "write", "execute"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "last_verified": "2026-08-28",
+  "related": [
+    "rag-on-azure-sql",
+    "embeddings-and-external-models",
+    "rag-local-with-container",
+    "design-azure-sql-schema",
+    "vector-index-diskann",
+    "vector-index-staleness",
+    "diagnose-vector-search-latency",
+    "diagnose-vector-recall-drop",
+    "full-text-and-hybrid-ranking",
+    "azuresql-db-rag"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a database reachable with permission to create a table and an index",
+      "a table with a clustered primary key, a vector column and at least 100 rows carrying a non-null vector"
+    ],
+    "assert": [
+      "the actual execution plan of every similarity query expected to use the index contains a Vector Index Seek",
+      "no query text contains the TOP_N parameter",
+      "any query left as ORDER BY VECTOR_DISTANCE carries a comment stating that an exact scan is intended",
+      "results are ordered by distance ascending, and no dot product result is treated as a similarity score",
+      "every declared dimension is between 1 and 1998 and equals what the embedding model is asked to produce",
+      "no vector column appears as a key, a CHECK or DEFAULT constraint, a persisted computed column, a partition key or a statistics target",
+      "deduplication keys off the source text or a hash of it rather than off the embedding",
+      "the vector index is created as a step after the data load, not as part of a package import",
+      "any process that truncates or bulk replaces the table drops and recreates the vector index"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the vector-search-azure-sql skill",
+      "Add a vector column to my Azure SQL Database table and search it",
+      "Create a vector index on my embeddings column in Azure SQL Database",
+      "How do I run a top k nearest neighbour query on Azure SQL Database",
+      "What are the restrictions on the vector data type in Azure SQL Database"
+    ],
+    "implicit": [
+      "my similarity search returns the right rows but takes seconds and gets slower every week",
+      "why can I not put a primary key or a unique constraint on my embedding column",
+      "Vector search with newer index version does not support explicit TOP_N parameter",
+      "The vector data types cannot be compared or sorted, except when using the IS NULL operator",
+      "The size (3072) given to the column exceeds the maximum allowed",
+      "I cannot truncate my table any more since I added the vector index",
+      "is my query actually using the vector index or is it scanning",
+      "how do I deduplicate rows that have the same embedding"
+    ],
+    "routing": [
+      "store OpenAI embeddings in Azure SQL Database and query them",
+      "replace my separate vector database with Azure SQL Database",
+      "make my nearest neighbour query on Azure SQL Database faster"
+    ],
+    "negative": [
+      "Build a retrieval augmented generation pipeline over my document library on Azure SQL Database",
+      "Chunk my documents and keep the embeddings up to date as the source changes",
+      "Generate embeddings with an external model from inside the database",
+      "Create an external model and call AI_GENERATE_EMBEDDINGS",
+      "Run a local RAG prototype against the Azure SQL Database container with a local embedding model",
+      "Build a RAG scenario on the container",
+      "Design the schema for my orders and customers tables",
+      "Add retry and connection pooling to my data access layer",
+      "Set up full text search and rank the results"
+    ]
+  }
+}

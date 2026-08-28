@@ -27,23 +27,23 @@ written yet.
 
 | Domain | Skills | Wave 1 | Shipped |
 |---|---:|---:|---:|
-| Provisioning and local dev | 9 | 3 | 1 |
+| Provisioning and local dev | 9 | 3 | 2 |
 | Drivers and connectivity | 7 | 5 | 5 |
-| Schema and ORM | 9 | 4 | 0 |
+| Schema and ORM | 9 | 4 | 4 |
 | T-SQL correctness and patterns | 8 | 3 | 1 |
-| Identity and access (Entra ID) | 5 | 1 | 0 |
+| Identity and access (Entra ID) | 5 | 1 | 1 |
 | Security and safe SQL | 13 | 2 | 0 |
 | Schema change and CI/CD | 13 | 3 | 0 |
-| Azure patterns and deploy | 6 | 1 | 0 |
-| APIs and application patterns | 6 | 3 | 0 |
-| AI, vector and RAG | 15 | 5 | 0 |
+| Azure patterns and deploy | 6 | 1 | 1 |
+| APIs and application patterns | 6 | 3 | 3 |
+| AI, vector and RAG | 15 | 5 | 2 |
 | Performance and diagnostics | 9 | 5 | 0 |
 | Operate and recover | 8 | 1 | 0 |
 | Migration to Azure SQL | 8 | 7 | 0 |
 | Data movement | 6 | 2 | 0 |
 | Azure SQL Database container | 17 | 17 | 17 |
-| Docs and feedback | 3 | 2 | 0 |
-| **Total** | **142** | **64** | **24** |
+| Docs and feedback | 3 | 2 | 1 |
+| **Total** | **142** | **64** | **37** |
 
 <!-- END GENERATED CATALOG -->
 

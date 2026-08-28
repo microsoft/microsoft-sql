@@ -1,0 +1,68 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "prisma-azure-sql",
+  "domain": "schema-and-orm",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption", "changes-too-fast-to-memorize"],
+  "correction": "Agents author a Prisma schema for Azure SQL Database as though it were the PostgreSQL connector, reaching for Json, enum and scalar list fields the connector rejects outright and leaving String at its default 1000 character Unicode mapping, which is 2000 bytes and so over the index key limit, so a unique constraint migrates with nothing but a warning and fails much later on a real insert; and having watched prisma migrate dev succeed against a local database they assume it will work in the cloud, when Prisma refuses to create a shadow database on Azure SQL Database at all and stops with a dedicated error.",
+  "posture": ["read", "write", "execute", "provision"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "last_verified": "2026-08-27",
+  "related": [
+    "connect-from-typescript-and-node",
+    "connect-to-azure-sql",
+    "entra-id-auth",
+    "design-azure-sql-schema",
+    "schema-migrations-safely",
+    "ef-core-azure-sql",
+    "sqlalchemy-azure-sql",
+    "build-app-on-azure-sql",
+    "provision-azure-sql-db"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a pinned Prisma 7 release, since the connector does not exist in Prisma 8",
+      "a reachable Azure SQL database, or the local container",
+      "for migrate dev against the cloud, a second empty database to act as the shadow database"
+    ],
+    "assert": [
+      "the schema declares no Json field, no enum block and no scalar list",
+      "every String column that carries a key, a unique constraint or a foreign key declares an explicit length of 450 characters or fewer",
+      "the connection URL is in the configuration file, not in the datasource block",
+      "migrate dev against a cloud database has a shadowDatabaseUrl pointing at a different database",
+      "deployments run migrate deploy, which uses no shadow database",
+      "no credential appears in the schema, the configuration file or the client construction"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the prisma-azure-sql skill",
+      "Set up Prisma against Azure SQL Database",
+      "Write a Prisma schema for Azure SQL",
+      "Run Prisma migrations against my Azure SQL database"
+    ],
+    "implicit": [
+      "The automatic creation of shadow databases is disabled on Azure SQL",
+      "P3020 when I run prisma migrate dev",
+      "prisma migrate dev works locally but fails against Azure",
+      "Field payload in model Thing can't be of type Json. The current connector does not support the Json type",
+      "my Prisma schema will not accept an enum",
+      "the datasource property url is no longer supported in schema files",
+      "inserting a long value fails on a column Prisma created for me"
+    ],
+    "routing": [
+      "add a database layer to my TypeScript app on Azure SQL",
+      "model my data with an ORM on Node and Azure SQL"
+    ],
+    "negative": [
+      "connect my TypeScript API to Azure SQL with the mssql package",
+      "which Node driver should I use for Azure SQL",
+      "add EF Core to my .NET service on Azure SQL",
+      "wire SQLAlchemy up to Azure SQL from Python",
+      "retry logic for transient errors on Azure SQL",
+      "design the key and index strategy for a new schema",
+      "create the Entra administrator for my logical server"
+    ]
+  }
+}
