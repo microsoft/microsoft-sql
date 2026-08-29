@@ -143,6 +143,46 @@ const SUMMARY =
 }
 
 // ---------------------------------------------------------------------------
+// The feedback issue form's skill dropdown. Only the options list is
+// generated, inside a marked region, the same split as the README table:
+// the surrounding form (field ids, labels, other dropdowns) stays hand
+// authored, because scripts/check-prefill-contract.mjs pins those ids and a
+// skill fills the form by them.
+//
+// Grouped by domain because GitHub issue forms have no native optgroup: a
+// quoted "-- Domain title --" line is a real, selectable option, but it reads
+// as a heading and nothing downstream depends on its value. The two catch-all
+// options are appended last and their text is a stable contract in its own
+// right: the skill-feedback skill's prefill logic falls back to "Not sure"
+// when a skill id is not in this list, so that string cannot change here
+// without changing the skill in the lab too.
+// ---------------------------------------------------------------------------
+{
+  const FORM = '.github/ISSUE_TEMPLATE/skill_feedback.yml';
+  const INDENT = '        ';
+  const BEGIN = `${INDENT}# BEGIN GENERATED SKILL OPTIONS`;
+  const END = `${INDENT}# END GENERATED SKILL OPTIONS`;
+  const lines = [BEGIN, `${INDENT}# ${BANNER}`];
+  for (const d of TAXONOMY.domains) {
+    const here = present.filter((p) => p.domain === d.slug);
+    if (here.length === 0) continue;
+    lines.push(`${INDENT}- "-- ${d.title} --"`);
+    for (const p of here) lines.push(`${INDENT}- ${p.name}`);
+  }
+  lines.push(`${INDENT}- The collection as a whole (install, discovery, or the wrong skill loaded)`);
+  lines.push(`${INDENT}- Not sure`);
+  lines.push(END);
+  const text = readFileSync(FORM, 'utf8');
+  const begin = text.indexOf(BEGIN);
+  const end = text.indexOf(END);
+  if (begin < 0 || end < 0) {
+    console.error(`x ${FORM} has no BEGIN/END GENERATED SKILL OPTIONS markers`);
+    process.exit(1);
+  }
+  emit(FORM, text.slice(0, begin) + lines.join('\n') + text.slice(end + END.length));
+}
+
+// ---------------------------------------------------------------------------
 // Plugin manifests. Shapes follow the pilot and microsoft/azure-skills, which
 // are known-good, with skill paths enumerated because our layout is nested.
 // ---------------------------------------------------------------------------

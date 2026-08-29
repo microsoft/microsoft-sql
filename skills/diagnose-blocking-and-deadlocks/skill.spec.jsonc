@@ -1,0 +1,56 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "diagnose-blocking-and-deadlocks",
+  "domain": "performance-and-diagnostics",
+  "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
+  "correction": "Asked to diagnose blocking or read a deadlock on Azure SQL Database, an agent treats two different diagnostic failures as the same kind of problem and gets both wrong. The first is a genuine permission artifact: an ordinary login with no VIEW DATABASE STATE grant sees only its own session in sys.dm_exec_requests, sys.dm_os_waiting_tasks and sys.dm_tran_locks and misses a real blocking chain running between two other logins, with no error at all, and granting that one database-scoped permission to the same login, with no other change, made the whole chain visible. The second looks identical from the outside but has a different cause: sys.dm_xe_sessions, sys.server_event_sessions and sys.dm_xe_session_targets raise Invalid object name (Msg 208) in a user database and return system_health and its ring buffer when the SAME login runs the SAME query connected to the master database instead, with no login change and no grant involved. GRANT VIEW SERVER STATE to that login changed nothing, not because the grant was wrong, but because there was no permission boundary to grant past in the first place, only a database context to connect into. An agent that reads either failure as the other's cause will grant a permission that fixes nothing for system_health, or will keep querying master for a blocking chain that is scoped per database and will never appear there.",
+  "posture": ["inspect"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "related": [
+    "diagnose-slow-query",
+    "diagnose-resource-pressure",
+    "capture-with-extended-events",
+    "read-execution-plan",
+    "t-sql-upserts-merge"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a live engine reachable over sqlcmd reporting SERVERPROPERTY('EngineEdition') = 5 and SERVERPROPERTY('Edition') = 'SQL Azure'",
+      "a database created for the check, separate from other work on the same engine",
+      "the ability to open at least three concurrent client sessions against that database",
+      "one ordinary login with only db_datareader and db_datawriter, connected once to the master database and once to a user database"
+    ],
+    "assert": [
+      "a genuine blocking chain (a writer blocked behind another writer holding an open transaction) is invisible in sys.dm_exec_requests to a third-party login with no VIEW DATABASE STATE grant, and becomes visible after that single grant",
+      "an idle session holding an open transaction (no active request) is correctly named as the blocking_session_id of the session it blocks, even though it has no row of its own in sys.dm_exec_requests",
+      "sys.dm_xe_sessions and sys.dm_xe_session_targets raise Invalid object name (Msg 208) for a login connected to a user database, and return rows for the SAME login connected to master, independent of any VIEW SERVER STATE grant",
+      "an induced deadlock produces Msg 1205 to the victim's caller and a matching sqlserver.xml_deadlock_report event in the system_health ring buffer within a few seconds, readable with a single XML query while connected to master",
+      "the deadlock graph's process-list contains both the victim and the blocking process, not the victim alone",
+      "a lock or wait reported under optimized locking uses an _XACT_ wait type and an XACT: resource description rather than the classic KEY: lock resource format"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Why is this transaction blocking everything on our Azure SQL database",
+      "Read this deadlock graph and tell me which session to fix",
+      "Find out who is blocking session 78 right now",
+      "We keep getting Msg 1205 was deadlocked on lock resources with another process, help me capture the deadlock"
+    ],
+    "implicit": [
+      "our checkout page is hanging under load and I ran a blocking query but nothing shows blocked",
+      "blocking_session_id is always 0 in sys.dm_exec_requests but the app is clearly stuck waiting",
+      "I got Invalid object name sys.dm_xe_sessions when I tried to check system_health, so I guess Azure SQL Database does not have it",
+      "who is the head blocker and what is it running right now",
+      "a session has been idle for ten minutes but still shows an open transaction and I cannot find what it is running"
+    ],
+    "negative": [
+      "Why is this single query slow even though nothing else is running against the database",
+      "The database is throttled and CPU is pegged at 100 percent, should we scale up",
+      "Build me an Extended Events session to capture query text over the next hour",
+      "Read this execution plan and tell me why it chose a table scan",
+      "Write an upsert that is safe when two sessions run it at the same time"
+    ]
+  }
+}

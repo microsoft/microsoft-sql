@@ -1,0 +1,59 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "diagnose-slow-query",
+  "domain": "performance-and-diagnostics",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption"],
+  "correction": "Agents troubleshooting a slow Azure SQL Database query treat Query Store as an automatic, complete record of everything that ran, because it is enabled by default on every database, when its default AUTO capture mode applies internal thresholds that silently drop ad hoc and infrequently executed queries, so the exact query someone ran once and is asking about can be completely absent from every Query Store view even immediately after a manual flush, and checking the plan cache instead does not rescue the diagnosis, because a query can hold a cached compiled plan with a nonzero use count and still have zero matching rows in sys.dm_exec_query_stats.",
+  "posture": ["read", "inspect", "execute"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "related": [
+    "diagnose-resource-pressure",
+    "diagnose-blocking-and-deadlocks",
+    "read-execution-plan",
+    "capture-with-extended-events"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a table with enough rows that a scan and a seek cost visibly different amounts",
+      "the same query executed a handful of times with parameter values that make its row count vary widely",
+      "a second, different plan produced for the same query id, for example by forcing a table scan once and an index seek once",
+      "a query executed exactly once under the default AUTO query capture mode, never repeated",
+      "a session left open with an uncommitted transaction while a second session runs the query under test"
+    ],
+    "assert": [
+      "sys.database_query_store_options reports actual_state READ_WRITE on a newly created database with no configuration step taken",
+      "a query executed only once under AUTO capture mode is correctly named as possibly absent from sys.query_store_query, rather than assumed present",
+      "the coefficient of variation, stdev_duration divided by avg_duration from sys.query_store_runtime_stats, is used to rank instability rather than a single avg_duration value read alone",
+      "a query id carrying more than one plan_id in sys.query_store_plan is read as a plan change over time, and the better plan is forced with sys.sp_query_store_force_plan rather than the worse plan simply being removed",
+      "a session with a nonzero blocking_session_id in sys.dm_exec_requests is diagnosed as blocked and handed to diagnose-blocking-and-deadlocks instead of being treated as a plan or resource problem",
+      "wait composition read from sys.query_store_wait_stats is used to decide whether the next step is diagnose-resource-pressure or diagnose-blocking-and-deadlocks, not guessed"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "This query used to run in under a second and now it takes ten seconds, find out why",
+      "Diagnose why this stored procedure is slow",
+      "Use diagnose-slow-query on this report query"
+    ],
+    "implicit": [
+      "Sometimes this dashboard finishes in two seconds and sometimes it takes forty, same parameters",
+      "This query got slow right after last night's deployment and nothing else changed",
+      "Query Store shows nothing for the query I just ran, does that mean it was fast",
+      "The nightly job used to take ten minutes and now it takes forty five, and it keeps creeping up"
+    ],
+    "routing": [
+      "why is this slow",
+      "this report takes forever now"
+    ],
+    "negative": [
+      "Why is CPU pinned at 100 percent on this database",
+      "Two sessions look stuck waiting on each other, one of them is a deadlock victim",
+      "Read this execution plan XML and tell me which operator is expensive",
+      "Set up a session to capture the next occurrence of this automatically",
+      "Rewrite this query so it does not use a cursor",
+      "How do I create an index on this table"
+    ]
+  }
+}

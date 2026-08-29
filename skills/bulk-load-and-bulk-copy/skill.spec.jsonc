@@ -1,0 +1,58 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "bulk-load-and-bulk-copy",
+  "domain": "data-movement",
+  "value": ["corrects-a-wrong-assumption"],
+  "correction": "Agents write BULK INSERT, OPENROWSET(BULK ...) and bcp against a local file path exactly as they would on SQL Server, then reach for the SQL Server minimal-logging playbook, TABLOCK, a BULK_LOGGED recovery model, large batches, to make a slow load fast, when in fact Azure SQL Database's server-side bulk load path only ever reads from Blob Storage, a local path is refused with Msg 12713 before the file is even checked for existence, and every load, minimally logged or not, is still capped by a fixed per-service-tier transaction log generation rate enforced by the log rate governor, which throttles ingestion no matter how the load is written.",
+  "posture": ["write", "provision"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "related": [
+    "connect-from-python",
+    "connect-from-dotnet",
+    "connect-from-typescript-and-node",
+    "design-azure-sql-schema",
+    "sqlpackage-import-export",
+    "diagnose-resource-pressure",
+    "restore-and-recover",
+    "skill-feedback"
+  ],
+  "validation": {
+    "target": "container",
+    "setup": [
+      "a database reachable with an administrative connection",
+      "a small CSV file and a target table whose columns match it",
+      "for the Blob paths, an Azure Blob Storage container and either a database scoped credential built from a shared access signature or a data source the loader can reach anonymously"
+    ],
+    "assert": [
+      "BULK INSERT and OPENROWSET(BULK ...) against a path on the local filesystem both fail with Msg 12713, and the same message appears whether or not the named file exists",
+      "BULK INSERT and OPENROWSET(BULK ...) that name a DATA_SOURCE pointing at Blob Storage are accepted syntactically and attempt a network read rather than being rejected outright",
+      "an ad hoc https Blob URL with no matching CREDENTIAL object fails with Msg 15151 naming the URL itself as the credential it could not find",
+      "bcp is present in the tools image and its version banner runs without a live connection",
+      "no WITH option on BULK INSERT, including TABLOCK and BATCHSIZE, changes the Msg 12713 outcome for a local path"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Load this CSV into my Azure SQL Database table as fast as possible",
+      "Write a BULK INSERT statement to import data from blob storage",
+      "How do I use bcp to bulk copy data into Azure SQL Database",
+      "Use SqlBulkCopy to load a DataTable into Azure SQL Database from .NET",
+      "What is the fastest way to bulk insert rows from Python into Azure SQL Database"
+    ],
+    "implicit": [
+      "My BULK INSERT script works fine on SQL Server but fails here with an OPENROWSET error",
+      "Loading a few million rows is taking forever and I don't know what's throttling it",
+      "I need to get a large CSV from my laptop into the database without writing a loop of INSERT statements",
+      "Our nightly load started hitting waits it never used to have once the row count grew",
+      "How do I get OPENROWSET to read a file for a bulk load"
+    ],
+    "negative": [
+      "Design a schema for this CSV before I load anything into it",
+      "Why does my Python app fail to connect with a driver not found error",
+      "Export my whole database schema and data to a BACPAC for a staging copy",
+      "Walk me through a zero downtime column rename for this table",
+      "Why is this single SELECT query slow"
+    ]
+  }
+}

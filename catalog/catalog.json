@@ -557,14 +557,14 @@
     {
       "id": "prevent-sql-injection",
       "domain": "security-and-safe-sql",
-      "goal": "Stop the agent writing the vulnerability: parameterisation, sp_executesql, ORM raw-query interpolation, untrusted data in prompts",
+      "goal": "The identifier cases parameterisation does not cover: QUOTENAME returning NULL above 128 characters and the statement then running as a silent no-op, ORDER BY by a user-chosen column, and encrypted columns that reject literals outright",
       "wave": 1,
       "status": "planned-core",
       "value": [
         "corrects-a-wrong-assumption"
       ],
       "w1_priority": 27,
-      "notes": "Net-new. Agents interpolate strings by default and review does not catch it"
+      "notes": "Net-new. Rescoped 2026-08-29 after a probe: the original premise, that agents interpolate strings by default, is false. Both tiers reach for parameters and an allowlist unprompted, and both are clean on ownership chaining, data masking and the agent-writes-the-statement case. The value is in the identifier edge cases, measured, recorded in evidence/probes/"
     },
     {
       "id": "rls-multi-tenant",

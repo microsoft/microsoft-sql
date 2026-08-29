@@ -1,0 +1,54 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "diagnose-resource-pressure",
+  "domain": "performance-and-diagnostics",
+  "value": ["corrects-a-wrong-assumption", "not-in-training-data"],
+  "correction": "Agents troubleshooting a slow or throttled Azure SQL Database reach for the DMVs and error readings that make sense against a single, unshared database engine, when Azure SQL Database is a governed multi-tenant platform: sys.dm_db_resource_stats, the view built to answer whether it is CPU, IO or memory, does not exist on the local Azure SQL Database container at all, error 10928's 'request limit' wording names a worker limit rather than a connection count and MAXDOP (8 by default on databases created since September 2020) multiplies workers per query far more than session count does, and sys.database_scoped_configurations reporting MAXDOP 0 does not mean unlimited parallelism the way it would on a self-managed engine, it means the platform default of 8 applies invisibly.",
+  "posture": ["read", "inspect"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "related": [
+    "diagnose-connection-errors",
+    "diagnose-blocking-and-deadlocks",
+    "diagnose-slow-query",
+    "read-execution-plan",
+    "capture-with-extended-events",
+    "provision-azure-sql-db"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a live engine reachable over sqlcmd reporting SERVERPROPERTY('EngineEdition') = 5 and SERVERPROPERTY('Edition') = 'SQL Azure' (the local Azure SQL Database container)",
+      "a database created for the check, separate from other work on the same engine"
+    ],
+    "assert": [
+      "sys.dm_db_resource_stats raises Msg 208 Invalid object name against the local container, and the skill falls back to sys.dm_os_wait_stats, sys.dm_os_performance_counters, sys.dm_exec_query_resource_semaphores and sys.dm_os_memory_clerks rather than assuming it returns rows",
+      "sys.dm_user_db_resource_governance and sys.dm_instance_resource_governance are named as cloud-only and are not queried against the container as if they exist there",
+      "sys.database_scoped_configurations reports MAXDOP 0 by default and the skill does not read that as unlimited parallelism when the target is a real Azure SQL Database",
+      "sys.database_service_objectives on the container returns a fixed service objective and the skill does not treat that value as real, enforced capacity",
+      "a 10928, 10929 or 10936 diagnosis names Resource ID 1 as workers and Resource ID 2 as sessions, and is not reduced to 'lower the connection pool size' when MAXDOP is the actual multiplier",
+      "CPU-bound queries are surfaced by ordering sys.dm_exec_query_stats on total_worker_time directly, never by a worker-time-to-elapsed-time ratio filter that can silently invert"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Diagnose resource pressure on my Azure SQL database, is it CPU, IO, memory, or the service tier?",
+      "My Azure SQL Database is hitting error 10928, what resource is actually exhausted?",
+      "Run a resource pressure investigation against this Azure SQL database and tell me what to do about it"
+    ],
+    "implicit": [
+      "Queries that used to finish instantly are timing out under load, what changed on the database side?",
+      "Should I scale up my Azure SQL database or is a bad query the real problem?",
+      "sys.dm_os_performance_counters shows the buffer cache hit ratio dropping on my local container, does that mean I need a bigger service tier in the cloud?",
+      "the request limit for the database is 200 and has been reached, what does that mean"
+    ],
+    "negative": [
+      "Why does my connection attempt fail with error 18456?",
+      "Show me the execution plan for this query and tell me why it chose a scan",
+      "Two sessions are stuck blocking each other, help me find the head blocker",
+      "Rewrite this query to use a better join order",
+      "Set up extended events to capture the text of long-running queries",
+      "Create a firewall rule so my laptop can reach the database"
+    ]
+  }
+}

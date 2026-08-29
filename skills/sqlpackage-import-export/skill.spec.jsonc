@@ -1,0 +1,54 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "sqlpackage-import-export",
+  "domain": "data-movement",
+  "value": ["not-in-training-data", "multi-step-with-silent-failures"],
+  "correction": "Agents treat the dacpac and bacpac extensions as what decides what moves, when what actually decides it is which SqlPackage action ran and which property was set: Extract and Publish carry schema only by default, Export and Import always carry schema plus every base table's row data, and Extract can be told, with ExtractAllTableData, to fold row data into a file still named and shaped like a schema-only dacpac. Agents also read a completed publish or import as proof the database is now backed up, when Azure SQL Database has no BACKUP or RESTORE T-SQL and neither bacpac nor dacpac is a supported recovery mechanism. Agents assume Import behaves like Publish, when Import refuses outright, with error SQL71659, against any target database that already holds a single user object, while Publish diffs an existing target, reruns safely, and can even create the target database itself. Finally, agents export a live database without scanning it first, when a database still carrying Windows-authenticated users, server-login-mapped users or leftover Service Broker permissions fails export with SQL71627 only after schema extraction has already run, discarding the whole attempt rather than the offending object.",
+  "posture": ["read", "write", "execute"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "related": [
+    "sql-database-projects",
+    "restore-and-recover",
+    "bulk-load-and-bulk-copy",
+    "provision-azure-sql-db"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a source database, container or cloud, holding at least one table with rows and one view",
+      "SqlPackage installed as a global .NET tool",
+      "a second, empty target database to import or publish into",
+      "a third, non-empty target database to demonstrate the import refusal"
+    ],
+    "assert": [
+      "sqlpackage /Action:Extract against the source database produces a file whose only entries are model.xml, DacMetadata.xml, Origin.xml and Content_Types.xml, with no Data folder",
+      "sqlpackage /Action:Export against the same source produces a file that additionally contains a Data/<schema>.<table>/TableData-*.BCP entry for every base table holding rows, and no such entry for a view",
+      "sqlpackage /Action:Extract with /p:ExtractAllTableData=true produces a .dacpac file that also contains a Data/<schema>.<table>/TableData-*.BCP entry",
+      "sqlpackage /Action:Import into the non-empty target fails with error SQL71659 and the target is refused before any change is made",
+      "sqlpackage /Action:Import into the empty target succeeds and the row counts in the target match the source",
+      "sqlpackage /Action:Publish of the extracted dacpac against an already-published target completes with no pending changes and exit code 0",
+      "BACKUP DATABASE issued as T-SQL against the source database is rejected with error 40510"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Export my Azure SQL database to a bacpac file",
+      "How do I copy this database to another server with sqlpackage",
+      "What is the difference between a dacpac and a bacpac",
+      "Extract a dacpac from my Azure SQL database"
+    ],
+    "implicit": [
+      "The bacpac export failed with SQL71627 partway through, what happened",
+      "sqlpackage import says the database is not empty and it stopped",
+      "I want to move this database from the container to a real Azure SQL server",
+      "Someone asked me to back up the database by exporting a bacpac before a migration"
+    ],
+    "negative": [
+      "Set up point-in-time restore for my Azure SQL database",
+      "Bulk load this CSV file into my orders table",
+      "Build a SQL database project and add a post-deployment script",
+      "Provision a new Azure SQL Database server and open the firewall"
+    ]
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "read-execution-plan",
+  "domain": "performance-and-diagnostics",
+  "value": ["not-in-training-data", "multi-step-with-silent-failures"],
+  "correction": "Agents asked to read a query's execution plan reach for sys.dm_exec_query_plan or a first look at Query Store and treat what comes back as what the query actually did, when sys.dm_exec_query_plan only ever returns the compile-time estimated plan with no ActualRows attribute on any operator, and Query Store's default AUTO capture policy can leave a query absent from sys.query_store_query after several executions in a row, so the agent reports an estimate as a measurement, or treats a query's absence from Query Store as proof it never ran, when the absence is inconclusive and a plan-handle-based source answers the question directly instead of waiting on it.",
+  "posture": ["read", "inspect", "admin"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "related": [
+    "diagnose-slow-query",
+    "diagnose-resource-pressure",
+    "diagnose-blocking-and-deadlocks",
+    "capture-with-extended-events"
+  ],
+  "validation": {
+    "target": "container",
+    "setup": [
+      "a table with a few thousand rows and a predicate column that carries no index",
+      "a stored procedure wrapping a query against that table so its plan can be looked up by object id",
+      "the database's default LAST_QUERY_PLAN_STATS scoped configuration, left at its default OFF"
+    ],
+    "assert": [
+      "SET SHOWPLAN_XML ON run alongside another statement in the same batch is rejected outright rather than silently ignored",
+      "the estimated plan for a query with an unindexed equality or range predicate carries a MissingIndexes recommendation naming that column",
+      "CAST(query_plan AS NVARCHAR(MAX)) returned by sys.dm_exec_query_plan never contains the attribute ActualRows, even for a plan that has already executed at least once",
+      "sys.dm_exec_query_plan_stats returns zero rows for a plan until LAST_QUERY_PLAN_STATS is turned on for the database, and returns the actual plan with ActualRows populated once it is",
+      "calling .nodes() or .value() against the plan XML column with QUOTED_IDENTIFIER OFF raises error 1934 naming indexed views and computed columns rather than XML data type methods or the session setting",
+      "a query executed only two or three times does not appear in sys.query_store_query immediately afterward, under the database's default AUTO capture policy",
+      "sys.query_store_query_text.query_sql_text stores the engine's parameterized form of a query rather than the literal text submitted, so a LIKE search against a literal predicate value or a comment can return zero rows for a query that is genuinely captured"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Read this execution plan and tell me what's expensive",
+      "Get me the actual execution plan for this query, not the estimated one",
+      "Show me the execution plan and explain why it picked a hash join"
+    ],
+    "implicit": [
+      "Here's a query plan XML, what's the one thing wrong with it",
+      "The optimizer keeps choosing a table scan here and I don't understand why",
+      "I ran this query and now I want to see what it actually did operator by operator"
+    ],
+    "negative": [
+      "My query is slow, find out why",
+      "Sessions are blocking each other, what is holding the lock",
+      "CPU on the database is pinned near 100 percent, what is using it",
+      "Capture what queries ran over the last five minutes",
+      "Write a query that returns the top customers by order total"
+    ]
+  }
+}

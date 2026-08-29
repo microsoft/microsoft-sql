@@ -135,7 +135,12 @@ for (const name of skillDirs) {
     // ---- the sidecar is now the ONLY source of a skill's domain
     let spec;
     if (existsSync(sidecar)) {
-      try { spec = JSON.parse(readFileSync(sidecar, 'utf8')); }
+      // The extension is .jsonc: strip full-line comments before parsing, the
+      // same way generate.mjs and backfill-container-sidecars.mjs already do.
+      // A promoted sidecar can carry a leading "// path/to/file" header comment
+      // from the lab scaffolder, and a bare JSON.parse rejected two of the ten
+      // wave 1 skills on promotion until this matched the other readers.
+      try { spec = JSON.parse(readFileSync(sidecar, 'utf8').replace(/^\s*\/\/.*$/gm, '')); }
       catch (e) { errors.push(`${sidecar}: not valid JSON (${e.message})`); }
       if (spec) {
         check(spec.id === name, `${sidecar}: id "${spec.id}" does not match the directory "${name}"`);
