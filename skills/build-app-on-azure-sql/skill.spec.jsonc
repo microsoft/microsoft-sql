@@ -7,7 +7,6 @@
   "posture": ["read", "write", "provision"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db"],
-  "last_verified": "2026-08-27",
   "related": [
     "azure-sql",
     "provision-azure-sql-db",

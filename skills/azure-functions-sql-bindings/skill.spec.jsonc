@@ -7,7 +7,6 @@
   "posture": ["read", "write", "execute"],
   "maturity": "preview",
   "applies_to": ["azure-sql-db"],
-  "last_verified": "2026-08-27",
   "related": [
     "azuresql-db-functions",
     "build-app-on-azure-sql",

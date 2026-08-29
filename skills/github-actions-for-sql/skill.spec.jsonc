@@ -7,7 +7,6 @@
   "posture": ["execute", "provision", "admin"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db"],
-  "last_verified": "2026-08-28",
   "related": [
     "sql-database-projects",
     "schema-migrations-safely",

@@ -14,7 +14,6 @@
     "posture",
     "maturity",
     "applies_to",
-    "last_verified",
     "validation",
     "triggering"
   ],
@@ -105,12 +104,6 @@
         ]
       },
       "description": "Scope is fixed (rules SCP001 to SCP003). Managed Instance, Fabric SQL and SQL Server on VMs are not values here and never will be."
-    },
-    "last_verified": {
-      "type": "string",
-      "format": "date",
-      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-      "description": "Drives the staleness gate. A date that never moves is a skill nobody has re-run."
     },
     "related": {
       "type": "array",
