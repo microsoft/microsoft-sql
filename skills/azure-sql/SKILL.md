@@ -23,8 +23,9 @@ right now**, **which tool does the job**, and **which skill owns the task**.
 It deliberately holds very little content of its own, because the content that would live here is
 the content that goes stale.
 
-**Currency verified 2026-08-28.** Every dated claim below names a page to refetch. If today is far
-from that date, refetch first and correct the user rather than repeating this file.
+**Currency verified against Microsoft Learn on 2026-08-28.** Every dated claim below names a
+page to refetch. If today is far from that date, refetch first and correct the user rather than
+repeating this file.
 
 ## The first rule: fetch, do not recall
 
