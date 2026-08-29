@@ -1,0 +1,83 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "langchain-and-llamaindex-on-azure-sql",
+  "domain": "ai-vector-and-rag",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption", "changes-too-fast-to-memorize"],
+  "correction": "Agents wire LangChain or LlamaIndex to Azure SQL Database by pointing a SQLAlchemy URL at it and taking the framework defaults, believing the framework knows the dialect and that its stated read-only, table-scoping and no-DML guardrails are enforced. Measured on 2026-08-28 by installing the packages, reading the shipped prompts and running every statement against an Azure SQL Database engine (langchain 1.3.18, langchain-community 0.4.2, langchain-classic 1.0.8, langchain-sqlserver 1.0.1, llama-index-core 0.14.24), four things are wrong at once. First, SQLDatabase.dialect is the literal string mssql and the agent prompt SQL_PREFIX, together with the hub prompt langchain-ai/sql-agent-system-prompt that the toolkit's own docstring recommends, still says to always limit the query to at most top_k results with no T-SQL branch; the per-dialect prompt that says TOP exists only on the legacy chain path, and LlamaIndex has no per-dialect prompt at all. The resulting failure misdirects: SELECT ... FROM t LIMIT 10 returns Msg 102 Incorrect syntax near '10' rather than near LIMIT, because T-SQL parses LIMIT as a table alias, and the sql_db_query_checker tool the agent is told to call before every query lists eight common mistakes of which dialect pagination is not one, so the repair loop edits the number and retries. Second, langchain-sqlserver creates its table with PRIMARY KEY NONCLUSTERED, leaving a heap that refuses CREATE VECTOR INDEX with Msg 42254, and the package contains no VECTOR_SEARCH and no WITH APPROXIMATE anywhere, so every retrieval is an exact full scan for the life of the table. Third, LlamaIndex ships no Azure SQL Database vector store at all, so an agent installs a neighbouring package for a different database. Fourth, include_tables scopes only what the model is told about and a query against an excluded table still returned a row, the no-DML instruction is a sentence in a prompt while db.run committed an INSERT and a CREATE and DROP pair, and sample_rows_in_table_info defaults to 3 so the schema tool puts three real rows of live data into the prompt. Being wrong costs retry loops the model cannot diagnose from the error it is given, a retrieval path that cannot be indexed without rebuilding the table, a numeric metadata filter that throws Msg 8115 arithmetic overflow at read time because the framework casts to NUMERIC(10, 2), and a tool surface that hands whatever the login can do to any text that reaches the model.",
+  "posture": ["read", "write", "execute"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "last_verified": "2026-08-28",
+  "related": [
+    "vector-search-azure-sql",
+    "rag-on-azure-sql",
+    "rag-local-with-container",
+    "embeddings-and-external-models",
+    "t-sql-correctness",
+    "connect-from-python",
+    "prevent-sql-injection",
+    "sqlalchemy-azure-sql",
+    "chunking-strategies",
+    "azuresql-db-rag"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a Python environment with langchain, langchain-community, langchain-sqlserver and llama-index-core installed, and the pinned versions recorded",
+      "a database reachable with permission to create a table and an index, plus a second login granted read permission only",
+      "a table with a few fake rows, and an embedding function whose output dimension is known"
+    ],
+    "assert": [
+      "the system prompt handed to the agent or the query engine names T-SQL and SELECT TOP (n) explicitly, and does not interpolate the dialect string into the sentence describing syntax",
+      "no generated query in the traces contains a LIMIT clause, and a test fails if one does",
+      "an UPDATE issued through the agent's own connection is denied by the engine rather than by the prompt",
+      "a query against a table outside include_tables is refused by permissions, not merely absent from the schema tool output",
+      "sample_rows_in_table_info is 0, or the sample rows come from fake data supplied through custom_table_info",
+      "the vector store's table carries a clustered index if a vector index is ever intended",
+      "the declared embedding_length equals the dimension requested from the embedding model and is 1998 or fewer",
+      "no metadata key that anything filters on numerically holds a value larger than NUMERIC(10, 2) can carry",
+      "the framework versions are pinned and recorded, and the prompt and vector store behaviour were re-checked at the last upgrade"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the langchain-and-llamaindex-on-azure-sql skill",
+      "Wire LangChain up to my Azure SQL Database",
+      "Build a SQL agent over Azure SQL Database with the SQLDatabaseToolkit",
+      "Use LlamaIndex to answer questions over tables in Azure SQL Database",
+      "Which LangChain vector store should I use with Azure SQL Database",
+      "Set up text to SQL against Azure SQL Database in Python"
+    ],
+    "implicit": [
+      "the agent keeps generating LIMIT and the database rejects it",
+      "my SQL agent gets incorrect syntax near a number and retries forever without fixing it",
+      "why does the query checker approve a query the database then refuses",
+      "I cannot create a vector index on the table the vector store made for me",
+      "is there a LlamaIndex integration for Azure SQL Database",
+      "how do I stop the SQL agent from being able to write to the database",
+      "the schema tool is putting real customer rows into the prompt",
+      "my metadata filter started failing with arithmetic overflow",
+      "does include_tables actually stop the agent reading other tables"
+    ],
+    "routing": [
+      "add a natural language question answering feature over an existing Azure SQL Database schema",
+      "port a LangChain application from another database to Azure SQL Database",
+      "put a chat interface in front of Azure SQL Database using a Python agent framework"
+    ],
+    "negative": [
+      "What are the restrictions on the vector data type in Azure SQL Database",
+      "Why does my similarity query scan the whole table instead of using the vector index",
+      "Show me the syntax for VECTOR_DISTANCE and the distance metrics",
+      "Build a retrieval augmented generation pipeline over my document library on Azure SQL Database",
+      "How do I keep embeddings in sync when the source rows change",
+      "Run a local RAG prototype offline against the Azure SQL Database container",
+      "Build a RAG scenario on the container with a local embedding model",
+      "Create an external model and call AI_GENERATE_EMBEDDINGS from T-SQL",
+      "Which permissions does an external model endpoint need and how does the allowlist work",
+      "Install the ODBC driver and write a Python connection string for Azure SQL Database",
+      "Get a Microsoft Entra token in Python and hand it to the driver",
+      "Rewrite this PostgreSQL query as T-SQL",
+      "Design the schema for my orders and customers tables"
+    ]
+  }
+}

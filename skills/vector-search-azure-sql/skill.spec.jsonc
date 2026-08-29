@@ -3,7 +3,7 @@
   "id": "vector-search-azure-sql",
   "domain": "ai-vector-and-rag",
   "value": ["not-in-training-data", "corrects-a-wrong-assumption", "changes-too-fast-to-memorize"],
-  "correction": "Agents write similarity search on Azure SQL Database as SELECT TOP (k) ... ORDER BY VECTOR_DISTANCE('cosine', embedding, @q) and believe a vector index accelerates it. Measured on 2026-08-28 against a live Azure SQL Database carrying a current DiskANN index, and reproduced identically on the local Azure SQL Database container, that query compiles to a Clustered Index Scan with a per row Compute Scalar and never touches the index; only SELECT TOP (N) WITH APPROXIMATE over VECTOR_SEARCH ordered by the distance column produces a Vector Index Seek. Every wrong shape returns the correct rows and raises nothing, including WITH APPROXIMATE against a table that has no vector index at all, so the mistake passes every test at development scale and appears in production only as latency and compute burn on every single query, on a table that will keep growing. The older TOP_N parameter that most published examples still show now fails outright with Msg 42274. The second half of the correction is that a vector column is not an ordinary column: it cannot be a key, a CHECK or DEFAULT constraint, a statistics target, a partition key or a persisted computed column, it cannot be compared, sorted, grouped, deduplicated, aggregated or carried across a UNION, its dimension cannot be changed by ALTER COLUMN even on an empty table, the ceiling is 1998 dimensions so a 3072 dimension embedding model does not fit, and the index it needs refuses to build under 100 rows and then blocks TRUNCATE TABLE, ALTER INDEX and data-tier package import for the life of the table.",
+  "correction": "Agents write similarity search on Azure SQL Database as SELECT TOP (k) ... ORDER BY VECTOR_DISTANCE('cosine', embedding, @q) and believe a vector index accelerates it. Measured on 2026-08-28 against a live Azure SQL Database carrying a current DiskANN index, and reproduced identically on the local Azure SQL Database container, that query compiles to a Clustered Index Scan with a per row Compute Scalar and never touches the index; only SELECT TOP (N) WITH APPROXIMATE over VECTOR_SEARCH ordered by the distance column produces a Vector Index Seek. Every wrong shape returns the correct rows and raises nothing, including WITH APPROXIMATE against a table that has no vector index at all, so the mistake passes every test at development scale and appears in production only as latency and compute burn on every single query, on a table that will keep growing. The older TOP_N parameter that most published examples still show now fails outright with Msg 42274. The second half of the correction is that a vector column is not an ordinary column: it cannot be a key, a CHECK or DEFAULT constraint, a statistics target, a partition key or a persisted computed column, it cannot be compared, sorted, grouped, deduplicated, aggregated or carried across a UNION, its dimension cannot be changed by ALTER COLUMN even on an empty table, the ceiling is 1998 dimensions so a 3072 dimension embedding model does not fit, and the index it needs refuses to build under 100 rows and then blocks TRUNCATE TABLE, ALTER INDEX and data-tier package import for the life of the table. Two further beliefs a model states unprompted are wrong and are corrected here. It says a DiskANN vector index cannot be built on the local Azure SQL Database container; the same index over the same 140 rows built on the container in 145 ms and in the cloud in 276 ms, and approximate search returned the same rows from both, measured in rag-local-with-container's parity reference. It also says PREVIEW_FEATURES = ON is a prerequisite for creating a vector index; the index builds with that database scoped configuration reading its default of 0, and the only surface the documentation gates on it, vector(n, float16), was accepted without it as well.",
   "posture": ["read", "write", "execute"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
@@ -35,7 +35,8 @@
       "no vector column appears as a key, a CHECK or DEFAULT constraint, a persisted computed column, a partition key or a statistics target",
       "deduplication keys off the source text or a hash of it rather than off the embedding",
       "the vector index is created as a step after the data load, not as part of a package import",
-      "any process that truncates or bulk replaces the table drops and recreates the vector index"
+      "any process that truncates or bulk replaces the table drops and recreates the vector index",
+      "no plan makes PREVIEW_FEATURES a precondition for a vector column or a vector index, and none defers the index because the target engine is the local container"
     ]
   },
   "triggering": {
@@ -54,7 +55,8 @@
       "The size (3072) given to the column exceeds the maximum allowed",
       "I cannot truncate my table any more since I added the vector index",
       "is my query actually using the vector index or is it scanning",
-      "how do I deduplicate rows that have the same embedding"
+      "how do I deduplicate rows that have the same embedding",
+      "do I have to turn on PREVIEW_FEATURES before CREATE VECTOR INDEX will work"
     ],
     "routing": [
       "store OpenAI embeddings in Azure SQL Database and query them",

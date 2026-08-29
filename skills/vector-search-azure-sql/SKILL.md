@@ -214,6 +214,16 @@ Requirements, all measured:
   rather than a fallback.
 - The `METRIC` values are the three above. `TYPE` accepts `DiskANN` and defaults to it. `MAXDOP`
   bounds the build.
+- **`PREVIEW_FEATURES` is not a prerequisite.** The index builds with that database scoped
+  configuration reading `0`, which is its default. Measured: with `PREVIEW_FEATURES = 0` the index
+  built, appeared in `sys.vector_indexes`, and served an approximate search. The only surface the
+  documentation gates on that configuration is `vector(n, float16)`, and the database measured
+  accepted a `float16` column without it as well. Setting it is not the step that is missing.
+- **The local Azure SQL Database container builds it too.** This is not a cloud-only feature. The
+  same statement over the same 140 rows built the index on both engines, 145 ms on the container
+  against 276 ms in the cloud, and approximate search returned the same rows from both. That parity
+  measurement belongs to `rag-local-with-container`, in its `references/parity.md`, and stays
+  there.
 
 What it takes away once it exists:
 
@@ -252,6 +262,8 @@ nonclustered index.
   the deployment pipeline creates it as a step after the data load rather than as part of a
   package import.
 - Any process that truncates or bulk replaces the table drops and recreates the vector index.
+- No script sets `PREVIEW_FEATURES` as a precondition for a vector column or a vector index, and no
+  plan defers the index because the target engine is the local container.
 - The preview status of the index is recorded wherever a production commitment is made.
 
 ## Do not
@@ -268,6 +280,10 @@ nonclustered index.
 - Do not add a vector column to a table whose deployment path is a data-tier package while a vector
   index is defined on it.
 - Do not raise the compatibility level expecting to unlock the type. It works at every level.
+- Do not set `PREVIEW_FEATURES = ON` to make `CREATE VECTOR INDEX` work. It is not the gate, and
+  the index builds with that configuration at its default.
+- Do not report that the vector index cannot be built on the local Azure SQL Database container. It
+  builds there, and `rag-local-with-container` holds the measurement.
 - Do not build the end to end ingest, chunking and grounding pipeline here. That is
   `rag-on-azure-sql`.
 

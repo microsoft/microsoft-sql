@@ -28,11 +28,14 @@ about identity live in `diagnose-connection-errors`.
 | `33134` | The principal could not be resolved | The logical server has no identity, or that identity cannot read Microsoft Graph. Only ever seen when a service principal runs the statement |
 | `33131` | The principal has a duplicate display name | Microsoft Entra ID allows two applications to share a display name and the engine requires a unique one. Answer with `WITH OBJECT_ID` and an alias |
 | `37545` | The object id is not valid, or the caller lacks permission | The object id given to `WITH OBJECT_ID` does not exist in this tenant, or the wrong one of the two portal object ids was used |
+| `18456` | `Login failed for user '<name>'.` | The credential was evaluated and refused: the login does not exist, is disabled, or the secret is wrong |
 | `18456` naming `<token-identified principal>` | Login failed for that literal user name | The token was accepted and no matching principal exists in the database. The database user was never created, or was created in the wrong database |
-| `4060` after a successful identity setup | Cannot open the requested database | A user exists, but not in the database the connection asked for |
+| `4060` | `Cannot open database "<name>" requested by the login. The login failed.` | The login is valid and has no user in that database, or the database name is wrong. After a deployment, almost always a missing database user |
 
-`18456` and `4060` are shared with `diagnose-connection-errors`. That skill owns their general
-triage; the identity-shaped versions above are answered here.
+`18456` and `4060` are answered here, both the identity-shaped versions and the plain ones, because
+both arrive after the credential was evaluated. `40532` reads identically and is not either of
+them: it is the gateway refusing before a database was reached, and it belongs to
+`diagnose-connection-errors` along with everything else that fails before that point.
 
 ## Msg 33134 in full
 
@@ -105,6 +108,9 @@ Four rules the documentation is explicit about:
 4. **It is the enterprise application object id**, not the one shown on the app registration page.
    The documentation carries a warning about exactly this pair, because both are labelled Object ID
    and only one works.
+
+Naming an Azure resource the same as an existing app registration is one way to arrive here: two
+principals then share a display name, and `Msg 33131` is the collision being reported.
 
 The display name in Microsoft Entra ID and the alias in the database are not synchronised in either
 direction. Renaming one never changes the other.

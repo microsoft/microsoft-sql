@@ -3,11 +3,11 @@
   "id": "connect-from-dotnet",
   "domain": "drivers-and-connectivity",
   "value": ["not-in-training-data", "corrects-a-wrong-assumption"],
-  "correction": "Agents treat Microsoft Entra authentication in .NET as a connection string setting alone, writing Authentication=Active Directory Default against a single Microsoft.Data.SqlClient package reference; since version 7.0 the core package no longer carries the Entra dependencies, so every Active Directory mode throws ArgumentException, Cannot find an authentication provider, at Open time until Microsoft.Data.SqlClient.Extensions.Azure is added as a second package reference.",
+  "correction": "Agents treat Microsoft Entra authentication in .NET as a connection string setting alone, writing Authentication=Active Directory Default against a single Microsoft.Data.SqlClient package reference; since version 7.0 the core package no longer carries the Entra dependencies, confirmed in the restored graph for 7.0.2, so it registers zero authentication providers and every Active Directory mode has nothing to resolve to until Microsoft.Data.SqlClient.Extensions.Azure is added as a second package reference. Which failure a developer sees depends on the server, because the provider is looked up during the login exchange rather than before it: a server offering Microsoft Entra authentication produces ArgumentException, Cannot find an authentication provider, at Open time, while the local Azure SQL Database container refuses the login first and returns SqlException 18456, measured on 2026-08-28, which is a subject for diagnose-connection-errors rather than for this skill. The package rule is a property of the dependency graph and holds on both, so a local run is not where the exception reproduces and is not evidence that the extension package can be skipped.",
   "posture": ["read", "write", "execute"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
-  "last_verified": "2026-08-27",
+  "last_verified": "2026-08-28",
   "related": [
     "connect-to-azure-sql",
     "diagnose-connection-errors",
@@ -26,7 +26,8 @@
       "the project references Microsoft.Data.SqlClient and not System.Data.SqlClient",
       "Encrypt is absent or set to Mandatory or Strict, and TrustServerCertificate is absent or false",
       "a user-assigned managed identity supplies its client id in User Id",
-      "connection strings differ only where a separate pool is intended"
+      "connection strings differ only where a separate pool is intended",
+      "the extension package requirement is decided from the dependency graph and the authentication mode, not from the outcome of a connection to the local container"
     ]
   },
   "triggering": {
@@ -36,7 +37,7 @@
       "Set up managed identity authentication with Microsoft.Data.SqlClient"
     ],
     "implicit": [
-      "Cannot find an authentication provider for ActiveDirectoryDefault",
+      "do I need Microsoft.Data.SqlClient.Extensions.Azure to use Active Directory Default",
       "my API worked locally with a password but fails in Azure with a login error",
       "should I use System.Data.SqlClient or Microsoft.Data.SqlClient",
       "how do I size the connection pool for a .NET service on Azure SQL"

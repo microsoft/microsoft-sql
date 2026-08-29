@@ -1,0 +1,74 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "github-actions-for-sql",
+  "domain": "schema-change-and-cicd",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption", "changes-too-fast-to-memorize", "multi-step-with-silent-failures"],
+  "correction": "Wiring a workflow to deploy schema to Azure SQL Database, an agent composes the federated credential subject from the documented template `repo:OWNER/REPO:ref:refs/heads/main`, adjusting the job segment for the environment it just added. No amount of care with that segment helps, because the subject the platform actually presents is no longer the documented shape at all: the default prefix now carries numeric owner and repository ids, measured as `repo:OWNER@<ownerId>/REPO@<repoId>:environment:<name>` on a repository whose subject claim is reported as the default and not customised, which no hand-written credential will match. The prefix has to be read from the repository, not written. The identity provider rejects it with AADSTS700213, which does quote the presented subject verbatim, and the login step then prints `Login failed with Error: The process '/usr/bin/az' failed with exit code 1. Double check if the 'auth-type' is correct`, naming an input that is not the problem. The cost compounds one step later, because the deployment action opens the runner's firewall by parsing the client address out of a deliberately failed connection, so any authentication failure surfaces as `Failed to add firewall rule. Unable to detect client IP Address`, and a pipeline reports a firewall problem for an identity problem. The gate is also weaker than it reads: a required-reviewer rule is refused outright on a private repository whose plan does not include it, with the environment still created and the workflow still valid, and it only ever holds jobs that name the environment, so a second job in the same workflow reads the same repository secrets and deploys without waiting.",
+  "posture": ["execute", "provision", "admin"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db"],
+  "last_verified": "2026-08-28",
+  "related": [
+    "sql-database-projects",
+    "schema-migrations-safely",
+    "deploy-app-to-azure",
+    "entra-id-auth",
+    "provision-azure-sql-db",
+    "connect-to-azure-sql",
+    "azuresql-db-ci"
+  ],
+  "validation": {
+    "target": "cloud",
+    "setup": [
+      "a repository that can run workflows, with a workflow able to request an identity token",
+      "an application identity or user-assigned identity in the directory that can hold a federated credential",
+      "a logical server and database already provisioned, since the workflow deploys schema and does not create infrastructure",
+      "an identity with a role on the logical server resource if the deployment step is expected to manage a firewall rule"
+    ],
+    "assert": [
+      "the federated credential subject was taken from what the platform presents rather than composed from a documented template, and the way it was obtained is stated",
+      "the subject matches the job shape that will actually run, including the environment segment whenever the job names an environment",
+      "the workflow grants the identity-token permission at the job or workflow level, because without it the login step has no token to exchange",
+      "no database password, client secret or connection secret is stored in the repository, and the connection string carries an identity-based authentication keyword instead",
+      "the plan states how the runner reaches the server through the firewall, and the chosen answer is named rather than left to the action's default behaviour",
+      "an authentication failure is not reported to the user as a firewall failure, and the underlying message is read before the surface one",
+      "the deployment step is given a target file whose type matches what the step is asked to do, and the action input naming the operation is supplied wherever it is required",
+      "the runner has the deployment tool available, because the hosted image does not carry it",
+      "the environment gate is stated to hold only the jobs that name it, and any job outside it that can reach the same secrets is called out"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the github-actions-for-sql skill",
+      "write a GitHub Actions workflow that deploys my database project to Azure SQL Database",
+      "set up federated credentials so my workflow logs in to Azure without a stored password",
+      "gate my database deployment on an environment approval",
+      "publish this dacpac from CI on merge to main"
+    ],
+    "implicit": [
+      "my workflow logs in fine until I add an environment to the job, then it fails",
+      "no matching federated identity record found for presented assertion subject",
+      "the deploy step says it cannot detect the client IP address",
+      "how does the runner get through the Azure SQL firewall when its address changes every run",
+      "the pipeline cannot find sqlpackage on the runner",
+      "I do not want a SQL password sitting in repository secrets"
+    ],
+    "routing": [
+      "which action deploys a sqlproj rather than a prebuilt dacpac",
+      "can the workflow produce a deployment script instead of deploying",
+      "what permissions does the workflow need to request a token",
+      "do environment approvals stop other jobs in the same workflow",
+      "why does the login error mention auth-type"
+    ],
+    "negative": [
+      "set the target platform on my SQL database project so the build validates against Azure SQL Database",
+      "my dacpac publish reported success and the column data is gone",
+      "should this column change be done as expand and contract",
+      "deploy my web app and its database to Azure with azd",
+      "create the database user for my application identity and grant it roles",
+      "run integration tests against a local database container in CI",
+      "create an Azure SQL database and a logical server in my subscription",
+      "add retry logic to my data access layer"
+    ]
+  }
+}

@@ -39,11 +39,20 @@ skills:
   - ./skills/design-azure-sql-schema
   - ./skills/diagnose-connection-errors
   - ./skills/ef-core-azure-sql
+  - ./skills/embeddings-and-external-models
   - ./skills/entra-id-auth
+  - ./skills/github-actions-for-sql
+  - ./skills/langchain-and-llamaindex-on-azure-sql
   - ./skills/prisma-azure-sql
   - ./skills/provision-azure-sql-db
   - ./skills/provision-hyperscale
+  - ./skills/rag-local-with-container
   - ./skills/rag-on-azure-sql
+  - ./skills/rls-multi-tenant
+  - ./skills/schema-migrations-safely
+  - ./skills/sql-database-projects
   - ./skills/sqlalchemy-azure-sql
   - ./skills/t-sql-correctness
+  - ./skills/t-sql-json-and-openjson
+  - ./skills/t-sql-upserts-merge
   - ./skills/vector-search-azure-sql

@@ -3,7 +3,7 @@
   "id": "diagnose-connection-errors",
   "domain": "drivers-and-connectivity",
   "value": ["changes-too-fast-to-memorize", "multi-step-with-silent-failures"],
-  "correction": "Shown a failed connection to Azure SQL Database, an agent reads every error as a credential or connection-string problem and starts editing the connection string, when the error number already names the layer that rejected it: 40615 is a missing firewall rule that no connection string can fix, 40613 on the first connect to a paused serverless or free database is expected behaviour whose only correct response is to retry, 42101 and 47073 mean public network access is turned off, and a certificate-chain failure is a client trust store problem that trusting the server certificate hides rather than fixes.",
+  "correction": "Shown a failed connection to Azure SQL Database, an agent reads every error as a credential or connection-string problem and starts editing the connection string, when the error number already names the layer that rejected it and that layer is usually in front of the login rather than behind it: 40615 is a missing IP firewall rule and 40914 the same refusal from a virtual network rule, neither of which any connection string can fix, 42101 and 47073 mean public network access is turned off, 40532 is the gateway refusing before a database was reached at all and is not the login failure it reads as, 47072 is a TLS version the server will not accept, and a certificate-chain failure is a client trust store problem that trusting the server certificate hides rather than fixes. The failures carrying no SQL number at all are the ones most often given up on as unknown, when their message text is the whole diagnosis.",
   "posture": ["read", "inspect"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
@@ -19,14 +19,19 @@
     "target": "both",
     "setup": [
       "a reachable database and a client that can attempt a connection",
+      "an attempt from an address that no firewall rule covers",
+      "an attempt against a server whose public network access is disabled",
       "a second attempt with a deliberately wrong password",
       "a second attempt naming a database that does not exist"
     ],
     "assert": [
-      "a wrong password returns 18456 and the skill routes it to credentials, not to the firewall",
-      "a database name that does not exist returns 4060 and the skill routes it to the database, not to the login",
+      "an address with no firewall rule returns 40615 and the skill answers with a firewall rule rather than an edit to the connection string, and accounts for the five minute propagation delay",
+      "a server with public network access disabled returns 47073 and is not diagnosed as a credential problem",
       "an error carrying no SQL number is classified from its message text rather than reported as unknown",
-      "40613 is classified as expected and retryable when the target is a serverless or free database"
+      "a certificate-chain failure is answered by fixing the client trust store, never by trusting the server certificate",
+      "a wrong password returns 18456, and the skill names the layer that rejected it and hands it to entra-id-auth rather than answering it here or blaming the firewall",
+      "a database name that does not exist returns 4060, and is likewise named and handed on rather than answered as a firewall or connection-string fault",
+      "40613 is named as expected serverless resume and handed to connect-to-azure-sql rather than answered here"
     ]
   },
   "triggering": {
@@ -34,17 +39,22 @@
       "Use the diagnose-connection-errors skill on this stack trace"
     ],
     "implicit": [
-      "Login failed for user, what do I do",
       "Cannot open server requested by the login. Client with IP address is not allowed to access the server",
-      "Database on server is not currently available. Please retry the connection later",
       "The certificate chain was issued by an authority that is not trusted",
-      "my app connects fine on my laptop but gets a timeout once it is deployed"
+      "A connection was successfully established with the server, but then an error occurred during the pre-login handshake",
+      "we turned off public network access and now every connection fails with 47073, what is that",
+      "the gateway returned 40532 and the server name looks right to me"
     ],
     "routing": [
       "why can my database not be reached",
-      "the connection worked yesterday and fails today"
+      "the connection worked yesterday and fails today",
+      "my app connects fine on my laptop but gets a timeout once it is deployed"
     ],
     "negative": [
+      "Database on server is not currently available. Please retry the connection later",
+      "my first connection to the serverless database fails and the second one works, what should I add",
+      "Login failed for user, what do I do",
+      "Cannot open database requested by the login. The login failed",
       "write the retry policy for my data access layer",
       "which driver should I use from Python",
       "my query is slow, find out why",

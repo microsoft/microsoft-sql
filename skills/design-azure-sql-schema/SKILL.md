@@ -113,30 +113,13 @@ code NVARCHAR(64) COLLATE Latin1_General_CS_AS NOT NULL
 
 Covered in section 3, because it is the expensive half.
 
-### The retrofit an agent will propose does not work
+### Where the decision is made
 
-`ALTER DATABASE ... COLLATE` is accepted and it changes almost nothing. Measured:
-
-| | Before | After `ALTER DATABASE ... COLLATE Latin1_General_CS_AS` |
-|---|---|---|
-| `sys.databases.collation_name` | `SQL_Latin1_General_CP1_CI_AS` | `Latin1_General_CS_AS` |
-| An **existing** column | `SQL_Latin1_General_CP1_CI_AS` | `SQL_Latin1_General_CP1_CI_AS`, unchanged |
-| A **new** column | n/a | `Latin1_General_CS_AS` |
-
-The database now holds two collations, and the first join across them fails:
-
-```text
-Msg 468, Cannot resolve the collation conflict between "Latin1_General_CS_AS"
-and "SQL_Latin1_General_CP1_CI_AS" in the equal to operation.
-```
-
-A foreign key across them is refused outright with `Msg 1757`. **Consequence of being wrong: the
-apparent fix leaves the database in a state where queries that used to work now fail**, and the
-real repair is rewriting every affected column with `ALTER TABLE ... ALTER COLUMN ... COLLATE` and
-rebuilding every index on them.
-
-**So state the collation in `CREATE DATABASE`, or accept the default deliberately.** There is no
-server collation to inherit here; the database is the only place the decision is made.
+**State the collation in `CREATE DATABASE`, or accept the default deliberately.** There is no
+server collation to inherit here, the database is the only place the decision is made, and
+`ALTER DATABASE ... COLLATE` afterwards re-collates nothing that already exists. Measured output
+for that statement is in
+[references/verified-behaviour.md](references/verified-behaviour.md).
 
 ## 3. The implicit conversion that costs the seek
 
@@ -309,8 +292,6 @@ naming its collation, is `provision-azure-sql-db`.
 - Do not read message 1945 as informational. It is the only notice given, and the failure it
   predicts is `Msg 1946` on a production insert.
 - Do not size a key column in characters. The limit is bytes, and Unicode doubles it.
-- Do not plan to fix the collation later. `ALTER DATABASE ... COLLATE` leaves every existing column
-  behind and buys `Msg 468` on the next join and `Msg 1757` on the next foreign key.
 - Do not use `VARCHAR` under the default collation for anything an application looks up by value.
   The lookup scans, silently, forever.
 - Do not add `LOWER()` or `UPPER()` around a column to fix a collation problem. That is

@@ -36,10 +36,25 @@ how to size a pool before it becomes an incident.
 | Installing the driver, per-language syntax, pool configuration in .NET | `connect-from-dotnet` |
 | The same for Python, including ODBC driver installation | `connect-from-python` |
 | The same for TypeScript and Node.js | `connect-from-typescript-and-node` |
-| Turning a specific error number into a cause | `diagnose-connection-errors` |
+| Turning a specific error number into a cause | `diagnose-connection-errors`, except 40613, which is this skill's own correction and stays here |
 | A database already under resource pressure | `diagnose-resource-pressure` |
 | Creating the server, database and firewall rule | `provision-azure-sql-db` |
 | Getting an application identity working | `entra-id-auth` |
+
+## What of this carries over to the local container
+
+Four skills point here for doctrine and all four declare the Azure SQL Database container a
+supported target. **This skill does not**, and that is deliberate rather than an oversight, because
+about half of what follows describes properties of the cloud service and not of the engine.
+
+| Carries over unchanged | Does not |
+|---|---|
+| The driver choice per language | Transient-fault retry, because a local engine has no throttling or failover to retry through |
+| Encryption on, certificate validation on, with the container's self-signed certificate the one exception described below | Error 40613 and serverless resume, which are cloud behaviours with no local equivalent |
+| Pool sizing as a discipline | The specific worker-limit arithmetic, which comes from the service tier |
+
+So a reader working locally should take the driver and encryption sections and skip the rest, and
+should not conclude from a clean local run that the retry story has been exercised. It has not been.
 
 ## Retry is part of the first version, not the hardening pass
 

@@ -1,0 +1,79 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "embeddings-and-external-models",
+  "domain": "ai-vector-and-rag",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption", "changes-too-fast-to-memorize", "multi-step-with-silent-failures"],
+  "correction": "Agents believe CREATE EXTERNAL MODEL is the step that proves an embedding endpoint works, and they believe a database scoped credential's name is a label. Both are wrong, and measured on 2026-08-28 against a live Azure SQL Database, the local Azure SQL Database container and a real Azure OpenAI deployment created for the run, the DDL accepted an http location, a domain no allowlist permits, a credential whose name can never match and a deployment that does not exist, all of it succeeding and appearing in sys.external_models. Every one of those failures arrives at the first AI_GENERATE_EMBEDDINGS wearing the name of an object rather than the rule that was broken: the credential name has to be a URL prefix of the model's LOCATION or the call fails with Msg 31630 saying the credential cannot be used, which reads as a broken secret; a managed identity credential without SECRET '{\"resourceid\":\"https://cognitiveservices.azure.com\"}' fails with Msg 33047 about failing to decrypt a secret, which reads as a master key problem; a missing EXECUTE ON EXTERNAL MODEL grant fails with Msg 15151 saying the model does not exist, which reads as a missing object. MODEL_TYPE = EMBEDDINGS is the only value that exists, so the generation half of a pipeline cannot live in the engine. AI_GENERATE_CHUNKS supports only chunk_type = FIXED, as an unquoted keyword, sized in characters and splitting mid word. AI_GENERATE_EMBEDDINGS is one serial HTTP round trip per row, measured at 295 ms for one call and 8963 ms elapsed for a 25 row UPDATE, so the set based statement an agent writes first is a multi hour transaction. And Azure SQL Database only calls hosts on a fixed allowlist, refusing everything else with Msg 31612 before DNS, including the resource manager and Cosmos DB endpoints, while the container enforces no allowlist at all and happily returns HTTP 200 from a public non-Azure host. Being wrong costs deployment that passes every gate and fails on the first row of the first ingest, hours spent regenerating a key that was never the problem, an ingest that holds one transaction open for the length of the corpus, and a pipeline proved locally that is refused by policy on its first cloud run.",
+  "posture": ["read", "write", "execute", "admin"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "last_verified": "2026-08-28",
+  "related": [
+    "vector-search-azure-sql",
+    "rag-on-azure-sql",
+    "rag-local-with-container",
+    "langchain-and-llamaindex-on-azure-sql",
+    "chunking-strategies",
+    "entra-id-auth",
+    "connect-to-azure-sql",
+    "azuresql-db-rag"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a database with permission to create a master key, a database scoped credential and an external model",
+      "an embedding deployment reachable on a domain the target engine is allowed to call",
+      "a second low privilege database user, for the permission checks"
+    ],
+    "assert": [
+      "every external model was called once successfully immediately after it was created",
+      "the database scoped credential's name is a URL prefix of the external model's LOCATION",
+      "the production credential uses managed identity with a resourceid secret, and the server identity holds a role on the target resource",
+      "no key, endpoint host name or resource name appears in source control",
+      "the dimension requested in PARAMETERS equals the declared column dimension",
+      "embedding runs in bounded batches filtered to rows with no vector, and no statement embeds a whole table",
+      "the application caller holds EXECUTE on the model and does not hold CREATE EXTERNAL MODEL",
+      "every endpoint the design depends on was checked against the allowlist from a cloud database rather than from the container",
+      "chunking uses chunk_type = FIXED with sizes stated in characters"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the embeddings-and-external-models skill",
+      "Create an external model and call the embedding function from T-SQL",
+      "Create an external model and call AI_GENERATE_EMBEDDINGS",
+      "How do I generate embeddings inside Azure SQL Database without an application",
+      "Which permissions does an external model endpoint need and how does the allowlist work",
+      "Call a REST endpoint from Azure SQL Database with sp_invoke_external_rest_endpoint",
+      "Chunk text in the database with AI_GENERATE_CHUNKS"
+    ],
+    "implicit": [
+      "the database scoped credential cannot be used to invoke an external rest endpoint",
+      "my embedding call says the external model does not exist but I can see it in the catalog",
+      "connections to the domain are not allowed when my query calls an endpoint",
+      "fail to obtain or decrypt secret for credential when I use managed identity from SQL",
+      "accessing the external endpoint is only allowed via HTTPS",
+      "my update that embeds a whole table has been running for hours",
+      "can I create a chat model in Azure SQL Database and call it from a query",
+      "how do I authenticate the database to Azure OpenAI without putting a key in the connection string",
+      "which chunk types does the built in chunking function support"
+    ],
+    "routing": [
+      "embed a column of text without writing an application loop",
+      "let the database call our embedding endpoint directly",
+      "set up the credential and permissions so a query can reach an external endpoint"
+    ],
+    "negative": [
+      "What are the restrictions on the vector data type in Azure SQL Database",
+      "Why does my similarity query scan the whole table instead of using the vector index",
+      "Show me the syntax for VECTOR_DISTANCE and the distance metrics",
+      "Build a retrieval augmented generation pipeline over my document library on Azure SQL Database",
+      "Chunk my documents and keep the embeddings up to date as the source changes",
+      "Run a local RAG prototype offline against the Azure SQL Database container",
+      "Build a RAG scenario on the container",
+      "Set up full text search and rank the results",
+      "Design the schema for my orders and customers tables",
+      "Add retry and connection pooling to my data access layer"
+    ]
+  }
+}

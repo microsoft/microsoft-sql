@@ -7,6 +7,7 @@ became true is given, because that is the part most likely to be out of date in 
 
 - [How to use this file](#how-to-use-this-file)
 - [Statements and clauses](#statements-and-clauses)
+  - [The local container is the exception](#the-local-container-is-the-exception)
 - [Operators and expressions](#operators-and-expressions)
 - [Data types](#data-types)
 - [Things that changed recently](#things-that-changed-recently)
@@ -32,11 +33,24 @@ Two rows deliberately have no answer here, because another skill owns them: upse
 | `RETURNING` on delete | `OUTPUT DELETED.<cols>` | `INSERTED` is unavailable on `DELETE`, `DELETED` on `INSERT` |
 | `ON CONFLICT ... DO UPDATE` | See `t-sql-upserts-merge` | |
 | `CREATE TABLE IF NOT EXISTS` | `IF OBJECT_ID(N'dbo.t', N'U') IS NULL BEGIN CREATE TABLE ... END` | `CREATE TABLE` has no `IF NOT EXISTS` clause. `DROP TABLE IF EXISTS` does exist, and `CREATE OR ALTER` exists for modules, not tables |
-| `USE otherdb;` | Open a new connection to that database | Documented as unsupported. Cross-database three and four part names are unsupported too, except `tempdb` and the current database |
+| `USE otherdb;` | Open a new connection to that database | Unsupported in Azure SQL Database. Cross-database three and four part names are unsupported too, except `tempdb` and the current database. **All of this works on the local Azure SQL Database container**, so a local run will not warn you. See [the local container is the exception](#the-local-container-is-the-exception) |
 | `SELECT ... FOR UPDATE` | `SELECT ... WITH (UPDLOCK, ROWLOCK)` | A hint, not a clause |
 | `ORDER BY x NULLS LAST` | `ORDER BY CASE WHEN x IS NULL THEN 1 ELSE 0 END, x` | There is no `NULLS FIRST` or `NULLS LAST`. Nulls sort as the lowest value |
 | `DISTINCT ON (col)` | `ROW_NUMBER() OVER (PARTITION BY col ORDER BY ...)` filtered to 1 | |
 | `information_schema` views | They exist, but `sys.` catalog views carry more | Prefer `sys.objects`, `sys.columns`, `sys.indexes` |
+
+### The local container is the exception
+
+This is the one row on the page where the local Azure SQL Database container and Azure SQL Database
+in the cloud genuinely differ, and it differs in the direction that hurts. Measured against the
+container: `USE appdb` returns `Changed database context to 'appdb'`, and `SELECT ... FROM
+appdb.sys.objects` issued from `master` succeeds. Both fail against Azure SQL Database, where each
+database is its own boundary.
+
+The container is a single engine hosting several databases, so it accepts both. A query that
+crosses a database boundary therefore passes locally, ships, and fails in the cloud with nothing in
+the local run to warn you. Test anything that crosses a database boundary against Azure SQL
+Database, or do not write it.
 
 ## Operators and expressions
 
@@ -100,7 +114,9 @@ Verified absent, so an agent should stop looking rather than invent a spelling.
 
 - `LIMIT` in any form.
 - `CREATE TABLE ... IF NOT EXISTS`. Guard with `IF OBJECT_ID(...) IS NULL`.
-- `USE` to switch database context, and cross-database queries by three or four part name.
+- `USE` to switch database context, and cross-database queries by three or four part name. Absent
+  in Azure SQL Database only. Both work on the local Azure SQL Database container, so this is the
+  one entry on the list a local run will not confirm for you: test it against the cloud.
 - A Boolean data type.
 - `NULLS FIRST` and `NULLS LAST`.
 - Array and composite column types.

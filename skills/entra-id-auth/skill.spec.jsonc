@@ -3,7 +3,7 @@
   "id": "entra-id-auth",
   "domain": "identity-and-access",
   "value": ["multi-step-with-silent-failures", "corrects-a-wrong-assumption", "changes-too-fast-to-memorize"],
-  "correction": "Agents present Microsoft Entra ID setup for an application identity as a linear sequence of commands that either succeed or report an error, when the sequence carries steps that succeed while achieving nothing and one error whose text names the wrong component. Msg 33134 reads 'Principal could not be resolved', which sends the agent to check the principal name, but the principal is almost always correct and the actual fault is that the logical server has no identity holding Microsoft Graph read permission. That fault only appears when a service principal rather than a signed-in user runs CREATE USER, so the same statement works by hand and fails in a pipeline. Agents also assume any administrator can create the Entra database user, when a SQL authenticated connection cannot create one at all, and that CREATE USER FROM EXTERNAL PROVIDER run against master helps an application that connects to a user database, when the statement adds the user to whichever database the connection is on and reports success either way. Finally they invent per driver authentication keywords, most often by writing ActiveDirectoryDefault into an ODBC connection string, which has no such value.",
+  "correction": "Agents present Microsoft Entra ID setup for an application identity as a linear sequence of commands that either succeed or report an error, when the sequence carries steps that succeed while achieving nothing and one error whose text names the wrong component. Msg 33134 reads 'Principal could not be resolved', which sends the agent to check the principal name, but the principal is almost always correct and the actual fault is that the logical server has no identity holding Microsoft Graph read permission. That fault only appears when a service principal rather than a signed-in user runs CREATE USER, so the same statement works by hand and fails in a pipeline. Agents also assume any administrator can create the Entra database user, when a SQL authenticated connection cannot create one at all, and that CREATE USER FROM EXTERNAL PROVIDER run against master helps an application that connects to a user database, when the statement adds the user to whichever database the connection is on and reports success either way. Finally they invent per driver authentication keywords, most often by writing ActiveDirectoryDefault into an ODBC connection string, which has no such value. The whole class surfaces later as a login failure, 18456 naming a token-identified principal or 4060 refusing the database the login asked for, and an agent reading those as a network or connection-string fault edits the one place that cannot fix them.",
   "posture": ["provision", "admin", "execute"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db"],
@@ -38,7 +38,8 @@
       "Msg 33134 is answered by checking the logical server identity and its Microsoft Graph permission, not by editing the principal name",
       "the authentication keyword written into the connection string is one the chosen driver actually accepts, checked against the per driver table rather than transposed from another driver",
       "roles granted to the application identity are named rather than left at whatever a one command tool applied",
-      "if Microsoft Entra-only authentication is enabled, the administrator was set first and the features it disables were stated"
+      "if Microsoft Entra-only authentication is enabled, the administrator was set first and the features it disables were stated",
+      "a login failure is answered at the layer that raised it: 18456 as a login, a secret or a missing database user, and 4060 as a missing user in the database that was asked for, never as a firewall rule or a connection-string edit"
     ]
   },
   "triggering": {
@@ -54,7 +55,9 @@
       "CREATE USER FROM EXTERNAL PROVIDER says there is a duplicate display name",
       "I am the server admin and I still cannot create the Entra user",
       "How do I stop putting the SQL password in my configuration",
-      "Which Authentication value do I put in the connection string for a user-assigned managed identity"
+      "Which Authentication value do I put in the connection string for a user-assigned managed identity",
+      "Cannot open database requested by the login. The login failed",
+      "Login failed for user, what do I do"
     ],
     "routing": [
       "the grant step of an azd deployment, where the database side user and roles have to be created",

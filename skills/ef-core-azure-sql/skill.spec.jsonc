@@ -53,7 +53,7 @@
       "my EF Core app works locally but times out intermittently once it is pointed at Azure",
       "why did my next EF migration try to ALTER every JSON column",
       "my Include query returns tens of thousands of rows and is slow against Azure",
-      "how do I get my EF Core app to connect to Azure SQL without a password in the connection string"
+      "does anything in my DbContext have to change when the app moves to a passwordless connection string"
     ],
     "routing": [
       "add a data access layer to my ASP.NET service that talks to Azure SQL",
@@ -64,7 +64,7 @@
       "Use Prisma against Azure SQL Database",
       "Set up SQLAlchemy models for Azure SQL",
       "Open a SqlConnection and run a query with Microsoft.Data.SqlClient",
-      "How do I use EF Core",
+      "Size the connection pool and add transient retry underneath my .NET data access layer",
       "Write a LINQ GroupBy query",
       "Create an Entra ID application identity and grant it access to my database",
       "Deploy my EF Core migrations from a release pipeline"

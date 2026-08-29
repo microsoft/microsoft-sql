@@ -3,7 +3,7 @@
   "id": "provision-azure-sql-db",
   "domain": "provisioning-and-local-dev",
   "value": ["not-in-training-data", "changes-too-fast-to-memorize"],
-  "correction": "Asked to create an Azure SQL database, an agent writes a plausible az sql db create and stops there, producing a database nothing can reach: it omits the firewall rule, which is a separate command that az sql db create has no flag for, and it fills the free offer's exhaustion behavior from the documented value BillForUsage, which the CLI rejects because the only accepted values are AutoPause and BillOverUsage.",
+  "correction": "Asked to create an Azure SQL database, an agent writes a plausible az sql db create and stops there, producing a database nothing can reach: it omits the firewall rule, which is a separate command that az sql db create has no flag for, and it fills the free offer's exhaustion behavior from the documented value BillForUsage, which the CLI rejects because the only accepted values are AutoPause and BillOverUsage. The third thing it gets wrong is a release behind rather than invented: Microsoft Entra server principals, Entra logins created with CREATE LOGIN FROM EXTERNAL PROVIDER in the virtual master database, are generally available on Azure SQL Database, so a plan that offers a contained database user as the only way to give an identity access misses the principal that server roles attach to, and neither shape is an az command.",
   "posture": ["read", "write", "provision"],
   "maturity": "preview",
   "applies_to": ["azure-sql-db"],
@@ -16,7 +16,8 @@
       "a firewall rule exists, created by a separate command",
       "the free offer limit is stated as 10 per subscription, not 1",
       "the free offer uses BillOverUsage or AutoPause, never BillForUsage",
-      "the connection string names the user database, not master"
+      "the connection string names the user database, not master",
+      "if any identity other than the administrator must connect, the plan names the principal it gets, a contained database user or an Entra login in master, and who has to run it"
     ]
   },
   "triggering": {
