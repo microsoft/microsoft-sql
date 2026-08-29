@@ -1,0 +1,59 @@
+// skills/restore-and-recover/skill.spec.jsonc
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "restore-and-recover",
+  "domain": "operate-and-recover",
+  "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
+  "correction": "Asked to recover an Azure SQL Database, an agent trained on SQL Server reaches for RESTORE DATABASE ... WITH REPLACE, BACKUP DATABASE, RESTORE HEADERONLY or ALTER DATABASE ... SET RECOVERY, when none of that T-SQL surface exists on the service: measured on 2026-08-29 against a live engine reporting EngineEdition 5 and Edition 'SQL Azure', every one of BACKUP DATABASE, BACKUP LOG, RESTORE DATABASE, RESTORE HEADERONLY, RESTORE FILELISTONLY and RESTORE VERIFYONLY is refused outright with Msg 40510, 'Statement is not supported in this version of SQL Server', and sys.sp_get_database_backup_policy fails with Msg 15817. Restoring is a control plane operation triggered from the CLI, PowerShell, the REST API or the portal, never from a query window. The second wrong belief compounds the first: every restore, whether point-in-time, geo-restore, or from long-term retention, creates a brand new database next to the one being recovered rather than overwriting it in place, under the name given at restore time, and putting that new database back where the application actually connects, by rename or by a connection string change, is a step the developer performs themselves. Nothing in the restore operation does that automatically and nothing warns anyone if it is skipped, which is why the failure surfaces later as a connection error attributed to the application rather than to an incomplete recovery.",
+  "posture": ["read", "provision", "admin"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db"],
+  "related": [
+    "provision-azure-sql-db",
+    "provision-hyperscale",
+    "schema-migrations-safely",
+    "sqlpackage-import-export",
+    "diagnose-connection-errors",
+    "entra-id-auth"
+  ],
+  "validation": {
+    "target": "container",
+    "setup": [
+      "a database with at least one table and rows in it",
+      "administrative access sufficient to run ALTER DATABASE and CREATE DATABASE"
+    ],
+    "assert": [
+      "BACKUP DATABASE, BACKUP LOG, RESTORE DATABASE, RESTORE HEADERONLY, RESTORE FILELISTONLY and RESTORE VERIFYONLY are all refused with Msg 40510",
+      "no answer proposes RESTORE or BACKUP T-SQL as the recovery mechanism",
+      "every answer states that a restore creates a new database rather than overwriting the source in place",
+      "an answer describing a completed recovery includes the rename or connection string swap back to the name the application uses",
+      "no answer states a specific retention window, RPO number or CLI flag as fact without attributing it to Microsoft Learn"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "How do I restore my Azure SQL database to before this bad deployment",
+      "Write the RESTORE DATABASE command to recover my Azure SQL database",
+      "What is the point-in-time restore command for Azure SQL Database",
+      "How do I geo-restore my database after a region outage",
+      "How do I recover a database using long-term retention",
+      "Give me the BACKUP DATABASE syntax for Azure SQL Database"
+    ],
+    "implicit": [
+      "someone just dropped the orders table in production, how do I get it back",
+      "we ran a bad backfill an hour ago and need last night's data",
+      "the primary region is down, how do I bring the database back up somewhere else",
+      "I ran BACKUP DATABASE against my Azure SQL database and got an error I don't understand",
+      "the restored database has a different name than my app expects and now nothing connects",
+      "how far back can I recover this database"
+    ],
+    "negative": [
+      "Is this migration safe to run against production while the app is live",
+      "Export my database to a bacpac file",
+      "Create the Azure SQL database and give me a connection string",
+      "Should I use Hyperscale for this workload",
+      "Set up active geo-replication for read scale-out",
+      "My app connects fine locally but gets login failed once it is deployed to Azure"
+    ]
+  }
+}

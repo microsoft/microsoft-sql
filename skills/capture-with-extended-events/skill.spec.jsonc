@@ -1,0 +1,49 @@
+// skills/capture-with-extended-events/skill.spec.jsonc
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "capture-with-extended-events",
+  "domain": "performance-and-diagnostics",
+  "value": ["not-in-training-data", "multi-step-with-silent-failures"],
+  "correction": "Agents port an Extended Events script from SQL Server onto Azure SQL Database almost unchanged, scoping the session ON SERVER, pointing an event_file target at a local path, and omitting ACTION() clauses, and several of the resulting failures are not errors: the session is created, starts, and reports itself healthy while capturing nothing useful, or capturing nothing at all.",
+  "posture": ["inspect", "read"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db"],
+  "related": ["diagnose-slow-query", "diagnose-blocking-and-deadlocks", "diagnose-resource-pressure", "read-execution-plan"],
+  "validation": {
+    "target": "cloud",
+    "setup": [
+      "a dedicated database the agent can create sessions and tables in",
+      "an administrative connection able to run CREATE EVENT SESSION and query the sys.dm_xe_database_* views"
+    ],
+    "assert": [
+      "CREATE EVENT SESSION ... ON SERVER fails with error 25737 on Azure SQL Database",
+      "CREATE EVENT SESSION ... ON DATABASE succeeds and is listed in sys.database_event_sessions before it is started",
+      "sys.dm_xe_database_sessions lists a session only after ALTER EVENT SESSION ... STATE = START",
+      "an event added without an ACTION() clause captures no username, client_app_name or sql_text",
+      "an event_file target pointed at a local filesystem path is rejected at CREATE time with error 40538",
+      "an event_file target pointed at an https blob URL is accepted at CREATE time and fails only at START with error 25602 when no working credential exists",
+      "the duration field is documented in microseconds for sql_statement_completed and rpc_completed and in milliseconds for wait_info and wait_completed",
+      "a blocked_process_report session captures zero events across a sustained real lock wait because Azure SQL Database exposes no blocked process threshold to set",
+      "a database_xml_deadlock_report session captures zero events across a real, confirmed deadlock, while a lock_deadlock session on the same deadlock captures one event",
+      "system_health is running server-scoped in master, is visible via sys.dm_xe_sessions and sys.server_event_sessions only from a connection to master, and its ring buffer contains xml_deadlock_report for a real deadlock",
+      "sys.dm_xe_sessions fails with error 208 from a connection to a user database, and sys.database_event_sessions returning zero rows there is not evidence about system_health"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Set up an Extended Events session to capture slow queries on my Azure SQL database",
+      "How do I create an XE session on Azure SQL Database",
+      "Capture blocking with Extended Events on Azure SQL"
+    ],
+    "implicit": [
+      "I created an event session and started it but the ring buffer is empty",
+      "My deadlock event session never fires even though I know the app is deadlocking",
+      "Extended Events works on my on-prem SQL Server script but errors out on Azure SQL Database"
+    ],
+    "negative": [
+      "Read the estimated execution plan for this query",
+      "Why is my query blocked right now, what is holding the lock",
+      "Turn on Query Store for this database"
+    ]
+  }
+}

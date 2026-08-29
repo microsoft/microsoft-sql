@@ -1,0 +1,54 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "prevent-sql-injection",
+  "domain": "security-and-safe-sql",
+  "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
+  "correction": "A probe with no skill loaded found that an agent asked about SQL injection on Azure SQL Database already reaches for parameters and a server-side allowlist unprompted, and is already correct on ownership chaining, on Dynamic Data Masking not being a security boundary, and on which SQL Server escalation paths do not exist here, so a skill that repeats 'use parameterised queries' teaches nothing. What the same probe found wrong survives as the actual correction: QUOTENAME returns NULL for any identifier over 128 characters rather than truncating or erroring, so a dynamic statement concatenated from it becomes NULL and sp_executesql, or EXEC() of the same NULL batch, then runs it as a silent no-op with @@ERROR at 0 and no rows, which both probed model tiers got wrong in different ways (one said QUOTENAME fails to check the object exists, the other said it truncates); a single CASE expression choosing between columns of different types in a dynamic ORDER BY is coerced to one common type by precedence, and int mixed with date fails unconditionally at compile time (Msg 206, not even catchable in the same TRY/CATCH), but int or date mixed with a string column fails only when the sort key selects the string branch, the identical statement running clean when the sort key selects the other branch or matches neither (Msg 245 or Msg 241 only on the failing value), so it passes a test run against whichever sort key was tried and fails only when a caller picks the other one; and Always Encrypted rejects a literal predicate against an encrypted column outright, so on such a column parameterisation is mandatory for the query to run at all rather than a hardening choice, which corrected only the smaller probed model tier and was not reproduced against a live engine because it needs a column master key.",
+  "posture": ["read", "write"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "related": [
+    "rls-multi-tenant",
+    "t-sql-correctness",
+    "design-azure-sql-schema",
+    "entra-id-auth",
+    "connect-from-dotnet",
+    "connect-from-python",
+    "connect-from-typescript-and-node"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a table with columns of at least three different data types, including one string and one date or datetime column",
+      "the ability to run a batch that builds an identifier longer than 128 characters"
+    ],
+    "assert": [
+      "a generated dynamic statement that builds an object name never relies on QUOTENAME alone above 128 characters without checking the result for NULL before executing it",
+      "a generated dynamic ORDER BY that lets the caller choose the sort column uses one CASE expression per candidate column rather than one CASE with every candidate column as a branch, or uses a server-side allowlist instead of CASE entirely",
+      "no generated answer claims QUOTENAME truncates a long identifier or merely fails to check the object exists; it returns NULL",
+      "an answer touching an Always Encrypted column states that a literal predicate against it fails outright, not merely that parameters are the safer choice"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Why did my QUOTENAME-based dynamic SQL run successfully but return nothing, when the table name is unusually long?",
+      "Write a dynamic ORDER BY for Azure SQL Database that lets the caller sort by any column, including a date column, without hitting an operand type clash",
+      "Is it safe to build my table name with QUOTENAME before running it with sp_executesql?",
+      "My sort-by-column endpoint throws Msg 241 the first time someone asks to sort by the date column, but every other column works"
+    ],
+    "implicit": [
+      "sp_executesql completed with no error and no rows, and the object name it built is over 100 characters",
+      "our generic ORDER BY CASE worked in every test until QA sorted by created_date instead of name",
+      "Conversion failed when converting date and/or time from character string, and the query has a CASE in its ORDER BY",
+      "customers with very long generated names get zero rows back with no error at all, and it only started once names got long"
+    ],
+    "negative": [
+      "Set up row-level security so one tenant can never see another tenant's rows",
+      "Escape the user's comment before we render it back into the HTML page",
+      "My Postgres app uses $1 placeholders, what is the equivalent when I port these queries",
+      "Rotate the database password our app connects with and keep it out of source control",
+      "Clean up the CSV before we load it into the table",
+      "Grant the reporting team read access to just two tables and nothing else"
+    ]
+  }
+}
