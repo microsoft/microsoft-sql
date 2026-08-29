@@ -254,8 +254,13 @@ sqlpackage /Action:DeployReport /SourceFile:... /TargetConnectionString:"..." /O
 sqlpackage /Action:Script       /SourceFile:... /TargetConnectionString:"..." /OutputPath:deploy.sql
 ```
 
-`/Action:Publish` does not create the logical server or the database. Against the local container
-in particular, the database has to exist first, because the engine does not create one on connect.
+`/Action:Publish` does not create the logical server, and in Azure that has to exist first.
+
+**It does create the database.** Measured on 2026-08-29 against the container reporting
+`EngineEdition` 5: publishing a dacpac at a database name that did not exist printed
+`Creating database <name>...` and then created the table, and the row count in `sys.databases`
+went from 0 to 1. Do not add a create step before a publish on the assumption that it is
+required. `/Action:Import` is the one that refuses a target that is not already there and empty.
 
 ## Validation rules
 

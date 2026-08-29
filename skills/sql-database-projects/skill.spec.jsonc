@@ -23,7 +23,7 @@
     "setup": [
       "the .NET SDK, so `dotnet new sqlproj` and `dotnet build` are available on any host operating system",
       "SqlPackage installed as a global .NET tool, because nothing else installs it",
-      "a database to publish into that already exists, since publishing does not create the logical server and the container does not create a database on its own",
+      "a reachable server, since publishing does not create the logical server; the target database itself does not need to exist, because publish creates it",
       "a table carrying rows, so the data-loss and rename behaviour is observable rather than theoretical"
     ],
     "assert": [
