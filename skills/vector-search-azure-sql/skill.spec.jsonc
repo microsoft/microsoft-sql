@@ -7,7 +7,6 @@
   "posture": ["read", "write", "execute"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
-  "last_verified": "2026-08-28",
   "related": [
     "rag-on-azure-sql",
     "embeddings-and-external-models",

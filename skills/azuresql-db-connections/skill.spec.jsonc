@@ -15,7 +15,6 @@
     "azure-sql-db",
     "azure-sql-db-container"
   ],
-  "last_verified": "2026-08-20",
   "validation": {
     "target": "both",
     "assert": [

@@ -35,8 +35,8 @@ provenance. **Do not "fix" this by moving sidecars out of the skill folder**: co
 keeps a skill and its contract from drifting apart, and the eval finds them by that path.
 
 Fan-out to other collections is the exception. Section 13.2 of the PRD strips the sidecar on
-syndication unless the destination asks for it, because it names our domains, our personas and a
-`last_verified` date that would rot invisibly in someone else's repository.
+syndication unless the destination asks for it, because it names our domains and our personas, which
+mean nothing in someone else's repository.
 
 ## The manifest is checked in both directions
 

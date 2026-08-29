@@ -200,9 +200,6 @@ for (const [id, a] of Object.entries(AUTHORED)) {
     applies_to: a.target === 'both'
       ? ['azure-sql-db', 'azure-sql-db-container']
       : ['azure-sql-db-container'],
-    // The date the pilot last verified these against a live engine. It moves
-    // when a battery is re-run, not when the file is touched.
-    last_verified: '2026-08-20',
     validation: { target: a.target, assert: a.assert },
     triggering: {
       explicit: [`Use the ${id} skill`],
