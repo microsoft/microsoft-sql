@@ -1,0 +1,79 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "rag-local-with-container",
+  "domain": "ai-vector-and-rag",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
+  "correction": "Agents hold one of two wrong beliefs about prototyping retrieval augmented generation on the local Azure SQL Database container: either that it is a toy and the work has to start against a cloud endpoint with a key, or that because it is the same engine anything proved locally holds in Azure SQL Database. Measured on 2026-08-28 by running one script against both, with the same corpus and the same locally produced vectors, the storage and retrieval half is identical: the same cosine distances to six decimal places, the same top three in the same order, a DiskANN vector index that built on both, approximate search returning the same rows, and the same error text throughout. So the offline prototype is real. But three things break, and every one of them breaks in the direction that flatters the laptop. The container enforces no outbound domain allowlist and returned HTTP 200 from a public non-Azure host while the cloud refused the identical call with Msg 31612 before DNS, so an endpoint proved locally can be refused by policy on its first cloud run. Row level security and a vector index cannot coexist on the container in either order, Msg 37579 creating the policy after the index and Msg 42244 creating the index after the policy, while both succeed in the cloud, so the tenant predicate on the chunk table that is the whole defence against a retrieval leaking text the asking user may not read cannot be rehearsed locally on an indexed table. Managed identity is refused on the container with Msg 31644 naming an sp_configure remedy that the container itself refuses with Msg 40510, so the production credential has no local rehearsal. A fourth difference is not the engine at all and costs the most: the code moves unchanged but the corpus does not, because a local embedding model and a hosted one are different geometries and usually different dimensions, and a vector column's dimension cannot be changed by ALTER COLUMN even on an empty table. Being wrong costs a retrieval query that passes every local test and is refused in the cloud, an isolation control that ships having never been exercised, and a full re-embed plus a new column discovered after the schema is deployed.",
+  "posture": ["read", "write", "execute"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db-container", "azure-sql-db"],
+  "last_verified": "2026-08-28",
+  "related": [
+    "rag-on-azure-sql",
+    "vector-search-azure-sql",
+    "embeddings-and-external-models",
+    "langchain-and-llamaindex-on-azure-sql",
+    "dev-container-templates",
+    "connect-to-azure-sql",
+    "deploy-app-to-azure",
+    "azuresql-db-rag",
+    "azuresql-db-container",
+    "azuresql-db-local-to-cloud"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "the local Azure SQL Database container with a provisioned user database",
+      "a local embedding model reachable from application code, and a local generation model for the grounding step",
+      "an Azure SQL Database to move to, for the checks that cannot run locally"
+    ],
+    "assert": [
+      "one dimension number appears in the schema, in the local embedding call and in the cloud model's requested dimensions, and a test fails when they disagree",
+      "the embedding call is a single function with one endpoint in it",
+      "the retrieval query text is identical in both environments, filter included, and was executed against both",
+      "nothing in the local path requires an outbound call, and the same results are reached with the machine offline",
+      "no key, endpoint host name or account name is committed, and the cloud identity is a managed identity",
+      "every endpoint the design depends on was checked against the allowlist from a cloud database rather than from the container",
+      "the tenant or permission predicate was exercised on an unindexed local table or in the cloud, and a test fails when the policy is absent",
+      "the corpus was fully re-embedded after the model changed, and grouping by the model column returns exactly one row",
+      "every sample corpus is fabricated and contains no customer text or real identifier"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the rag-local-with-container skill",
+      "Run a local RAG prototype offline against the Azure SQL Database container",
+      "Build the whole retrieval loop offline, with a local embedding model and no cloud account",
+      "Will the RAG pipeline I built against the container behave the same in Azure SQL Database",
+      "Move my local retrieval prototype to Azure SQL Database without changing the code",
+      "Prototype semantic search offline and deploy it later"
+    ],
+    "implicit": [
+      "I want to build a document assistant without sending anything to a cloud service",
+      "my embedding endpoint works from the container but the cloud refuses to call it",
+      "the security policy will not create because the table has a vector index",
+      "a vector index cannot be created on tables with security policies on the container but the same script works in Azure",
+      "what will I have to redo when I move this local retrieval prototype into Azure",
+      "my local model returns 768 numbers and the cloud model returns 1536, does that matter",
+      "can I develop the whole retrieval loop on a laptop and switch to Azure later",
+      "which parts of my local retrieval setup will not survive the move to the cloud"
+    ],
+    "routing": [
+      "set up an air gapped retrieval prototype on a developer machine",
+      "prove the retrieval design before anyone provisions anything in Azure",
+      "keep the same retrieval code working against the container and against Azure SQL Database"
+    ],
+    "negative": [
+      "Build a retrieval augmented generation pipeline over my document library on Azure SQL Database",
+      "Chunk my documents and keep the embeddings up to date as the source changes",
+      "What are the restrictions on the vector data type in Azure SQL Database",
+      "Why does my similarity query scan the whole table instead of using the vector index",
+      "Create an external model and call the embedding function from T-SQL",
+      "Create an external model and call AI_GENERATE_EMBEDDINGS",
+      "Which permissions does an external model endpoint need and how does the allowlist work",
+      "Build a RAG scenario on the container",
+      "Add a vector column to my Azure SQL Database table and search it",
+      "Design the schema for my orders and customers tables"
+    ]
+  }
+}

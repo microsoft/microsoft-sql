@@ -1,0 +1,95 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "schema-migrations-safely",
+  "domain": "schema-change-and-cicd",
+  "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
+  "correction": "Asked whether a schema change is safe to apply to a live Azure SQL Database, an agent answers with expand and contract, adds IF NOT EXISTS guards, and calls the script idempotent, and all three of those beliefs are wrong in ways nothing reports. Measured on 2026-08-28 against a live engine reporting EngineEdition 5 and Edition 'SQL Azure' at compatibility level 170 with read committed snapshot isolation on, over a 2,000,000 row table: ALTER TABLE is not uniformly cheap and the expensive statements are not the ones that look expensive, since adding a NOT NULL column with a constant default took 1.7 ms and 2.2 KB of log while adding one with a NEWID() default took 4.6 s and 448 MB, widening varchar(20) to varchar(50) took 1.0 ms while widening to varchar(max) took 7.3 s and 572 MB, and changing NULL to NOT NULL took 14.5 s and 661 MB. The schema modification lock those statements hold is the one thing snapshot isolation does not protect a reader from: a default read, an explicit SNAPSHOT read and a NOLOCK read all waited 3.10 s on LCK_M_SCH_S behind an uncommitted 2 ms ALTER, and worse, when one 10 second query was already in flight the 2 ms ALTER waited 9.0 s and three trivial SELECTs issued after it waited 8.0 s each blocked by the ALTER rather than by the slow query, which is how a metadata only change becomes an outage. The same change offline held two readers for 7.17 s where WITH (ONLINE = ON) let them through in 74 ms. A guard protects the statement it wraps and nothing else: eight instances starting at once all passed the same IF NOT EXISTS checks and applied the same backfill eight times, ending at 4000 where 500 was correct, and the only error raised was Msg 2627 on the history row after the data was already wrong, while the unguarded version failed loudly with Msg 2705 on seven of eight and left the data correct. The same guarded script under a transient fault retry policy, faulted once after the backfill committed and before the history row was written, re-ran from the top, doubled the backfill and returned success with no exception, no warning and no log line, and wrapping the four statements in one transaction was what made it correct. Rollback is not the inverse: DROP COLUMN reclaimed nothing, 202 pages before and after, and re-adding a char(4000) column failed with Msg 1701 for a column that no longer exists. What being wrong costs is that the changes which stall a production database are indistinguishable from the ones that do not until they run at production row count, and the concurrency and retry failures are silent or surface attributed to the wrong statement.",
+  "posture": ["read", "write"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "last_verified": "2026-08-28",
+  "related": [
+    "sql-database-projects",
+    "github-actions-for-sql",
+    "ef-core-azure-sql",
+    "ef-core-migrations-azure-sql",
+    "prisma-azure-sql",
+    "prisma-migrate-azure-sql",
+    "sqlalchemy-azure-sql",
+    "alembic-azure-sql",
+    "flyway-and-liquibase-azure-sql",
+    "dacfx-and-sqlpackage",
+    "drift-detection",
+    "schema-change-review-checklist",
+    "design-azure-sql-schema",
+    "connect-to-azure-sql",
+    "deploy-app-to-azure",
+    "diagnose-blocking-and-deadlocks"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a table large enough that a row rewrite is measurable, at least a million rows",
+      "the ability to open at least eight client sessions against the same database concurrently",
+      "one session free to sample sys.dm_exec_requests and sys.dm_tran_locks while another is blocked",
+      "a table carrying a column declared with an inline unnamed DEFAULT constraint",
+      "a view or stored procedure referencing a column the migration proposes to rename or drop"
+    ],
+    "assert": [
+      "every ALTER TABLE in a proposed migration is classified metadata only or table rewrite, and the classification is justified rather than asserted",
+      "a rewriting ALTER COLUMN or index build against a live table carries WITH (ONLINE = ON), or the answer states why there are no concurrent readers",
+      "no answer claims snapshot isolation or NOLOCK protects a reader from a schema change",
+      "the script sets a lock timeout or names a maintenance window, so a blocked change cannot queue the workload behind itself",
+      "no column is renamed with sp_rename, and no column is retyped or dropped in the same deployment that adds its replacement",
+      "the migration is not run from application startup, and the runtime identity is not the identity holding schema permission",
+      "the migration is either a single transaction or every statement in it, data statements included, is a no operation on its second execution",
+      "every backfill carries a predicate that makes re-running it harmless and runs outside the schema change",
+      "the history or version row is written in the same transaction as the change it records",
+      "any default constraint the script drops is resolved from sys.default_constraints rather than named literally",
+      "no down script is offered as the rollback plan, and the answer states which deployment can be skipped instead",
+      "a concurrency or locking claim came from two sessions rather than from a comment"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Is this migration safe to run against production while the app is live",
+      "Can I add this column to a big table without downtime",
+      "How do I do a zero downtime schema change on Azure SQL Database",
+      "Walk me through expand and contract for this column rename",
+      "Make this migration script idempotent so it is safe to re-run",
+      "Should my application run migrations at startup",
+      "Write the rollback for this migration",
+      "How do I do a blue green deploy when there is only one database",
+      "Will ALTER COLUMN int to bigint lock this table"
+    ],
+    "implicit": [
+      "every query timed out for ten seconds during the deploy and then recovered",
+      "our deployment added one nullable column and the whole API went red",
+      "seven of our eight pods crashed on startup after we merged the migration",
+      "the migration says it applied but the backfilled values are twice what they should be",
+      "the migration ran twice and now the counts are wrong",
+      "we renamed a column and a stored procedure broke the next day",
+      "can I just drop the column and add it back to fix the type",
+      "the migration failed halfway and now it will not run again",
+      "our migration runner retried and reported success but the data looks wrong",
+      "the ALTER TABLE has been running for four minutes and everything is blocked"
+    ],
+    "routing": [
+      "review this schema change before it ships",
+      "we need to change this column type on a live table"
+    ],
+    "negative": [
+      "Set up a GitHub Actions workflow to deploy my database changes",
+      "Build a SQL Database Project and publish the DACPAC",
+      "Why does dotnet ef database update fail with a firewall error",
+      "Configure EnableRetryOnFailure on my DbContext",
+      "Prisma migrate dev needs a shadow database, how do I give it one",
+      "Write the Alembic env.py for my SQLAlchemy models",
+      "Should this key be an int or a uniqueidentifier",
+      "How long should the string columns in my index be",
+      "Deploy my container app to Azure",
+      "Why is this SELECT slow",
+      "Write me an upsert for this table"
+    ]
+  }
+}

@@ -23,6 +23,12 @@ changing.
 Numbers marked **retry** are documented transient faults. Everything else is a configuration or
 credential problem, and retrying it just fails more slowly.
 
+The index is deliberately wider than the skill. Everything that rejects a connection **before the
+login is evaluated** is answered here. `18456`, `4060` and `40613` sit the other side of that line
+and are indexed so a number can be identified and then routed: `18456` and `4060` to
+`entra-id-auth`, `40613` to `connect-to-azure-sql`. Their rows carry the identification, not the
+doctrine.
+
 ## Network and gateway: nothing reached the login
 
 | Number | Message text | Means | Fix |
@@ -49,6 +55,11 @@ private endpoint.
 
 ## Authentication: the login was rejected
 
+Past that line, apart from `40532`. `18456` and `4060` are here to be recognised from their message
+text and handed to `entra-id-auth`, which owns logins, database users and identities. The Fix
+column is what that skill will do, recorded so the number can be told apart from `40532`, not an
+instruction to do it here.
+
 | Number | Message text | Means | Fix |
 |---|---|---|---|
 | `18456` | `Login failed for user '<User name>'. This session has been assigned a tracing ID of '<Tracing ID>'.` | The login does not exist, is disabled, or the password is wrong | Confirm the login exists in `sys.sql_logins` and is not disabled, then the password |
@@ -73,7 +84,7 @@ before the first retry, growing exponentially to a maximum of 60 seconds.
 
 | Number | Message text | Means |
 |---|---|---|
-| `40613` | `Database '%.*ls' on server '%.*ls' is not currently available. Please retry the connection later. If the problem persists, contact customer support, and provide them with the session tracing ID of '%.*ls'.` | The database is resuming, is reconfiguring, or already has a dedicated administrator connection. On a paused serverless database this is the documented response to the first connection attempt |
+| `40613` | `Database '%.*ls' on server '%.*ls' is not currently available. Please retry the connection later. If the problem persists, contact customer support, and provide them with the session tracing ID of '%.*ls'.` | The database is resuming, is reconfiguring, or already has a dedicated administrator connection. On a paused serverless database this is the documented response to the first connection attempt. Identification only: the retry doctrine that answers it is `connect-to-azure-sql`'s, and a 40613 that survives a retry on a database that is neither serverless nor free is the dedicated administrator connection instead |
 | `40197` | `The service has encountered an error processing your request. Please try again. Error code %d.` | A failover or upgrade. The embedded code (40020, 40143, 40166, 40540 are examples) is the detail worth logging |
 | `40501` | `The service is currently busy. Retry the request after 10 seconds. Incident ID: %ls. Code: %d.` | Engine throttling, meaning resource limits are being exceeded |
 | `49918` | `Cannot process request. Not enough resources to process request. The service is currently busy. Please retry the request later.` | Control plane is out of capacity for the request |

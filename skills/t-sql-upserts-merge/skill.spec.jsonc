@@ -1,0 +1,73 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "t-sql-upserts-merge",
+  "domain": "tsql-correctness-and-patterns",
+  "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
+  "correction": "Asked for an upsert on Azure SQL Database, an agent writes IF EXISTS then UPDATE ELSE INSERT, or a bare MERGE, and presents either as finished, when both are races that pass every single-session test and lose writes the first time two callers arrive together. Measured on 2026-08-28 against a live engine reporting EngineEdition 5 and Edition 'SQL Azure': eight sessions running twenty increments each on one key ended at 140 of 160 for the unhinted UPDATE-then-INSERT pattern, because one duplicate key error terminated a whole session's batch, while MERGE WITH (HOLDLOCK), UPDATE WITH (SERIALIZABLE) then INSERT, and UPDATE then INSERT catching 2601 and 2627 all reached 160; four concurrent unhinted MERGE statements raised Msg 2627 on two of them and applied two of four increments; and the naive shape against a table with no unique key produced two rows for one key with no error raised to either caller, which is the failure nothing later can find. HOLDLOCK alone is not the fix either, since without a unique index on the join key the range lock is wide enough that four sessions produced Msg 1205 and two were rolled back. The other MERGE shapes worth refusing are measured too: a filter added to the ON clause made an existing row look unmatched, so the NOT MATCHED branch fired and hit Msg 2627 on a key that already existed. The catalog note that indexed view corruption from MERGE is invisible to a consistency check is half right and must be stated as such: the published minimal reproduction and four further shapes, including a two table view over a single column foreign key and an aggregated view over the same join, all stayed consistent at compatibility levels 120 through 170, so the corruption did not reproduce; but the reason it was severe is documented and current, since a consistency check performs only physical checks on an indexed view unless EXTENDED_LOGICAL_CHECKS is requested, so any disagreement between a materialized view and its base tables is invisible to a routine check whatever caused it.",
+  "posture": ["read", "write"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "last_verified": "2026-08-28",
+  "related": [
+    "t-sql-correctness",
+    "t-sql-json-and-openjson",
+    "design-azure-sql-schema",
+    "t-sql-error-handling",
+    "t-sql-programmability-objects",
+    "bulk-load-and-bulk-copy",
+    "diagnose-blocking-and-deadlocks"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a table with a unique constraint or unique index on the key being upserted",
+      "a second table holding the same shape with no unique key at all",
+      "the ability to open at least four client sessions against the same database concurrently",
+      "a schemabound view over one of those tables carrying a unique clustered index"
+    ],
+    "assert": [
+      "the generated upsert holds a lock across the match and the write, whether by HOLDLOCK on a MERGE, SERIALIZABLE on the leading UPDATE, or a caught 2601 or 2627",
+      "no generated upsert is a bare IF EXISTS then UPDATE ELSE INSERT, with or without a surrounding transaction",
+      "every generated MERGE names a target that carries a unique index on the join key, and the answer says so when it does not",
+      "the ON clause of every generated MERGE contains only columns compared between source and target, and no constant or filter",
+      "every generated MERGE ends with a semicolon",
+      "running the generated upsert from four concurrent sessions against one key leaves exactly one row and applies every increment",
+      "running it against the table with no unique key is refused or flagged rather than silently producing duplicate rows",
+      "no answer claims a MERGE is corrupting an indexed view without a reproduction, and no answer offers a clean consistency check as evidence that a materialized view agrees with its base tables"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Write me an upsert for this table on Azure SQL Database",
+      "Insert the row if it does not exist and update it if it does",
+      "Write a MERGE statement to sync this staging table into the target table",
+      "Is this MERGE safe to run while the application is writing to the same table",
+      "Port this ON CONFLICT DO UPDATE to Azure SQL Database",
+      "Review this upsert stored procedure before it goes to production"
+    ],
+    "implicit": [
+      "we have two rows with the same key and nothing in the application inserts twice",
+      "this worked in testing and now we get violation of PRIMARY KEY constraint under load",
+      "the MERGE statement attempted to UPDATE or DELETE the same row more than once",
+      "my sync job deleted rows that were not in the batch",
+      "make this insert idempotent so retries do not create a second row",
+      "why is my upsert deadlocking now that we run it from several workers",
+      "should I wrap the check and the insert in a transaction",
+      "a MERGE statement must be terminated by a semi-colon"
+    ],
+    "routing": [
+      "add or update these records from the incoming file",
+      "make this import re-runnable"
+    ],
+    "negative": [
+      "Write me a paginated query for Azure SQL",
+      "How do I get the id of the row I just inserted",
+      "Parse this JSON column with OPENJSON",
+      "Should this document column be nvarchar or the json type",
+      "How long should the string columns in my index be",
+      "What collation should this database use",
+      "Why is this SELECT slow",
+      "Write a PostgreSQL upsert for my Postgres database"
+    ]
+  }
+}

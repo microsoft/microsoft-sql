@@ -1,0 +1,73 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "t-sql-json-and-openjson",
+  "domain": "tsql-correctness-and-patterns",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption"],
+  "correction": "Asked to store or query JSON on Azure SQL Database, an agent reaches for nvarchar(max) with JSON_VALUE, because that is the pattern almost all of its training data shows, and it treats the native json type as either absent or as a cosmetic rename. Measured on 2026-08-28 against a live engine reporting EngineEdition 5 and Edition 'SQL Azure', the type changes four things that matter and the wrong choice is not merely slower. An nvarchar(max) column accepted the text '{not json at all' with no message at all, while the json column rejected it with Msg 13609, so the older pattern turns a bad write into a JSON_VALUE that returns NULL in a report months later, unless someone remembered CHECK (ISJSON(payload) = 1), which does work and returns Msg 547. CREATE JSON INDEX is impossible on nvarchar(max), Msg 13680, and on the native type it took one equality predicate over 20,000 documents from 915 logical reads and 23 ms of CPU to 142 reads and 5 ms. The json column stores a parsed document rather than the text it was given, so a round trip is not byte for byte and a duplicate key is silently discarded, and the conversion back out is refused in place with Msg 257. The second half of the correction is OPENJSON. An agent that does use OPENJSON usually omits the WITH clause and then calls JSON_VALUE on the default value column, which measured about four times the CPU for array shredding on nvarchar storage, 94 to 130 ms against 375 to 395 ms; but the correctness gap is larger than the performance one, because JSON_VALUE returns NULL rather than an error or a prefix for any value over 4000 characters in lax mode, while OPENJSON WITH an NVARCHAR(MAX) column returned all 5000, and because the default output's key column carries the Latin1_General_BIN2 collation so a lower-cased key comparison matched zero rows on a case-insensitive database. The reverse overcorrection has to be stated too: OPENJSON is not the answer to everything, and reading four scalar properties from every row cost 81 ms with JSON_VALUE against 735 ms with OPENJSON WITH over the same rows.",
+  "posture": ["read", "write"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "last_verified": "2026-08-28",
+  "related": [
+    "t-sql-correctness",
+    "t-sql-upserts-merge",
+    "design-azure-sql-schema",
+    "post-migration-compatibility-level",
+    "dab-rest-and-graphql",
+    "diagnose-slow-query"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a database at compatibility level 130 or above",
+      "a table holding the same documents twice, once in a json column and once in nvarchar(max)",
+      "documents carrying a nested object, an array of objects, and one string property longer than 4000 characters",
+      "enough rows that a scan is measurably different from an index read"
+    ],
+    "assert": [
+      "a new document column is declared json, or the answer states why nvarchar(max) was chosen and adds a CHECK (ISJSON(...) = 1) constraint",
+      "no generated statement compares, sorts, groups, applies DISTINCT to, or uses LIKE against a json column",
+      "every OPENJSON that turns an array into rows carries a WITH clause naming typed columns",
+      "no property that can exceed 4000 characters is read with JSON_VALUE",
+      "a nested object or array pulled through OPENJSON WITH uses NVARCHAR(MAX) with AS JSON",
+      "every JSON path matches the case of the property in the sample document",
+      "a single scalar property read is JSON_VALUE rather than an OPENJSON construction",
+      "a property that every query filters on is either promoted to an indexed computed column or covered by a JSON index on a native json column",
+      "no answer describes the nvarchar plus functions pattern as removed or deprecated"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Store this API payload as JSON in Azure SQL Database and query it",
+      "Shred this JSON array into rows with OPENJSON",
+      "Should this document column be nvarchar(max) or the json type",
+      "Add an index so this JSON property lookup stops scanning the table",
+      "Flatten this nested payload into a result set with typed columns",
+      "Review this OPENJSON query before it ships"
+    ],
+    "implicit": [
+      "JSON_VALUE returns NULL but the property is right there in the document",
+      "invalid JSON got into the table and nothing stopped it",
+      "how do I filter on a field inside the JSON column",
+      "parse the response we saved from the vendor and load it into a table",
+      "my JSON query got slower as the table grew",
+      "the data types json and nvarchar are incompatible in the equal to operator",
+      "the JSON data type cannot be compared or sorted",
+      "why did the whitespace and one of my duplicate keys disappear"
+    ],
+    "routing": [
+      "we save webhook payloads whole, how should we read them back",
+      "turn this document column into something reportable"
+    ],
+    "negative": [
+      "Write me an upsert that inserts or updates a row",
+      "Write a MERGE to sync this staging table into the target",
+      "Where should the json column go in this table design and how wide is the row",
+      "How long should the string columns in my index be",
+      "Write me a paginated query for Azure SQL",
+      "How do I get the id of the row I just inserted",
+      "Store these embeddings and run a similarity search",
+      "Parse this JSON file in Python before loading it"
+    ]
+  }
+}

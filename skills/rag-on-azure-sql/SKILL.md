@@ -42,7 +42,7 @@ queries below are written the way that skill requires and are not re-explained h
 
 An agent asked for RAG on this database ports a vector store recipe: one table holding chunk text
 plus one embedding column, retrieved by the application's identity, top k pasted into the prompt.
-It works on the first demo. Three things are then wrong, and **none of them raises an error**.
+It works on the first demo. Two things are then wrong, and **neither raises an error**.
 
 **1. The chunk table is a second copy of the source text.** Whatever protected the original does
 not follow the copy. Row level security on `dbo.documents` does not apply to `dbo.chunks`, and
@@ -58,22 +58,15 @@ produce 1536 dimensions, so re-embedding half a corpus with a different model in
 matches on dimension, and leaves two incompatible geometries in one column. Distances across them
 are meaningless, no statement fails, and the only symptom is that answers get worse.
 
-**3. The dimension ceiling bites at the end.** The engine's maximum is 1998 dimensions, and the
-current large embedding model emits 3072 by default. An agent picks the strongest model, builds
-the whole ingest, and the `CREATE TABLE` is what fails. Decide the dimension budget first.
+Being wrong here costs a data leak that reads as a correct answer, and a corpus whose retrieval
+quality degrades with nothing to point at.
 
-Being wrong here costs a data leak that reads as a correct answer, a corpus whose retrieval quality
-degrades with nothing to point at, and a rebuild of the ingest after the fact.
+## Step 1: fix the model before anything else
 
-## Step 1: fix the model and the dimension budget before anything else
+The model is chosen before the schema, because the column's dimension follows it and the engine's
+ceiling is **1998 dimensions**, so a model emitting more has to be asked for a shorter vector at
+generation time.
 
-The dimension is baked into the column and **cannot be changed by `ALTER COLUMN` even on an empty
-table**. Changing it means a new column or a new table, and re-embedding everything.
-
-- **Choose a model whose output is 1998 dimensions or fewer.** A 3072 dimension model has to be
-  asked for a shorter vector at generation time. Most current embedding APIs accept a dimension
-  request, and a shortened vector from a strong model is usually a better trade than the full
-  vector from a weaker one.
 - **Write the number down twice**: as `vector(n)` in the schema and as the dimension requested from
   the model. When they disagree the insert fails on dimension mismatch, which is the one failure in
   this pipeline that is loud.
@@ -253,7 +246,8 @@ recreate.
 
 ## Validation rules
 
-- The declared `vector(n)` dimension is 1998 or fewer and equals what the model is asked to produce.
+- The declared `vector(n)` dimension equals what the model is asked to produce, and is within the
+  engine's 1998 ceiling.
 - Every embedding row carries the model name, the dimension and a timestamp, and a group by over
   the model column returns exactly one row.
 - The chunk table has a clustered primary key, a unique key on the chunk identity, and an index on
@@ -275,7 +269,6 @@ recreate.
 - Do not store an embedding without recording which model made it.
 - Do not mix two models' vectors in one column. Nothing will tell you, and every distance across
   them is meaningless.
-- Do not pick the embedding model after writing the schema. The dimension cannot be altered later.
 - Do not filter retrieved rows in application code when the predicate could have been in the query.
 - Do not embed the question with a different model from the corpus.
 - Do not re-embed rows that have not changed. Hash the text and skip them.

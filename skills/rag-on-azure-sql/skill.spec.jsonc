@@ -3,7 +3,7 @@
   "id": "rag-on-azure-sql",
   "domain": "ai-vector-and-rag",
   "value": ["not-in-training-data", "corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
-  "correction": "Agents build retrieval augmented generation on Azure SQL Database by porting a vector store recipe: one chunk table holding extracted text and one embedding column, retrieved with the application's identity, top k pasted into the prompt. It demonstrates correctly and then fails in three ways that raise nothing. First, the chunk table is a second copy of the source text, so the row level security policy, the tenant column and the grants that protected the original table do not apply to it, and a retrieval that is otherwise perfect puts text the asking user may not read into the prompt where the model quotes it back; measured on 2026-08-28 against a live Azure SQL Database, a filter predicate placed on the chunk table IS honoured through approximate vector search, so the omission rather than the mechanism is the whole failure. Second, nothing records which model produced each stored vector, because a vector column carries a dimension count and a base type and nothing else, and the two most widely used embedding models both emit 1536 dimensions, so re-embedding part of a corpus with a different model inserts cleanly, matches on dimension and leaves two incompatible geometries in one column whose only symptom is that answers get worse. Third, the engine's ceiling is 1998 dimensions while the current large embedding model emits 3072 by default, and the dimension cannot be changed by ALTER COLUMN even on an empty table, so the model an agent reaches for first cannot be stored at all and the failure lands after the whole ingest is written. Being wrong costs a data leak that reads as a correct answer, a corpus whose retrieval quality decays with nothing to point at, and a rebuild of the ingest.",
+  "correction": "Agents build retrieval augmented generation on Azure SQL Database by porting a vector store recipe: one chunk table holding extracted text and one embedding column, retrieved with the application's identity, top k pasted into the prompt. It demonstrates correctly and then fails in two ways that raise nothing. First, the chunk table is a second copy of the source text, so the row level security policy, the tenant column and the grants that protected the original table do not apply to it, and a retrieval that is otherwise perfect puts text the asking user may not read into the prompt where the model quotes it back; measured on 2026-08-28 against a live Azure SQL Database, a filter predicate placed on the chunk table IS honoured through approximate vector search, so the omission rather than the mechanism is the whole failure. Second, nothing records which model produced each stored vector, because a vector column carries a dimension count and a base type and nothing else, and the two most widely used embedding models both emit 1536 dimensions, so re-embedding part of a corpus with a different model inserts cleanly, matches on dimension and leaves two incompatible geometries in one column whose only symptom is that answers get worse. Being wrong costs a data leak that reads as a correct answer and a corpus whose retrieval quality decays with nothing to point at.",
   "posture": ["read", "write", "execute"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db"],
@@ -24,10 +24,10 @@
     "target": "cloud",
     "setup": [
       "a database reachable with permission to create tables, indexes and a security policy",
-      "a source table of documents and an embedding model whose output dimension is 1998 or fewer"
+      "a source table of documents and an embedding model whose output dimension the engine can store"
     ],
     "assert": [
-      "the declared vector dimension is 1998 or fewer and equals the dimension requested from the model",
+      "the declared vector dimension equals the dimension requested from the model, and is within the engine's 1998 ceiling",
       "every embedded row carries the model name, the dimension and a timestamp, and grouping by the model column returns exactly one row",
       "the chunk table has a clustered primary key, a unique key on the chunk identity, and an index on the columns retrieval filters by",
       "re-running the ingest over unchanged source text embeds nothing",

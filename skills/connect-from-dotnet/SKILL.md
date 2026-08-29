@@ -5,11 +5,11 @@ description: >-
   references are required, the encryption defaults and what changed, connection pooling and the
   keys that split a pool, and managed identity or other Microsoft Entra ID modes. Use when a user
   says "connect .NET to Azure SQL", "Microsoft.Data.SqlClient", "SqlConnection", "managed identity
-  for my API", "Active Directory Default", "Max Pool Size", "Encrypt=Strict", or reports the error
-  "Cannot find an authentication provider". Also use when an app authenticates with a password
-  locally and must use an identity in Azure. Covers packages, connection string keywords, pooling
-  and Entra ID for .NET only; the ORM path is ef-core-azure-sql, and encryption doctrine plus
-  transient-fault retry belong to connect-to-azure-sql.
+  for my API", "Active Directory Default", "Max Pool Size", "Encrypt=Strict", or asks whether
+  "Microsoft.Data.SqlClient.Extensions.Azure" is needed. Also use when an app authenticates with a
+  password locally and must use an identity in Azure. Covers packages, connection string keywords,
+  pooling and Entra ID for .NET only; the ORM path is ef-core-azure-sql, and encryption doctrine
+  plus transient-fault retry belong to connect-to-azure-sql.
 license: MIT
 ---
 
@@ -20,7 +20,8 @@ since version 7.0 Microsoft Entra authentication needs a **second package refere
 in the connection string hints at.
 
 Verified on 2026-08-27 against `Microsoft.Data.SqlClient` 7.0.2 and
-`Microsoft.Data.SqlClient.Extensions.Azure` 7.0.2, restored and executed rather than recalled.
+`Microsoft.Data.SqlClient.Extensions.Azure` 7.0.2, restored and executed rather than recalled. The
+dependency graph and the local failure mode were re-run on 2026-08-28.
 
 This skill owns the .NET-specific half: packages, connection string keywords, pooling and Entra ID.
 Encryption doctrine, retry and transient-fault handling, and the first-connect error on a paused
@@ -43,8 +44,11 @@ fixing before anything else.
 Confirmed in the restored dependency graph: 7.0.2 pulls **no** `Azure.Identity`, `Azure.Core` or
 `Microsoft.Identity.Client`. Those arrive only with the extension package.
 
-So a connection string that used to work now fails at `Open()`. Run against the core package alone,
-`Authentication=Active Directory Default` produces:
+So a connection string that used to work now fails at `Open()`. What was measured is the mechanism:
+against the core package alone, 7.0.2 registers **zero** authentication providers, so every
+`Active Directory *` mode has nothing to resolve to. On a server that offers Microsoft Entra
+authentication the failure surfaces as an `ArgumentException` at `Open()`, naming the missing
+provider and the package that supplies it, in this shape:
 
 ```
 System.ArgumentException: Cannot find an authentication provider for 'ActiveDirectoryDefault'.
@@ -62,6 +66,22 @@ The extension registers its authentication providers automatically. Every `Activ
 needs it. Applications that use SQL authentication, Windows integrated authentication, or supply
 their own token through `AccessToken` or `AccessTokenCallback` do not, and they get a lighter
 dependency graph as a result.
+
+### Where that exception appears, and where it does not
+
+The provider is looked up during the login exchange rather than before it, so the exception needs a
+server that offers Microsoft Entra authentication. Measured on 2026-08-28 against the local Azure
+SQL Database container with the core package alone: `Authentication=Active Directory Default` never
+raised it. The connection failed earlier, as `SqlException` 18456, `Login failed for user ''`, a
+message that names neither a provider nor a package, and that failure belongs to
+`diagnose-connection-errors`. The same connection string pointed at a hostname that does not
+resolve returned a socket error rather than the `ArgumentException`, which settles the ordering
+from the other side: nothing about providers is checked before a connection is attempted.
+
+Two consequences. The package rule holds everywhere, because it is a property of the dependency
+graph rather than of the server. The exception that announces it does not, so local development is
+not where it reproduces, and a local run that fails some other way is no evidence that the
+extension package can be skipped.
 
 ## Encryption defaults, and the version that changed them
 
@@ -180,11 +200,14 @@ and wiring the identity across Azure resources is `managed-identity-across-azure
 - `SqlConnection` instances are disposed rather than cached, and `AccessTokenCallback`, if used, is
   a single shared instance.
 - No password, token, server hostname or identity id is hard-coded.
+- The extension package is decided from the dependency graph and the authentication mode, never
+  from whether a connection to the local container happened to succeed or fail.
 
 ## Do not
 
 - Do not assume a connection string alone enables Entra ID on 7.0 or later. It needs the extension
-  package, and the failure is an `ArgumentException` at `Open()`.
+  package, and against a server offering Microsoft Entra authentication the failure is an
+  `ArgumentException` at `Open()`.
 - Do not start new work on `System.Data.SqlClient`.
 - Do not set `TrustServerCertificate=True` to clear a certificate error. Read `connect-to-azure-sql`.
 - Do not cache or share a `SqlConnection` across requests. Cache nothing; the pool is the cache.

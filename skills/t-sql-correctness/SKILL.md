@@ -37,11 +37,18 @@ Verified against Microsoft Learn on 2026-08-27. The full translation table, with
 | `WHERE name = "ana"` | `WHERE name = 'ana'` | Double quotes delimit **identifiers**, not strings |
 | `bio TEXT` | `bio NVARCHAR(MAX)` | `text` and `ntext` are deprecated and excluded from several operators |
 | `ON CONFLICT DO UPDATE` | See `t-sql-upserts-merge` | That skill owns upserts, including when not to use `MERGE` |
-| `USE otherdb;` | Open a new connection to that database | Documented as unsupported: to change database context, connect again |
+| `USE otherdb;` | Open a new connection to that database | Unsupported on Azure SQL Database: to change database context, connect again |
 
 `USE` failing is the one that surprises people most, and it has a second half: cross-database and
 cross-instance queries with three or four part names are not supported either, except three part
 names for `tempdb` and the current database.
+
+**This is the one rule on the page where the local container and the cloud genuinely differ, and it
+differs in the direction that hurts.** `USE` and cross-database three part names **work** on the
+Azure SQL Database container, because it is a single engine hosting several databases. They fail
+against Azure SQL Database, where each database is its own boundary. So a query tested locally
+passes, ships, and fails in the cloud with nothing in the local run to warn you. Test anything that
+crosses a database boundary against the cloud, or do not write it.
 
 ## Pagination has two more rules than the substitution
 
@@ -131,7 +138,7 @@ This is the half most reviewers miss, because the training data predates them.
 | `UNISTR` for Unicode literals | Generally available since July 2025 |
 | Regular expression functions | Generally available since November 2025. Three of them need a compatibility level check first, so route to `t-sql-regex-and-new-functions` |
 | `STRING_AGG(x, ',') WITHIN GROUP (ORDER BY x)` | Available at any compatibility level. Nulls are skipped, and the separator with them |
-| `TRIM(BOTH '.' FROM s)` | `TRIM` itself is long-standing; the `LEADING`, `TRAILING` and `BOTH` keywords are the newer part |
+| `TRIM(BOTH '.' FROM s)` | `TRIM` itself is long-standing; the `LEADING`, `TRAILING` and `BOTH` keywords are the newer part and need a recent compatibility level. Below it they are a **parse** error, so check the level before reaching for them |
 | `GREATEST(a, b, c)` and `LEAST(...)` | Row-wise maximum and minimum. Nulls are ignored unless every argument is null |
 | `a IS NOT DISTINCT FROM b` | Null-safe equality, so `NULL IS NOT DISTINCT FROM NULL` is true where `=` is unknown |
 
@@ -162,8 +169,11 @@ Two traps inside that list:
 - Do not hand-roll string aggregation with `FOR XML PATH`, or a maximum with a `CASE` ladder. Both
   have had a real function for years.
 - Do not assume a function is missing because it is missing from memory. A migrated database can
-  sit at an old compatibility level, which fails differently: the syntax is valid and the engine
-  still refuses. See `post-migration-compatibility-level`.
+  sit at an old compatibility level, and the failure then looks exactly like the function not
+  existing: measured at level 150, the newer syntax comes back as `Msg 102` incorrect syntax,
+  `Msg 195` not a recognized built-in function name, or `Msg 208` invalid object name. That is why
+  the wrong conclusion is so easy to reach. Check the level before believing the error. See
+  `post-migration-compatibility-level`.
 - Do not put error handling in scope here. `t-sql-error-handling` owns `TRY`, `CATCH` and
   `XACT_ABORT`, and `t-sql-programmability-objects` owns how triggers interact with `OUTPUT`.
 

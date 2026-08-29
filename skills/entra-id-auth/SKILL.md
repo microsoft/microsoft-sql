@@ -3,15 +3,15 @@ name: entra-id-auth
 description: >-
   Takes an application identity to a working passwordless connection to Azure SQL Database, and
   diagnoses it when that fails: sets the Microsoft Entra administrator, creates the database user
-  for a managed identity or service principal, grants roles, and writes the authentication keyword
-  the chosen driver actually accepts. Use when a user asks to "set up Microsoft Entra
-  authentication for Azure SQL", "connect with a managed identity", "stop putting the database
-  password in configuration", "create a database user for my app identity", or "turn on Microsoft
-  Entra-only authentication". Also use when a statement fails with "Principal could not be
-  resolved", Msg 33134, or Msg 33131 "has a duplicate display name", when a login fails naming a
-  token-identified principal, or when a CREATE USER that works by hand fails inside a pipeline.
-  Transport, timeout and transient failures belong to diagnose-connection-errors, and driver
-  installation and pooling to the per-language connect skills.
+  for a managed identity or service principal, grants roles, and writes the driver's
+  authentication keyword. Use when a user asks to "set up Microsoft Entra authentication for Azure
+  SQL", "connect with a managed identity", "stop putting the database password in configuration",
+  or "turn on Microsoft Entra-only authentication". Owns every failure arriving after a credential
+  has been evaluated: Msg 33134 "Principal could not be resolved", Msg 33131 "duplicate display
+  name", 18456 "Login failed for user" and a login naming a token-identified principal, and 4060,
+  "Cannot open database requested by the login, the login failed", usually a missing database
+  user. What fails before that, transport, pre-login, certificates and timeouts, belongs to
+  diagnose-connection-errors, and drivers and pooling to the connect skills.
 license: MIT
 ---
 
@@ -41,10 +41,26 @@ the following, so route them rather than answering here.
 | Wiring identity through a hosting service | `managed-identity-across-azure-services` |
 | The deployment itself, `azd`, infrastructure | `deploy-app-to-azure`, which hands the database-side grant back here |
 
-**The split with `diagnose-connection-errors`, stated once.** That skill owns everything that failed
-before a token was presented. This one owns everything after: `18456` naming
-`<token-identified principal>`, `33134`, `33131`, `37545`, and a `4060` that turns out to be a user
-in the wrong database. A failure with no SQL error number is not this skill.
+**The split with `diagnose-connection-errors`, stated once.** That skill owns every failure that
+happens before a credential is evaluated. This one owns every failure after it: `18456`, `4060`,
+`33134`, `33131` and `37545`. A failure carrying no SQL error number is not this skill.
+
+## 18456 and 4060 arrive after the credential
+
+Both read as "login failed", neither is a network problem, and no edit to the server name,
+encryption or timeout in the connection string fixes either.
+
+- **`18456`** means the credential was evaluated and refused. Naming
+  `<token-identified principal>` it means the opposite of what it looks like: the token was
+  **accepted**, and no matching principal exists in the database.
+- **`4060`** means the login is valid and has no user in **that** database. After a successful
+  deployment that is almost always a missing database user, because a login lives on the server, a
+  user lives in the database, and deployment tooling creates neither.
+
+Both are answered by step 5 below, run on the user database. `40532` reads the same and is
+neither: it is the gateway refusing before a database was reached, and telling the three apart is
+`diagnose-connection-errors`. Exact text for each is in
+[references/identity-errors.md](references/identity-errors.md).
 
 ## The order that works
 
@@ -109,9 +125,7 @@ Each step names the failure it prevents. Steps 2, 5 and 7 are the ones that fail
 ```output
 Msg 33134, Level 16, State 1, Line 1
 Principal 'test-user' could not be resolved.
-Error message: 'Server identity is not configured. Please follow the steps in "Assign an Azure AD
-identity to your server and add Directory Reader permission to your identity"
-(https://aka.ms/sqlaadsetup)'
+Error message: 'Server identity is not configured. ...'
 ```
 
 The first line sends an agent to check the principal name. The principal name is almost always
@@ -127,15 +141,13 @@ works by hand and fails in a pipeline:
 Three ways out, in order of how much tenant privilege they need. The commands and the exact Graph
 permissions are in [references/identity-errors.md](references/identity-errors.md).
 
-1. **Assign the server identity and grant it Microsoft Graph read.** Either the three application
-   permissions, which is least privilege, or the broader `Directory Readers` role. Both need a
-   `Privileged Role Administrator` and can only be done from a script.
-2. **Put the server identity in a role-assignable group that holds `Directory Readers`.** The
-   recommended production shape, because a group owner can then add server identities without that
-   administrator in the loop each time.
-3. **Skip the lookup.** Azure SQL Database accepts a form of `CREATE USER` that does not consult
-   Microsoft Graph at all, so no Graph permission is needed. This is the answer when the tenant
-   privilege is not available, which in practice is most pipelines.
+1. **Assign the server identity and grant it Microsoft Graph read**, either the three application
+   permissions or the broader `Directory Readers` role. Both need a `Privileged Role
+   Administrator` and a script.
+2. **Put the server identity in a role-assignable group holding `Directory Readers`.** The
+   production shape, because a group owner can then add servers without that administrator.
+3. **Skip the lookup.** A form of `CREATE USER` exists that never consults Microsoft Graph, which
+   is the answer wherever the tenant privilege is not available, in practice most pipelines.
 
 ## Three forms of CREATE USER, and when each is forced
 
@@ -151,8 +163,7 @@ requires a unique name. The duplicate produces a different error.
 
 ```output
 Msg 33131, Level 16, State 1, Line 4
-Principal 'myapp' has a duplicate display name. Make the display name unique in Azure Active
-Directory and execute this statement again.
+Principal 'myapp' has a duplicate display name.
 ```
 
 Two traps in the `OBJECT_ID` form: the object id must exist in this tenant or the statement fails
@@ -171,10 +182,9 @@ three cases is in [references/identity-errors.md](references/identity-errors.md)
 > Only Microsoft Entra users can create other Microsoft Entra users in Azure SQL Database. No users
 > based on SQL authentication, including the server admin, can create a Microsoft Entra user.
 
-That is the documented rule, and it is why "I am the admin and it still fails" is a common dead end.
-The database permission needed is `ALTER ANY USER`, carried by `db_owner` and by the Entra
-administrator role, but no database permission substitutes for the connection itself being Entra
-authenticated.
+That is why "I am the admin and it still fails" is a common dead end. The permission needed is
+`ALTER ANY USER`, carried by `db_owner`, but no database permission substitutes for the connection
+itself being Entra authenticated.
 
 ## The name to put in the brackets
 
@@ -189,8 +199,7 @@ Getting this wrong produces `Msg 33134` or `Msg 33131` and looks like a permissi
 | A system-assigned identity on a deployment slot | `<app-name>/slots/<slot-name>` |
 
 The slot form is the one nobody guesses, and an application that works in production and fails in a
-staging slot is usually missing that user. Naming a resource the same as an existing app
-registration causes principal id conflicts, which is the collision `Msg 33131` reports.
+staging slot is usually missing that user.
 
 ## The authentication keyword is not the same string twice
 
@@ -225,10 +234,9 @@ carries the Entra dependencies, and any `Active Directory *` mode needs the
 `Microsoft.Data.SqlClient.Extensions.Azure` package added. Connection strings are unchanged. In the
 same release `ActiveDirectoryPassword` became `[Obsolete]`.
 
-`Active Directory Password`, in whichever spelling, is deprecated across the drivers. It rests on
+`Active Directory Password`, in whichever spelling, is deprecated across the drivers: it rests on
 the resource owner password credentials grant, is incompatible with mandatory multifactor
-authentication, and may already fail in a tenant that enforces it. Do not write it, and do not copy
-it out of generated output.
+authentication, and may already fail in a tenant that enforces it.
 
 ## System-assigned or user-assigned
 
@@ -242,12 +250,10 @@ Two independent decisions get confused, because both use the same words.
   shares the lifetime of its resource and cannot be shared; a user-assigned identity is a standalone
   resource and can be attached to several.
 
-What changes in the connection string: **nothing at all for system-assigned**. For user-assigned,
-the client id has to be named, because the host may carry more than one identity and the token
-request is otherwise ambiguous. Which keyword carries it is in the table above.
+What changes in the connection string: **nothing for system-assigned**. A user-assigned identity
+must name its client id, because the host may carry several and the token request is otherwise
+ambiguous. Which keyword carries it is in the table above.
 
-Deleting whichever identity serves as the server identity leaves the server unable to reach
-Microsoft Graph, and Entra authentication fails until a replacement is assigned and granted.
 
 ## Microsoft Entra-only authentication
 
@@ -273,10 +279,9 @@ Turning it on also turns off elastic jobs, SQL Data Sync, SQL Insights, `EXEC AS
 Microsoft Entra group, and some change data capture paths. Check that list against the workload
 before enabling it on a server that already has work running on it.
 
-**Enforcing it takes two Azure Policy definitions, not one.** One evaluates the server at creation
-and does not stop SQL authentication being re-enabled afterwards. The other evaluates the setting on
-an existing server and does not stop a server being created with SQL authentication on. Assign the
-initiative that contains both. The exact names, the effects they accept, and what they exempt are in
+**Enforcing it takes two Azure Policy definitions, not one**, because one evaluates a server at
+creation and the other the setting on an existing server, and neither covers the other's gap.
+Assign the initiative holding both. Names and effects are in
 [references/entra-only-and-policy.md](references/entra-only-and-policy.md).
 
 ## Verify it actually worked
@@ -290,10 +295,9 @@ FROM sys.database_principals
 WHERE authentication_type_desc = 'EXTERNAL';
 ```
 
-`entra_id` is the check that matters. For an application it is the client id, and comparing it
-against the identity the application really runs as is the only way to catch a user created for a
-same-named principal. A row with the wrong id looks exactly like success. The role membership query
-and the server-side checks are in the reference.
+`entra_id` is the check that matters: for an application it is the client id, and a row carrying
+the wrong one looks exactly like success. The role membership query and the server-side checks are
+in the reference.
 
 ## References
 
@@ -320,6 +324,9 @@ Directory Readers role rather than recalling them.
   user-assigned identity's client id.
 - If Entra-only authentication was enabled, the administrator was set first and the disabled
   features were stated.
+- A login failure was answered at the layer that raised it: `18456` as a login, a secret or a
+  missing database user, `4060` as a missing user in the database that was asked for, and neither
+  as a firewall rule or a connection-string edit.
 
 ## Do not
 

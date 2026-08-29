@@ -1,0 +1,82 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "rls-multi-tenant",
+  "domain": "security-and-safe-sql",
+  "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
+  "correction": "Asked for tenant isolation on Azure SQL Database, an agent writes a security policy carrying a filter predicate and presents it as finished, because every SELECT then returns only the current tenant's rows and the demonstration looks correct. Measured on 2026-08-28 against a live engine reporting EngineEdition 5 and Edition 'SQL Azure': with a filter predicate alone, a session holding tenant 1 inserted a row stamped tenant 2 and the statement succeeded, then updated one of its own rows into tenant 2 and that succeeded too, and both rows immediately vanished from the writer's view, so the application that created them could neither read them back nor delete them; recovery required disabling the policy. Adding the block predicate turned both into Msg 33504, and AFTER INSERT and AFTER UPDATE are separately required, because with only AFTER INSERT in place the tenant-move update still succeeded with no error. The second wrong belief is that SESSION_CONTEXT is a tenant boundary. It is per-connection state any caller on that connection can rewrite with no permission at all: a user holding only CONNECT plus SELECT, INSERT, UPDATE and DELETE on one table reset its own tenant id and read the other tenant's rows. It also outlives the request. With the context set in one pooled call and the query issued in another, 200 concurrent requests over a five connection pool returned the wrong tenant's rows 103 times, and 91 times on a repeat, with no error raised to any caller, while setting the context and querying on one acquired connection returned 0 wrong answers in 200 and a database user per tenant with one pool each also returned 0 in 200; sp_set_session_context with @read_only = 1 is not the fix, since on a reused connection it refused the next tenant's correct attempt with Msg 15664 while the forgetful path still leaked. Bypass is narrower than usually recalled and was confirmed rather than assumed: neither the table owner nor a db_owner member reads through the policy, both returning 0 rows with no tenant set, and what they hold is the ability to disable it, which requires ALTER ANY SECURITY POLICY together with ALTER on the schema holding the policy, since either permission alone failed with Msg 33268. A policy can also be present and not enforcing in three ways that all look healthy from the application, namely STATE = OFF, a predicate that returns a row when the tenant is unset, and a second tenant-scoped table nobody added to the policy. Being wrong costs a cross-tenant write no read can find and no application statement can undo, a tenant reading another tenant's rows about half the time under ordinary production concurrency with nothing raised and nothing logged, and an isolation control that ships never having been exercised beside its vector index, because the local container refuses to hold a security policy and a vector index on the same table in either order, Msg 37579 and Msg 42244.",
+  "posture": ["read", "write", "admin"],
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "last_verified": "2026-08-28",
+  "related": [
+    "entra-id-auth",
+    "design-azure-sql-schema",
+    "t-sql-correctness",
+    "rag-on-azure-sql",
+    "vector-search-azure-sql",
+    "rag-local-with-container",
+    "least-privilege-database-roles",
+    "permissions-and-privilege-review",
+    "multi-tenant-saas-patterns",
+    "secure-by-default-checklist"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a table carrying a non-nullable tenant column and rows belonging to at least two tenants",
+      "a login and a matching database user granted only CONNECT and the table permissions the application needs, never db_owner",
+      "a second tenant-scoped table deliberately left out of the policy, to exercise the sweep",
+      "a client that exposes an explicit connection pool size, so the pooling assertion can run concurrently",
+      "on the container, a chunk table with a vector column and no vector index"
+    ],
+    "assert": [
+      "every tenant-scoped table carries a filter predicate and block predicates for both AFTER INSERT and AFTER UPDATE, and a generated policy with a filter predicate alone is flagged as unfinished",
+      "the predicate function is declared WITH SCHEMABINDING and returns no row when the tenant is unset, with no OR clause admitting an unset or administrative session",
+      "a cross-tenant insert and a tenant-move update are both refused with 33504, verified by running them rather than asserted in a comment",
+      "the statement setting the tenant and the statement reading run on one acquired connection, and the answer does not set the tenant through one pool call and query through another",
+      "the tenant is cleared or the connection is not reused before it returns to the pool, and no answer offers @read_only = 1 as the remedy for pooled reuse",
+      "no answer claims the table owner or db_owner reads through the policy, and any bypass discussion names the pairing of ALTER ANY SECURITY POLICY with ALTER on the policy's schema",
+      "a sweep over sys.security_predicates and sys.security_policies runs after any migration adding a table, and returns no tenant-scoped table lacking predicates or carrying a disabled policy",
+      "the isolation test runs as the application's own database user and has been observed failing with a predicate deliberately removed",
+      "no answer proposes creating a vector index on a table carrying a security policy on the container, and any local retrieval rehearsal uses exact distance search with no vector index"
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Add row level security to this table so each tenant only sees its own rows",
+      "Write a security policy and predicate function for multi-tenant isolation on Azure SQL Database",
+      "Should I use SESSION_CONTEXT or a database user per tenant for tenant isolation",
+      "Write a test that proves one tenant cannot read another tenant's data",
+      "Do I need a block predicate as well as a filter predicate",
+      "Review this multi-tenant isolation design before it goes to production",
+      "Who can bypass a row level security policy in my database"
+    ],
+    "implicit": [
+      "a customer reported seeing another customer's orders and we cannot reproduce it",
+      "our tenant filter works in testing and returns the wrong rows under load",
+      "the security policy is enabled but every tenant can still see everything",
+      "rows are being created that nobody in the application can find afterwards",
+      "the attempted operation failed because the target object has a block predicate",
+      "we added a new table last sprint and it is not being filtered by tenant",
+      "cannot set key in the session context, the key has been set as read_only for this session",
+      "how do I stop a tenant writing a row into someone else's tenant id",
+      "my retrieval returned a chunk that belongs to a different customer"
+    ],
+    "routing": [
+      "make this shared-database SaaS schema safe for multiple customers",
+      "prove that our tenant separation actually works"
+    ],
+    "negative": [
+      "How do I set up Microsoft Entra authentication for my Azure SQL database",
+      "Login failed for user when my app connects to Azure SQL",
+      "Encrypt this column so the database never sees the plaintext",
+      "Mask the last four digits of this card number in query results",
+      "How do I audit who read this table",
+      "Write a paginated query for Azure SQL Database",
+      "Create a vector index for my embeddings table in Azure SQL Database",
+      "How wide can an index key be on Azure SQL Database",
+      "Give each of my tenants a separate database instead of a shared one",
+      "Grant my reporting user read access to these three schemas"
+    ]
+  }
+}
