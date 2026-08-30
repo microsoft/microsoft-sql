@@ -12,7 +12,6 @@ description: >-
   after a retry, or asks why a migration retypes JSON columns. Not general EF Core: pooling is
   connect-from-dotnet, connection retry is connect-to-azure-sql, identity is entra-id-auth, and
   the other mappers are prisma-azure-sql and sqlalchemy-azure-sql.
-license: MIT
 ---
 
 # EF Core against Azure SQL Database

@@ -10,7 +10,6 @@ description: >-
   IF EXISTS then UPDATE ELSE INSERT is a race, what MERGE needs to be safe, which MERGE shapes to
   refuse outright, and the two patterns that are safe without MERGE. Key and index design belongs
   to design-azure-sql-schema, and general T-SQL dialect to t-sql-correctness.
-license: MIT
 ---
 
 # Write an upsert that survives concurrency, and refuse the dangerous MERGE

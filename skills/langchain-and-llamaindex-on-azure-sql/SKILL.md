@@ -12,7 +12,6 @@ description: >-
   query shape are vector-search-azure-sql, the cloud retrieval pipeline is rag-on-azure-sql, the
   offline container loop is rag-local-with-container, and drivers, connection strings and token auth
   are connect-from-python.
-license: MIT
 ---
 
 # LangChain and LlamaIndex on Azure SQL Database

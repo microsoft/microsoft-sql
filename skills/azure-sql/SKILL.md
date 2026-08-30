@@ -12,7 +12,6 @@ description: >-
   tier choice to provision-hyperscale, identity to entra-id-auth, connection errors to
   diagnose-connection-errors, T-SQL syntax to t-sql-correctness, and starting an application to
   build-app-on-azure-sql.
-license: MIT
 ---
 
 # Working with Azure SQL Database

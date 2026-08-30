@@ -12,7 +12,6 @@ description: >-
   tenant id, who can turn a policy off, the tenant tables a healthy-looking policy
   does not cover, and the isolation test that goes red when any of it breaks. Identity onto a
   working connection is entra-id-auth; the table design under it is design-azure-sql-schema.
-license: MIT
 ---
 
 # Tenant isolation that holds, and the test that proves it

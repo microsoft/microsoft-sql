@@ -11,7 +11,6 @@ description: >-
   connection. Covers installation, connection strings, pooling and Entra ID for Python only.
   Encryption doctrine and transient-fault retry belong to connect-to-azure-sql; Node and .NET have
   their own skills.
-license: MIT
 ---
 
 # Connect from Python

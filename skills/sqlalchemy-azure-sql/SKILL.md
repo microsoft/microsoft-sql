@@ -11,7 +11,6 @@ description: >-
   is no faster after fast_executemany was set. Covers the engine URL, the generated DML, type
   mapping and Alembic. Driver choice and installation belong to connect-from-python, retry and
   pool sizing to connect-to-azure-sql; Prisma, EF Core and Django have their own skills.
-license: MIT
 ---
 
 # SQLAlchemy on Azure SQL Database

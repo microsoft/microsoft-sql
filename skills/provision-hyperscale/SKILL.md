@@ -11,7 +11,6 @@ description: >-
   eligibility rules for reverse migration, controlling the cutover, replica-based read scale-out,
   and what actually limits write throughput. Creating the server, the database and the firewall
   rule belongs to provision-azure-sql-db.
-license: MIT
 ---
 
 # Put a workload on Hyperscale

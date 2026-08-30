@@ -12,7 +12,6 @@ description: >-
   here: 18456, a login that was evaluated and refused, and 4060, a valid login with no user in the
   database it asked for, belong to entra-id-auth, and 40613 is expected serverless resume and
   belongs to connect-to-azure-sql.
-license: MIT
 ---
 
 # Diagnose an Azure SQL Database connection error

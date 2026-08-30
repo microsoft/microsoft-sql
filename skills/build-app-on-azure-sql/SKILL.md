@@ -12,7 +12,6 @@ description: >-
   per-language connect skills own drivers, retry and pooling, entra-id-auth owns the identity,
   dab-rest-and-graphql and azure-functions-sql-bindings own the API layer, deploy-app-to-azure
   owns shipping, and azuresql-db-scaffold owns the local container version.
-license: MIT
 ---
 
 # Build an application on Azure SQL Database

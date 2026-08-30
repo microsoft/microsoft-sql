@@ -10,7 +10,6 @@ description: >-
   support the double pipe operator". Covers pagination with OFFSET and FETCH, OUTPUT and its
   trigger restriction, IDENTITY, the bit type, collation as the case-sensitivity control, and
   identifier quoting. Upserts belong to t-sql-upserts-merge and JSON to t-sql-json-and-openjson.
-license: MIT
 ---
 
 # Write T-SQL that is correct on Azure SQL Database

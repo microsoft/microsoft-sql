@@ -11,7 +11,6 @@ description: >-
   include pattern combined with the Unauthenticated provider. This is the Azure SQL Database story;
   running Data API builder against the local Azure SQL Database container belongs to
   azuresql-db-dab, and configuring the MCP endpoint in depth is out of scope here.
-license: MIT
 ---
 
 # REST and GraphQL over Azure SQL Database with Data API builder
