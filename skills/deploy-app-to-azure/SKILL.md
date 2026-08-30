@@ -75,9 +75,39 @@ both `0.0.0.0`. A rule from `0.0.0.1` to `255.255.255.254` is not a narrower ver
 is not Azure-internal traffic.
 
 **Four of four.** Picking the better template fixes the password and leaves the firewall open, which
-is why this is not a note about one bad sample. Narrowing it means the machine running the
-post-provision hook now needs a rule of its own. `provision-azure-sql-db` owns authoring firewall
-rules; this skill owns catching an inherited one.
+is why this is not a note about one bad sample.
+
+Verified 2026-08-29 by cloning all four repositories. In `todo-csharp-sql` the rule is in
+`infra/app/db-avm.bicep` and is unconditional. In the three Functions quickstarts it is in
+`infra/app/db.bicep` behind `!vnetEnabled`, so enabling the VNet option removes it. The range does
+not appear in the Azure Verified Module's own documented examples, so it travels with the samples
+rather than with the module.
+
+**Say this to the user, then let them decide.** The templates are Microsoft-published and are not
+ours to change, so treat the rule as inherited, name it out loud, and offer to narrow it. Do not
+silently edit a template's infrastructure on someone's behalf, and do not silently leave the range
+unmentioned either.
+
+To narrow it after deploying, replace the range with the addresses that actually need in:
+
+```bash
+az sql server firewall-rule delete -g <group> -s <server> -n "Azure Services"
+
+# the documented Allow Azure services special case, if Azure-internal traffic is what you meant
+az sql server firewall-rule create -g <group> -s <server> \
+  -n AllowAzureServices --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0
+
+# and the developer machine, if it connects directly
+az sql server firewall-rule create -g <group> -s <server> \
+  -n dev-box --start-ip-address <your ip> --end-ip-address <your ip>
+```
+
+**One thing breaks if you narrow it first.** The post-provision hook runs from a machine that then
+needs a rule of its own, and without one it fails as a timeout rather than a permission error. The
+three Functions quickstarts already ship `infra/scripts/addclientip.ps1` for exactly this. So narrow
+the rule after the first successful `azd up`, not before.
+
+`provision-azure-sql-db` owns authoring firewall rules; this skill owns catching an inherited one.
 
 ### So read the infrastructure before running it
 
