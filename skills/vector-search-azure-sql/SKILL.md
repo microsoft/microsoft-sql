@@ -11,7 +11,6 @@ description: >-
   type and the query surface. The end to end retrieval pipeline is rag-on-azure-sql, generating
   embeddings and the external model endpoint are embeddings-and-external-models, and where a
   vector column belongs in a wider design is design-azure-sql-schema.
-license: MIT
 ---
 
 # Vector storage and search on Azure SQL Database

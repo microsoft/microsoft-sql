@@ -12,7 +12,6 @@ description: >-
   that jumped, or a duplicate key on NULL. This is the engine rule underneath the mappers:
   ef-core-azure-sql, prisma-azure-sql and sqlalchemy-azure-sql own how each one expresses it,
   t-sql-correctness owns query syntax, and vector-search-azure-sql owns vector search.
-license: MIT
 ---
 
 # Design a schema Azure SQL Database will not make you rebuild

@@ -13,7 +13,6 @@ description: >-
   rag-on-azure-sql, the type and the query are vector-search-azure-sql, embedding inside the
   engine is embeddings-and-external-models, and framework wiring is
   langchain-and-llamaindex-on-azure-sql.
-license: MIT
 ---
 
 # Local RAG on the Azure SQL Database container

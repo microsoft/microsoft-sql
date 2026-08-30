@@ -10,7 +10,6 @@ description: >-
   password locally and must use an identity in Azure. Covers packages, connection string keywords,
   pooling and Entra ID for .NET only; the ORM path is ef-core-azure-sql, and encryption doctrine
   plus transient-fault retry belong to connect-to-azure-sql.
-license: MIT
 ---
 
 # Connect from .NET

@@ -12,7 +12,6 @@ description: >-
   that reaches the vector index belong to vector-search-azure-sql, generating the embedding and the
   external model endpoint belong to embeddings-and-external-models, and the offline container path
   is rag-local-with-container.
-license: MIT
 ---
 
 # Retrieval augmented generation on Azure SQL Database

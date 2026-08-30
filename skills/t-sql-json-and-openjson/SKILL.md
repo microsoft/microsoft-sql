@@ -11,7 +11,6 @@ description: >-
   that is visibly present, or invalid JSON reached a column that nothing rejected. Where a
   document column belongs in a table design is design-azure-sql-schema, and general T-SQL dialect
   is t-sql-correctness.
-license: MIT
 ---
 
 # Query JSON on Azure SQL Database with the native type

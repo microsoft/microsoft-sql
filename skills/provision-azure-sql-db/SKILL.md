@@ -9,7 +9,6 @@ description: >-
   which is almost always the missing firewall rule. Covers how many free databases a subscription
   actually gets and the exhaustion behavior value the CLI accepts, which is not the one its own help
   text describes.
-license: MIT
 ---
 
 # Provision an Azure SQL Database

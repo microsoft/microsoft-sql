@@ -10,7 +10,6 @@ description: >-
   use when wiring an Azure Function or an Express route to a database. Covers driver installation,
   the config object, pool lifetime and Entra ID for this stack only. Encryption doctrine, retry and
   transient-fault handling belong to connect-to-azure-sql; Python and .NET have their own skills.
-license: MIT
 ---
 
 # Connect from TypeScript and Node.js

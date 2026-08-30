@@ -11,7 +11,6 @@ description: >-
   the Azure SQL Database story; the same bindings against the local Azure SQL Database container
   belong to azuresql-db-functions, and connection reuse across invocations belongs to the
   per-language connect skills.
-license: MIT
 ---
 
 # Azure Functions with the Azure SQL bindings

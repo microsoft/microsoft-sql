@@ -12,7 +12,6 @@ description: >-
   This skill owns producing the vector and calling out of the engine. Storing and searching it is
   vector-search-azure-sql, the retrieval pipeline around it is rag-on-azure-sql, and embedding
   offline against the local container is rag-local-with-container.
-license: MIT
 ---
 
 # Embeddings and external models in Azure SQL Database

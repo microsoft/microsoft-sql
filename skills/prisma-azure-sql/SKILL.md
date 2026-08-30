@@ -12,7 +12,6 @@ description: >-
   migrations and identity for Prisma only. Driver and pool ownership sit with
   connect-from-typescript-and-node, retry with connect-to-azure-sql; EF Core, SQLAlchemy and Django
   have their own skills.
-license: MIT
 ---
 
 # Prisma on Azure SQL Database

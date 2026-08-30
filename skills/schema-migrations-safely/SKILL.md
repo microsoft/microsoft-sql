@@ -12,7 +12,6 @@ description: >-
   concurrency or retry, and rollback as a forward migration. The tools carrying the change are
   sql-database-projects, github-actions-for-sql, ef-core-azure-sql, prisma-azure-sql and
   sqlalchemy-azure-sql. The schema itself is design-azure-sql-schema.
-license: MIT
 ---
 
 # Apply a schema change to a live Azure SQL Database

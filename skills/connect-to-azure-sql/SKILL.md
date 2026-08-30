@@ -12,7 +12,6 @@ description: >-
   language-neutral doctrine; driver installation, per-language connection string syntax and pooling
   configuration belong to connect-from-dotnet, connect-from-python and
   connect-from-typescript-and-node.
-license: MIT
 ---
 
 # Connect to Azure SQL Database

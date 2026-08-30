@@ -12,7 +12,6 @@ description: >-
   "Cannot open database requested by the login, the login failed", usually a missing database
   user. What fails before that, transport, pre-login, certificates and timeouts, belongs to
   diagnose-connection-errors, and drivers and pooling to the connect skills.
-license: MIT
 ---
 
 # Microsoft Entra ID authentication for an application identity
