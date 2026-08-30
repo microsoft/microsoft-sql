@@ -99,6 +99,31 @@ Narrowing it means whatever runs the post-provision hook now needs a rule of its
 fails as a timeout. `provision-azure-sql-db` owns authoring firewall rules and their latency; this
 skill owns catching an inherited one.
 
+### Where it is, verified 2026-08-29
+
+All four repositories were cloned and read on that date.
+
+| Template | File | Condition |
+|---|---|---|
+| `todo-csharp-sql` | `infra/app/db-avm.bicep`, line 42 | unconditional |
+| `functions-quickstart-dotnet-azd-sql` | `infra/app/db.bicep`, line 53 | only when `vnetEnabled` is false |
+| `functions-quickstart-python-azd-sql` | `infra/app/db.bicep`, line 53 | only when `vnetEnabled` is false |
+| `functions-quickstart-typescript-azd-sql` | `infra/app/db.bicep`, line 53 | only when `vnetEnabled` is false |
+
+The literal shipped in all four:
+
+```bicep
+{
+  name: 'Azure Services'
+  startIpAddress: '0.0.0.1'
+  endIpAddress: '255.255.255.254'
+}
+```
+
+**These are Microsoft-published samples and this skill does not change them.** The rule is
+inherited, the user is told about it, and narrowing it is their decision after the first
+successful `azd up`. The main body carries the commands.
+
 ## The post-provision grant, end to end
 
 Four pieces, in order. The whole thing fails silently if any one is missing.
