@@ -90,6 +90,35 @@ operation into a database with nothing in it yet: retry it against the same targ
 refuses, every time, until the target is dropped and recreated or a new name is chosen. Publish is
 a diffing operation and is the one safe to run again.
 
+## A vector index makes the import fail, and the export looks fine
+
+**Check for vector indexes before you plan anything around a bacpac.**
+
+```sql
+SELECT OBJECT_NAME(object_id) AS table_name, name
+FROM sys.indexes WHERE type_desc = 'VECTOR';
+```
+
+The import creates schema objects before it loads data, so a vector index is
+created against an empty table. Vector indexes require at least 100 rows with
+non-null vectors, measured 2026-08-31 against `12.0.2000.8`: 99 rows is refused
+with `Msg 42266` and 100 succeeds. The index cannot be created, and the import
+fails.
+
+**The export succeeds.** Nothing warns at export time. The failure lands later,
+on the import, on the machine that was counting on it, which is the worst place
+to discover a migration will not work.
+
+The documented workaround is to drop the vector indexes before exporting and
+recreate them after importing. Recreating needs the data loaded first, so the
+order is: drop, export, import, load, recreate.
+
+Note also that `TRUNCATE TABLE` is refused while a vector index exists
+(`Msg 42232`), so a reload-in-place plan has the same problem one step earlier.
+
+`azuresql-db-rag` and `vector-search-azure-sql` own vector indexes themselves.
+This skill owns the fact that one silently breaks a bacpac round trip.
+
 ## Deciding which of the four to run
 
 1. **Decide whether the row data has to move, not just the schema.** If the destination only
