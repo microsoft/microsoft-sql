@@ -245,14 +245,52 @@ emit('plugin.json', JSON.stringify({
 }, null, 2) + '\n');
 
 // ---------------------------------------------------------------------------
-// apm.yml. APM authors skills flat under .apm/skills/ and installs whole
-// packages, so this declares the package rather than a subset.
+// apm.yml, the OpenAPM manifest.
+//
+// What was here before did not work, and nobody had run the tool to find out.
+// It declared `version: 1`, which OpenAPM requires to be a SemVer string, put
+// the real version in `version_number`, which is not a field, and listed
+// `skills:` at the top level, which is not a field either. With no `targets:`,
+// no `dependencies:` and no `marketplace:` block, `apm pack` reported "nothing
+// to pack" and `apm targets` resolved all nine runtimes inactive. A generated,
+// committed, public manifest that supported nothing.
+//
+// The comment it replaced said APM authors skills flat under `.apm/skills/`.
+// That is one of two layouts APM accepts, and choosing it here would be a
+// serious mistake: APM resolves `.apm/` IN PREFERENCE TO root-level `skills/`,
+// so creating it would shadow the fixed directory the Agent Plugins
+// specification pins, and every non-APM client would stop finding our skills
+// with no error anywhere. We stay on the root layout, permanently, and APM
+// reads it as a "Plugin collection" with no structural change.
+//
+// `targets:` is what makes `apm pack` emit anything. Skills are discovered from
+// the root `skills/` directory rather than declared here, which is why there is
+// no `skills:` key: the OpenAPM schema has none, and the root plugin.json
+// cannot carry one either, because the Agent Plugins schema is closed and
+// defines neither `skills` nor `agent`.
 // ---------------------------------------------------------------------------
 {
-  const lines = [`# ${BANNER}`, '', 'version: 1', `name: ${NAME}`, `description: >-`, `  ${SUMMARY}`,
-    `version_number: "${PKG.version}"`, `homepage: ${HOMEPAGE}`, `repository: ${REPO}`, 'license: MIT', '', 'skills:'];
-  for (const p of present) lines.push(`  - ./skills/${p.name}`);
-  lines.push('');
+  const lines = [
+    `# ${BANNER}`, '',
+    `name: ${NAME}`,
+    `version: "${PKG.version}"`,
+    'description: >-', `  ${SUMMARY}`,
+    'author: Microsoft',
+    'license: MIT',
+    `homepage: ${HOMEPAGE}`,
+    `repository: ${REPO}`,
+    'keywords: [' + KEYWORDS.join(', ') + ']',
+    '',
+    '# Constrains what this package may contain. Skills, and nothing else.',
+    'type: skill',
+    '',
+    '# The runtimes `apm pack` emits plugin manifests for. Without this, pack',
+    '# produces nothing, which is the state this file shipped in until 2026-09-01.',
+    'targets:',
+    '  - claude',
+    '  - copilot',
+    '',
+  ];
   emit('apm.yml', lines.join('\n'));
 }
 

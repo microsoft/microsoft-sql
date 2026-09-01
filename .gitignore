@@ -430,3 +430,7 @@ FodyWeavers.xsd
 
 # Node
 node_modules/
+
+# Emitted by `apm pack`. APM owns this format, so it is produced at pack
+# time rather than generated and parity-gated like our own manifests.
+.github/plugin/

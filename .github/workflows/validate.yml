@@ -39,6 +39,33 @@ jobs:
       - name: Feedback prefill contract
         run: node scripts/check-prefill-contract.mjs
 
+      # APM. This repository shipped a generated, committed, public apm.yml for
+      # weeks that supported nothing: `apm pack` reported "nothing to pack"
+      # because the manifest declared no targets, used a version that is not a
+      # SemVer string, and listed two keys the schema does not have. Nobody had
+      # run the tool against it. A manifest whose presence implies support, with
+      # no check behind it, is indistinguishable from support until a customer
+      # tries to install.
+      #
+      # The check also guards the thing that would break everyone else: APM
+      # resolves a .apm/ directory in preference to root-level skills/, so
+      # creating one would shadow the location the Agent Plugins specification
+      # pins, with no error anywhere.
+      # pip rather than the curl installer, because pip lands on PATH
+      # deterministically on a runner and the curl script's install location is
+      # not something this workflow should be guessing at.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install the APM CLI
+        run: |
+          pip install apm-cli
+          apm --version
+
+      - name: APM package is installable, and still Agent Plugins conformant
+        run: node scripts/check-apm.mjs --require-cli
+
       # Identical to `npm test`. The gate is a script rather than inline YAML so
       # the two cannot drift.
       - name: House rules on the files we author
