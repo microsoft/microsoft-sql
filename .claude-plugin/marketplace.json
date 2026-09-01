@@ -6,13 +6,13 @@
     "url": "https://github.com/microsoft/azure-sql-skills"
   },
   "metadata": {
-    "description": "Agent skills for Azure SQL Database. They teach a coding agent what it otherwise gets wrong, usually because it learned SQL from PostgreSQL or from documentation written before Azure existed."
+    "description": "Curated by the Azure SQL Database product team. Skills that correct what coding agents get wrong about the engine, from connection strings to vector search, measured against a live database rather than quoted from documentation."
   },
   "plugins": [
     {
       "name": "azure-sql",
       "source": "./",
-      "description": "Agent skills for Azure SQL Database. They teach a coding agent what it otherwise gets wrong, usually because it learned SQL from PostgreSQL or from documentation written before Azure existed.",
+      "description": "Curated by the Azure SQL Database product team. Skills that correct what coding agents get wrong about the engine, from connection strings to vector search, measured against a live database rather than quoted from documentation.",
       "version": "0.1.0",
       "skills": [
         "./skills/azure-functions-sql-bindings",

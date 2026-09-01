@@ -3,7 +3,7 @@
 version: 1
 name: azure-sql
 description: >-
-  Agent skills for Azure SQL Database. They teach a coding agent what it otherwise gets wrong, usually because it learned SQL from PostgreSQL or from documentation written before Azure existed.
+  Curated by the Azure SQL Database product team. Skills that correct what coding agents get wrong about the engine, from connection strings to vector search, measured against a live database rather than quoted from documentation.
 version_number: "0.1.0"
 homepage: https://github.com/microsoft/azure-sql-skills
 repository: https://github.com/microsoft/azure-sql-skills

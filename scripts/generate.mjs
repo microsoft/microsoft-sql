@@ -74,9 +74,27 @@ const domainOf = Object.fromEntries(TAXONOMY.domains.map((d) => [d.slug, d]));
 const skillPaths = present.map((p) => `./skills/${p.name}`);
 
 const KEYWORDS = ['azure-sql', 'sql', 'database', 'tsql', 'agent-skills', 'vector-search', 'entra-id'];
+// The single public-facing pitch. It reaches llms.txt, apm.yml, plugin.json,
+// .claude-plugin/plugin.json and BOTH description fields in
+// .claude-plugin/marketplace.json, which is the file that goes out to the
+// marketplaces. One string so the pitch cannot drift between them, and the
+// parity gate keeps it that way.
+//
+// Front-load it. A marketplace listing shows the detail view in full but a grid
+// row can be cut to the terminal width, so the first sixty characters have to
+// carry the point on their own.
+//
+// What it must not do: open with a category noun. The line this replaced spent
+// its whole budget explaining WHY an agent is wrong, about PostgreSQL and old
+// documentation, and never said what a reader gets. It also led with "Agent
+// skills for Azure SQL Database", which tells a browser the shelf it is already
+// standing in front of.
+//
+// No skill count. Carlos, 2026-09-01: a number is not value. Provenance is.
 const SUMMARY =
-  'Agent skills for Azure SQL Database. They teach a coding agent what it otherwise gets wrong, ' +
-  'usually because it learned SQL from PostgreSQL or from documentation written before Azure existed.';
+  'Curated by the Azure SQL Database product team. Skills that correct what coding agents get ' +
+  'wrong about the engine, from connection strings to vector search, measured against a live ' +
+  'database rather than quoted from documentation.';
 
 // ---------------------------------------------------------------------------
 // llms.txt, per the llmstxt.org convention: a title, a summary, then sections
