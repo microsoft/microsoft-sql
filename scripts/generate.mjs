@@ -201,8 +201,24 @@ const SUMMARY =
 }
 
 // ---------------------------------------------------------------------------
-// Plugin manifests. Shapes follow the pilot and microsoft/azure-skills, which
-// are known-good, with skill paths enumerated because our layout is nested.
+// Plugin manifests.
+//
+// WHERE THE SKILL LIST BELONGS, and where it does not. Claude Code documents a
+// `skills` field on both files, and it behaves differently in each:
+//
+//   plugin.json       "Adds to the default skills/ scan". Our skills ARE in
+//                     skills/, so enumerating them here listed 56 paths that
+//                     were already found. Removed 2026-09-02.
+//
+//   marketplace.json  For an entry whose source resolves to the marketplace
+//                     root, which "./" does, declaring subdirectories REPLACES
+//                     the default scan. The list there is load bearing, so it
+//                     stays.
+//
+// The sentence this replaced said the paths were enumerated "because our layout
+// is nested". It is not nested. Line 36 pins skills/ flat and all 56 sit at
+// skills/<name>/SKILL.md. That sentence sent a reader hunting a problem that did
+// not exist.
 // ---------------------------------------------------------------------------
 const base = {
   name: NAME,
@@ -216,7 +232,7 @@ const base = {
 };
 const j = (o) => JSON.stringify({ $comment: BANNER, ...o }, null, 2) + '\n';
 
-emit('.claude-plugin/plugin.json', j({ ...base, skills: skillPaths }));
+emit('.claude-plugin/plugin.json', j(base));
 emit('.claude-plugin/marketplace.json', j({
   name: NAME,
   owner: { name: 'Microsoft', url: REPO },
