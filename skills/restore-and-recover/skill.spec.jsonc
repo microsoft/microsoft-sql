@@ -4,7 +4,7 @@
   "id": "restore-and-recover",
   "domain": "operate-and-recover",
   "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
-  "correction": "Asked to recover an Azure SQL Database, an agent trained on SQL Server reaches for RESTORE DATABASE ... WITH REPLACE, BACKUP DATABASE, RESTORE HEADERONLY or ALTER DATABASE ... SET RECOVERY, when none of that T-SQL surface exists on the service: measured on 2026-08-29 against a live engine reporting EngineEdition 5 and Edition 'SQL Azure', every one of BACKUP DATABASE, BACKUP LOG, RESTORE DATABASE, RESTORE HEADERONLY, RESTORE FILELISTONLY and RESTORE VERIFYONLY is refused outright with Msg 40510, 'Statement is not supported in this version of SQL Server', and sys.sp_get_database_backup_policy fails with Msg 15817. Restoring is a control plane operation triggered from the CLI, PowerShell, the REST API or the portal, never from a query window. The second wrong belief compounds the first: every restore, whether point-in-time, geo-restore, or from long-term retention, creates a brand new database next to the one being recovered rather than overwriting it in place, under the name given at restore time, and putting that new database back where the application actually connects, by rename or by a connection string change, is a step the developer performs themselves. Nothing in the restore operation does that automatically and nothing warns anyone if it is skipped, which is why the failure surfaces later as a connection error attributed to the application rather than to an incomplete recovery.",
+  "correction": "Asked to recover an Azure SQL Database, an agent trained on SQL Server reaches for RESTORE DATABASE ... WITH REPLACE, BACKUP DATABASE, RESTORE HEADERONLY or ALTER DATABASE ... SET RECOVERY, when none of that T-SQL surface exists on the service: measured on 2026-08-29 against a live engine reporting EngineEdition 5 and Edition 'SQL Azure', every one of BACKUP DATABASE, BACKUP LOG, RESTORE DATABASE, RESTORE HEADERONLY, RESTORE FILELISTONLY and RESTORE VERIFYONLY is refused outright with Msg 40510, 'Statement is not supported in this version of SQL Server', and sys.sp_get_database_backup_policy does not exist at all, failing with Msg 2812, 'Could not find stored procedure'. Restoring is a control plane operation triggered from the CLI, PowerShell, the REST API or the portal, never from a query window. The second wrong belief compounds the first: every restore, whether point-in-time, geo-restore, or from long-term retention, creates a brand new database next to the one being recovered rather than overwriting it in place, under the name given at restore time, and putting that new database back where the application actually connects, by rename or by a connection string change, is a step the developer performs themselves. Nothing in the restore operation does that automatically and nothing warns anyone if it is skipped, which is why the failure surfaces later as a connection error attributed to the application rather than to an incomplete recovery.",
   "posture": ["read", "provision", "admin"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db"],
@@ -28,6 +28,43 @@
       "every answer states that a restore creates a new database rather than overwriting the source in place",
       "an answer describing a completed recovery includes the rename or connection string swap back to the name the application uses",
       "no answer states a specific retention window, RPO number or CLI flag as fact without attributing it to Microsoft Learn"
+    ],
+    "probes": [
+      {
+        "sql": "DECLARE @stmt nvarchar(max) =\n  N'BACKUP DATABASE ' + QUOTENAME(DB_NAME()) + N' TO DISK = ''/var/opt/mssql/data/probe-restore.bak'';';\nEXEC sys.sp_executesql @stmt;",
+        "expect": {
+          "error": 40510
+        },
+        "why": "BACKUP DATABASE is the first thing a SQL Server habit reaches for, and it is refused outright rather than failing on the destination. Measured 2026-08-29 against an engine reporting EngineEdition 5: Msg 40510, statement not supported in this version of SQL Server. The database name is bound from DB_NAME() so the refusal cannot be confused with an unresolved name."
+      },
+      {
+        "sql": "DECLARE @stmt nvarchar(max) =\n  N'BACKUP LOG ' + QUOTENAME(DB_NAME()) + N' TO DISK = ''/var/opt/mssql/data/probe-restore.trn'';';\nEXEC sys.sp_executesql @stmt;",
+        "expect": {
+          "error": 40510
+        },
+        "why": "BACKUP LOG is refused the same way as BACKUP DATABASE, which matters because a log backup is what someone reaches for second, after being told full backups are handled by the service. Measured 2026-08-29, Msg 40510."
+      },
+      {
+        "sql": "RESTORE DATABASE probe_restore_target FROM DISK = '/var/opt/mssql/data/probe-restore.bak' WITH REPLACE;",
+        "expect": {
+          "error": 40510
+        },
+        "why": "The headline claim of the skill is that there is no restore T-SQL on this service. Measured 2026-08-29, Msg 40510. WITH REPLACE is carried deliberately because that is the clause an agent adds when it believes a restore overwrites the database in place, which is the second wrong belief this skill corrects."
+      },
+      {
+        "sql": "RESTORE HEADERONLY FROM DISK = '/var/opt/mssql/data/probe-restore.bak';",
+        "expect": {
+          "error": 40510
+        },
+        "why": "The whole RESTORE ... ONLY family is refused, and the message names RESTORE VOLUME rather than RESTORE HEADERONLY because the parser collapses the family into one internal name before rejecting it. Measured 2026-08-29. Matching on the number rather than the text is the only stable way to probe this."
+      },
+      {
+        "sql": "DECLARE @db sysname = DB_NAME();\nEXEC sys.sp_get_database_backup_policy @db;",
+        "expect": {
+          "error": 2812
+        },
+        "why": "The procedure an agent reaches for once it accepts that backups are automatic, and the one whose refusal has a different number: Msg 2812, could not find stored procedure. The procedure does not exist on the service. Recorded as Msg 15817 on 2026-08-29 and corrected on 2026-09-02 after the live lane disagreed with it: measured against Azure SQL Database (EngineEdition 5, SQL Azure, 12.0.2000.8, S0) AND the container, both answer 2812, and sys.all_objects holds nothing matching %backup_policy%. 15817 is a real message, but it is what a procedure that EXISTS and is version-gated returns. The skill's claim is unchanged and still true: an answer that reads the backup policy from T-SQL cannot be built at all."
+      }
     ]
   },
   "triggering": {

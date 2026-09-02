@@ -73,7 +73,7 @@ message and not a hang:
 | `BACKUP DATABASE db TO DISK = '...'` or `TO URL = '...'` | `Msg 40510`, not supported |
 | `BACKUP LOG db TO DISK = '...'` | `Msg 40510`, not supported |
 | `RESTORE HEADERONLY` / `FILELISTONLY` / `VERIFYONLY` | `Msg 40510`, not supported |
-| `EXEC sys.sp_get_database_backup_policy` | `Msg 15817`, procedure not available |
+| `EXEC sys.sp_get_database_backup_policy` | `Msg 2812`, could not find stored procedure |
 | `ALTER DATABASE db SET RECOVERY FULL` / `SIMPLE` | Runs. Read the caveat in
   [references/verified-behaviour.md](references/verified-behaviour.md) before relying on it doing
   anything to the backups the service actually takes. |
