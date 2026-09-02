@@ -71,9 +71,42 @@ jobs:
       - name: House rules on the files we author
         run: node scripts/check-house-rules.mjs
 
-      # NOT COVERED HERE: the skill CONTENT rules. The linter lives in
-      # azure-sql-skills-lab and this workflow cannot reach it, so nothing in
-      # this repository checks frontmatter, body budget, references, security or
-      # the value gate against the skills it ships. That is what
-      # azure-sql-skills-eval must provide. Tracked in issue 6. Until it lands,
-      # run the lab's linter against this repository by hand before a release.
+      # The skill CONTENT rules, which nothing in this repository used to check.
+      # Frontmatter, body budget, reference depth, style, security, scope, the
+      # sidecar shape and the value bar all live in a constitution that travels
+      # inside the action below. This repository carries no copy of them, which
+      # is the point: one place to change a rule, and no second opinion.
+      #
+      # REPORTING, NOT BLOCKING, and that is a deliberate state rather than an
+      # oversight. Pointed at 56 skills that had never been linted, it finds 18
+      # error-severity violations across 17 of them, and all 17 are the carried
+      # over container skills, whose files originate in another repository and
+      # are byte identical to it. Blocking on those would make every pull
+      # request here red for something its author did not write and cannot fix
+      # from this repository, and a gate in that state gets switched off.
+      #
+      # The findings are still printed, still written to the job summary, and
+      # still annotated on the diff at their real severity, so a green check
+      # sits next to red annotations. That pairing says both true things: the
+      # gate ran, and the corpus is not clean.
+      #
+      # TO MAKE IT BLOCK: change fail-on to error. Nothing else changes. What
+      # has to happen first is that those 17 skills each gain a sentence giving
+      # the date their claims were checked and what they were checked against,
+      # upstream, and one over-length reference file gains a table of contents.
+      # Anything promoted after that arrives already clean, because the
+      # workbench runs the same rules before it leaves.
+      #
+      # The reference resolves with no token because both repositories are
+      # private in the same organisation and the gate repository allows access
+      # from it. If that setting is ever turned off the reference stops
+      # resolving, and the fix is the setting, not a token here.
+      - name: Skill content rules
+        uses: microsoft/azure-sql-skills-eval@v1
+        with:
+          paths: skills
+          # Without the manifest, the rules about a description naming a
+          # neighbouring skill cannot resolve anything and report themselves
+          # unchecked. With it, they can tell a shipped skill from a planned one.
+          catalog: catalog/catalog.json
+          fail-on: never

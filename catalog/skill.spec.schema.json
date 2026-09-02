@@ -70,6 +70,46 @@
       "minLength": 40,
       "description": "The wrong belief this skill overwrites, in at least one complete sentence. If you cannot state it, the skill is not ready. This is the rule most likely to be argued with, which is why it is checked rather than reviewed."
     },
+    "value_probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The measurement that decides whether this skill earns its place: one task, asked twice, once with the skill and once without. Optional here so the forty skills written before it still validate; the value gate requires it of any skill it is asked to measure. Everything in it is written by the author, and the two lists become the grading key, so it is written BEFORE any answer is read. A key written afterwards grades the answers it already saw.",
+      "required": [
+        "task",
+        "refutes"
+      ],
+      "properties": {
+        "task": {
+          "type": "string",
+          "minLength": 120,
+          "description": "A concrete job a user would actually bring, in their words, several sentences long. It MUST NOT name the technique, the feature, the error number or this skill, because a question that names the answer is answered by the naming and measures nothing. Describe the symptom or the goal, show the code if there is code, and ask for something specific back. The implicit triggering scenarios are the seed; this is one of them opened out into a task."
+        },
+        "states": {
+          "type": "array",
+          "uniqueItems": true,
+          "description": "The presence limb. Each entry is one property a correct answer asserts, judged present or absent, nothing in between. Assert a PROPERTY, never a PATTERN: a limb that encodes one route to correctness will mark a differently-correct answer wrong, which happened once here and cost the run its meaning.",
+          "items": {
+            "type": "string",
+            "minLength": 30
+          }
+        },
+        "refutes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "The falsehood limb, and the reason this block exists. Each entry is one specific false claim, judged asserted or not asserted. Answer the question: what would somebody confidently say about this that is wrong? A skill's real contribution is often stopping an answer containing something false rather than adding a fact, and a rubric that scores only presence cannot see that. Measured here: a no-skill answer scored a clean six of six while asserting MERGE has atomicity gaps under concurrent writers, which this repository's own runs disprove at eight of eight sessions. Neither skill-loaded arm said it, and presence alone called that a tie.",
+          "items": {
+            "type": "string",
+            "minLength": 30
+          }
+        },
+        "gate": {
+          "type": "string",
+          "minLength": 40,
+          "description": "The approach this skill exists to teach, written as one thing an answer either reaches or does not. It is graded on both arms, and it is not a limb, it is the condition the limbs are counted under. The with-skill arm must clear it or `states` and `refutes` do not count at all, because an answer earns no credit for stating a correct fact on the way past the wrong solution: a recovery answer that quotes the retention window accurately and then writes RESTORE DATABASE has helped nobody, and a rubric that adds up its true sentences will score it well. The without-skill arm clearing it is a signal in its own right, and the one this block is least comfortable reporting, because it says the model already gets there unaided and the skill is buying less than its author believes. This mirrors a gating check published by the Supabase team."
+        }
+      }
+    },
     "posture": {
       "type": "array",
       "minItems": 1,
@@ -139,6 +179,55 @@
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "probes": {
+          "type": "array",
+          "uniqueItems": true,
+          "description": "The executable half of this block, and what `assert` becomes as the corpus is migrated. Each entry is one claim about what the ENGINE does, written so a runner can settle it: a complete statement, and the outcome that statement must produce. `assert` holds sentences a person reads and nothing executes, which is how 288 hand-written assertions across the catalog came to be worth nothing to any gate, and how a claim like 'CREATE EVENT SESSION ... ON SERVER fails with error 25737' came to carry an ellipsis exactly where the statement body belongs. A probe is that same claim with the ellipsis filled in. Every probe runs against a scratch database created for this skill and dropped after it, so a probe is free to build the fixture it needs, and no probe has to clean up after itself. Which substrate that scratch database lives on is already declared by `validation.target`, so a probe never restates it. Claims about what a MODEL says do not belong here at all: those are `value_probe.states` and `value_probe.refutes`, which already have a grader that reads exactly that shape, and mixing the two is what made this field unrunnable in the first place.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "expect",
+              "why"
+            ],
+            "properties": {
+              "sql": {
+                "type": "string",
+                "minLength": 10,
+                "description": "One complete, runnable T-SQL statement or batch, executed with an administrative connection against the scratch database. No ellipsis, and no placeholder the runner cannot bind: a statement with a gap in it is the prose problem again, wearing a field name that promises otherwise. Where a claim needs a fixture, build it in the same batch rather than describing it in `setup`, and where a batch produces more than one result set, `expect` is read against the last one. Required unless `cmd` is given in its place. The keywords this repository's schema validator implements cannot express required-unless, so that half is stated here and enforced by review until a linter check lands."
+              },
+              "cmd": {
+                "type": "string",
+                "minLength": 3,
+                "description": "A complete shell command line, for the claims that are about a tool rather than about the engine, such as whether bcp is present in the tools image and prints its banner with no live connection. This is the alternative to `sql`, never a companion to it."
+              },
+              "expect": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Exactly one of the three below. Two of them together is a probe whose author had not decided what it measures, and the available schema keywords cannot forbid that, so the count is a review rule until a linter check lands.",
+                "properties": {
+                  "error": {
+                    "type": "integer",
+                    "description": "The engine error number the statement must fail with. Prefer this shape wherever it is available: a number is unambiguous where message text is a moving target across builds. A probe asserting the WRONG number is worse than no probe, because it fails loudly for a reason nobody will trust twice, so write one only where the skill's own measured evidence states the number or Microsoft Learn does."
+                  },
+                  "rows": {
+                    "type": "array",
+                    "description": "The result set the statement must return, one entry per row. An empty array asserts the statement returns nothing, which is a real and frequently load-bearing outcome rather than a degenerate one: a filter predicate hiding the row its own author just wrote is measured exactly this way."
+                  },
+                  "succeeds": {
+                    "const": true,
+                    "description": "The statement must complete without error, and nothing is asserted about what came back. The weakest of the three. Worth using where the claim genuinely is that a statement is accepted, such as a scoped configuration the skill depends on still existing, and not worth using to pad a count."
+                  }
+                }
+              },
+              "why": {
+                "type": "string",
+                "minLength": 30,
+                "description": "What this probe proves, and why it is worth a round trip against a live engine. A probe that cannot say why it exists is a probe nobody will maintain. When the number it asserts changes under some future engine build, this sentence is what tells the next reader whether the probe was wrong or the product moved, so name the measurement it came from where the skill has one."
+              }
+            }
           }
         }
       }
