@@ -1,7 +1,8 @@
-# Measured behaviour, every command and its output
+# What lands inside a dacpac and a bacpac, and the errors on the way
 
 ## Contents
 
+- [Provenance](#provenance)
 - [Setup](#setup)
 - [Extract versus Export: what lands inside the file](#extract-versus-export-what-lands-inside-the-file)
 - [ExtractAllTableData: a dacpac that carries data](#extractalltabledata-a-dacpac-that-carries-data)
@@ -11,6 +12,17 @@
 - [Publish reruns against its own target with no changes](#publish-reruns-against-its-own-target-with-no-changes)
 - [There is no BACKUP T-SQL](#there-is-no-backup-t-sql)
 - [Environment](#environment)
+
+## Provenance
+
+Every parameter and `/p:` property named in `SKILL.md` was read out of
+`sqlpackage /Action:<action> /?` on SqlPackage 170.4.83.3 on 2026-09-02, then cross-checked against
+the Microsoft Learn page for that same action. Nothing is stated in the skill that failed both
+checks, and nothing is carried from memory.
+
+Engine behaviour was measured on 2026-08-29 against the Azure SQL Database container recorded under
+[Environment](#environment), and the vector index row limits on 2026-08-31 against the same build.
+Everything below is a transcript of those runs, not a reconstruction.
 
 ## Setup
 

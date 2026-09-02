@@ -3,7 +3,7 @@
   "id": "sqlpackage-import-export",
   "domain": "data-movement",
   "value": ["not-in-training-data", "multi-step-with-silent-failures"],
-  "correction": "Agents treat the dacpac and bacpac extensions as what decides what moves, when what actually decides it is which SqlPackage action ran and which property was set: Extract and Publish carry schema only by default, Export and Import always carry schema plus every base table's row data, and Extract can be told, with ExtractAllTableData, to fold row data into a file still named and shaped like a schema-only dacpac. Agents also read a completed publish or import as proof the database is now backed up, when Azure SQL Database has no BACKUP or RESTORE T-SQL and neither bacpac nor dacpac is a supported recovery mechanism. Agents assume Import behaves like Publish, when Import refuses outright, with error SQL71659, against any target database that already holds a single user object, while Publish diffs an existing target, reruns safely, and can even create the target database itself. Finally, agents export a live database without scanning it first, when a database still carrying Windows-authenticated users, server-login-mapped users or leftover Service Broker permissions fails export with SQL71627 only after schema extraction has already run, discarding the whole attempt rather than the offending object.",
+  "correction": "Agents treat the dacpac and bacpac extensions as what decides what moves, when what actually decides it is which SqlPackage action ran and which property was set: Extract and Publish carry schema only by default, Export and Import always carry schema plus every base table's row data, and Extract can be told, with ExtractAllTableData, to fold row data into a file still named and shaped like a schema-only dacpac. Agents also read a completed publish or import as proof the database is now backed up, when Azure SQL Database has no BACKUP or RESTORE T-SQL and neither bacpac nor dacpac is a supported recovery mechanism. Agents assume Import behaves like Publish, when Import refuses outright, with error SQL71659, against any target database that already holds a single user object, while Publish diffs an existing target and reruns safely; both actions create the target database when it does not exist and the connected principal has permission to create one, so the difference between them is the refusal, not the creation. Finally, agents export a live database without scanning it first, when a database still carrying Windows-authenticated users, server-login-mapped users or leftover Service Broker permissions fails export with SQL71627 only after schema extraction has already run, discarding the whole attempt rather than the offending object.",
   "posture": ["read", "write", "execute"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
@@ -29,6 +29,43 @@
       "sqlpackage /Action:Import into the empty target succeeds and the row counts in the target match the source",
       "sqlpackage /Action:Publish of the extracted dacpac against an already-published target completes with no pending changes and exit code 0",
       "BACKUP DATABASE issued as T-SQL against the source database is rejected with error 40510"
+    ],
+    "probes": [
+      {
+        "cmd": "sqlpackage /version:True",
+        "expect": { "succeeds": true },
+        "why": "Every command in this skill is a SqlPackage command, so the tool being installed and able to print its build number with no database in reach is the precondition for all of them. Measured 2026-09-02, exit 0, build 170.4.83.3."
+      },
+      {
+        "cmd": "sqlpackage /Action:Extract /help:True | grep -q '^/p:ExtractAllTableData=(BOOLEAN .False.)$'",
+        "expect": { "succeeds": true },
+        "why": "The property this skill turns on, checked to exist for the Extract action and to default to False, out of the build's own help. Measured 2026-09-02 on 170.4.83.3. If a future build renames it or changes the default, the claim that a dacpac is schema only until this is set stops being true, and this probe goes red first."
+      },
+      {
+        "cmd": "sqlpackage /Action:Export /help:True | grep -q '^/p:IgnoreUserLoginMappings=' && exit 1 || exit 0",
+        "expect": { "succeeds": true },
+        "why": "The asymmetry the skill routes on: Extract can be told to drop user-to-login mappings and Export cannot, so a database that fails export can still be extracted. Measured 2026-09-02 on 170.4.83.3, the property is absent from the Export help. This probe is deliberately the negative, because the skill's advice becomes wrong the day Export gains it."
+      },
+      {
+        "cmd": "sqlpackage /Action:Extract /help:True | grep -q '^/p:IgnoreUserLoginMappings=(BOOLEAN .False.)$'",
+        "expect": { "succeeds": true },
+        "why": "The positive half of the same pair, so a red run on the previous probe can be told apart from SqlPackage renaming or dropping the property everywhere. Measured 2026-09-02 on 170.4.83.3."
+      },
+      {
+        "cmd": "sqlpackage /Action:Export /TargetFile:/tmp/probe-sqlpackage.bacpac /SourceServerName:127.0.0.1,1 /SourceDatabaseName:probe /p:ExportAllTableData=true 2>&1 | grep -q \"is not a valid argument for the 'Export' action\"",
+        "expect": { "succeeds": true },
+        "why": "An invented property is refused by name before any connection is opened, which is what makes a property claim checkable for free. Measured 2026-09-02 on 170.4.83.3: exit 1 and that message, with no connection line in the output, against a port nothing is listening on. This is the probe shape that gives the catalog a cheap way to fail a made-up flag."
+      },
+      {
+        "sql": "SELECT CAST(SERVERPROPERTY('EngineEdition') AS int) AS engine_edition;",
+        "expect": { "rows": [[5]] },
+        "why": "The precondition for the no-BACKUP claim. Msg 40510 for BACKUP DATABASE is a property of EngineEdition 5, so the probe below run against anything else would be measuring a different product. Measured 2026-08-29 against 12.0.2000.8 reporting Edition SQL Azure."
+      },
+      {
+        "sql": "DECLARE @db sysname = DB_NAME();\nBACKUP DATABASE @db TO DISK = '/tmp/probe-sqlpackage.bak';",
+        "expect": { "error": 40510 },
+        "why": "The reason a bacpac gets reached for as a backup, made executable: there is no BACKUP statement on this service, so a bacpac is the only thing that looks like one and it is not one. Measured 2026-08-29 on the container as BACKUP DATABASE against a literal existing database name, Msg 40510. The variable form is used here only so the probe can name the scratch database it is handed; BACKUP DATABASE { database_name | @database_name_var } is the documented syntax (https://learn.microsoft.com/sql/t-sql/statements/backup-transact-sql). If this ever succeeds, this skill's routing to restore-and-recover needs rewriting."
+      }
     ]
   },
   "triggering": {

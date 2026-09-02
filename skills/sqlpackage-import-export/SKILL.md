@@ -1,195 +1,246 @@
 ---
 name: sqlpackage-import-export
 description: >-
-  Chooses the right SqlPackage action, Extract, Publish, Export or Import, to move a whole
-  Azure SQL Database as a portable file, and states what each one carries. Extract and Publish
-  move schema only by default; Export and Import always move schema plus every table row data;
-  the file extension alone does not prove which, since Extract can be told to fold data into a
-  dacpac too. Explains why Azure SQL Database has no BACKUP or RESTORE T-SQL and neither file is
-  a backup mechanism, and why Import refuses a target holding any object (SQL71659) while Publish
-  diffs and reruns safely. Use when asked to export a database to a bacpac, clone a database
-  between servers, extract or publish a dacpac outside a SQL project, explain dacpac versus
-  bacpac, or diagnose a failed sqlpackage export or import. Does not cover building a dacpac from
-  a SQL project or its CI pipeline (sql-database-projects), point-in-time or geo-restore
-  (restore-and-recover), or loading rows into an existing table (bulk-load-and-bulk-copy).
+  Moves a whole Azure SQL Database as a portable file with SqlPackage, choosing between the
+  Extract, Publish, Export and Import actions, stating what each one carries, and giving the
+  command line for each. Use when asked to export a database to a bacpac, extract or publish a
+  dacpac, clone or move a database between servers or into the container, explain dacpac versus
+  bacpac, or diagnose a failed sqlpackage run such as SQL71659 or SQL71627.
 ---
 
 # Move a whole database with SqlPackage: dacpac and bacpac
 
-**This owns the four-verb decision for moving an entire existing database as a portable file.**
-It does not own building a dacpac from a source-controlled SQL project or shipping it through CI,
-which is `sql-database-projects`; it does not own Azure SQL Database's own automated backups or
-point-in-time and geo-restore, which is `restore-and-recover`; and it does not own loading rows
-into a table that already exists, which is `bulk-load-and-bulk-copy`.
+Verified 2026-09-02 against SqlPackage 170.4.83.3, and the engine behaviour below measured
+2026-08-29 against a container reporting `EngineEdition` 5, `12.0.2000.8`.
 
-Verified on 2026-08-29 against SqlPackage 170.4.83.3, running every action below against a live
-engine reporting `EngineEdition` 5, Edition `SQL Azure`, `12.0.2000.8` (the Azure SQL Database
-container). The SQL71627 unsupported-element failure and its causes are sourced from Microsoft
-Learn and Microsoft support documentation rather than reproduced live, because the container's
-permission model accepted a login-mapped user that a real Azure SQL Database logical server
-rejects at export time; that gap is called out again below, at the point it matters.
+This owns the four-action decision for moving an entire existing database as a portable file, and
+the command line for each action. Building a dacpac from a source-controlled SQL project, shipping
+it through CI, its refactorlog and its pre and post deployment scripts are `sql-database-projects`.
+Azure SQL Database's own automated backups and point-in-time or geo-restore are
+`restore-and-recover`. Loading rows into a table that already exists is `bulk-load-and-bulk-copy`.
+Vector indexes themselves are `azuresql-db-rag` and `vector-search-azure-sql`.
 
-## The fact that the name of the file does not tell you
+## Read the property list for the action before you write the command
 
-**Dacpac and bacpac are not "the schema one" and "the data one." The action that produced the
-file is what decided that, and one property can override the default.**
+Properties are per action. `ExtractAllTableData` is an Extract property and is not accepted by
+Export. There is no catalog of properties that spans the actions, so ask the build in front of you:
 
-| Action | Direction | Default contents | Extension |
-|---|---|---|---|
-| Extract | live database to file | schema only | `.dacpac` |
-| Publish | file to live database | schema only | reads `.dacpac` |
-| Export | live database to file | schema and every table's row data | `.bacpac` |
-| Import | file to live database | schema and every table's row data | reads `.bacpac` |
+```bash
+sqlpackage /version:True
+sqlpackage /Action:Export /?
+```
 
-Measured: extracting a database with one table (three rows) and one view produced a `.dacpac`
-containing exactly `model.xml`, `DacMetadata.xml`, `Origin.xml` and `[Content_Types].xml`, no data
-of any kind. Exporting the same database produced a `.bacpac` with those same schema entries plus
-`Data/dbo.Widget/TableData-000-00000.BCP`, one entry per base table holding rows. The view carried
-no data entry, because a view has no rows of its own to snapshot.
-
-**Then measured again with one property changed.** Running Extract with
-`/p:ExtractAllTableData=true` produced a file still named `.dacpac`, still an Extract, and it now
-contained `Data/dbo.Widget/TableData-000-00000.BCP` too. Do not infer what is inside a file from
-its extension or from which command produced it without reading the property list. Report what
-you can see inside the file, not what the name implies.
-
-## There is no BACKUP or RESTORE T-SQL, and a bacpac is not a backup
-
-Measured: `BACKUP DATABASE dq_sqlpackage TO DISK='/tmp/x.bak'` against the engine returns
-`Msg 40510, Level 16, State 1 ... 'BACKUP DATABASE' is not supported in this version of SQL
-Server`. That is why a bacpac export gets reached for as a substitute. It is not one. Azure SQL
-Database already runs automated backups and offers point-in-time and geo-restore with defined
-recovery objectives; a bacpac or dacpac is a portable snapshot with none of that, no retention
-policy, no restore SLA, and no guarantee it even succeeds against a database large or busy enough
-to matter. Route a recovery question to `restore-and-recover`. Use this skill's actions to move a
-database between environments, subscriptions, servers, or in and out of the container, not to
-satisfy a recovery point objective.
-
-## Import refuses; Publish reruns
-
-Measured against the same target database twice.
-
-**Import**, pointed at a target that already held the objects from a previous import, returned
-immediately with no changes attempted:
+An unknown property is refused before any connection is attempted:
 
 ```text
-*** Error importing database: Data cannot be imported into target because it contains one or more
-user objects. Import should be performed against a new, empty database.
+$ sqlpackage /Action:Export /p:ExportAllTableData=true /TargetFile:app.bacpac /SourceServerName:your-server.database.windows.net /SourceDatabaseName:app
+*** 'ExportAllTableData' is not a valid argument for the 'Export' action.
+```
+
+A property can also be real, documented and still unavailable: `/p:Storage=File` is the .NET
+Framework build's default, and Learn records `Memory` as the only option on the cross-platform
+build.
+
+Every parameter in this skill is written in long form. The same help output gives each one a short
+form, `/Action` as `/a`, `/SourceFile` as `/sf`, `/TargetFile` as `/tf`, and the two forms are
+interchangeable.
+
+## The four actions, as four commands
+
+| Action | Direction | Default contents | File |
+|---|---|---|---|
+| Extract | database to file | schema only | writes `.dacpac` |
+| Publish | file to database | schema only | reads `.dacpac` |
+| Export | database to file | schema and every base table's rows | writes `.bacpac` |
+| Import | file to database | schema and every base table's rows | reads `.bacpac` |
+
+Extract:
+
+```bash
+sqlpackage /Action:Extract /TargetFile:app.dacpac /DiagnosticsFile:extract.log \
+  /SourceServerName:your-server.database.windows.net /SourceDatabaseName:<database> \
+  /SourceUser:<user> /SourcePassword:"$SQLPACKAGE_PASSWORD" \
+  /p:ExtractAllTableData=false /p:VerifyExtraction=true
+```
+
+Export:
+
+```bash
+sqlpackage /Action:Export /TargetFile:app.bacpac /DiagnosticsFile:export.log \
+  /SourceServerName:your-server.database.windows.net /SourceDatabaseName:<database> \
+  /SourceUser:<user> /SourcePassword:"$SQLPACKAGE_PASSWORD" \
+  /p:VerifyExtraction=true /p:LongRunningCommandTimeout=0
+```
+
+Import:
+
+```bash
+sqlpackage /Action:Import /SourceFile:app.bacpac /DiagnosticsFile:import.log \
+  /TargetServerName:your-server.database.windows.net /TargetDatabaseName:<new-database> \
+  /TargetUser:<user> /TargetPassword:"$SQLPACKAGE_PASSWORD" \
+  /p:DatabaseEdition=Standard /p:DatabaseServiceObjective=S1
+```
+
+Publish:
+
+```bash
+sqlpackage /Action:Publish /SourceFile:app.dacpac \
+  /TargetServerName:your-server.database.windows.net /TargetDatabaseName:<database> \
+  /TargetUser:<user> /TargetPassword:"$SQLPACKAGE_PASSWORD" \
+  /p:BlockOnPossibleDataLoss=true /p:DropObjectsNotInSource=false
+```
+
+`/p:DatabaseEdition` and `/p:DatabaseServiceObjective` are accepted by Import and Publish and are
+how the database they create is sized. Extract and Export do not accept them.
+
+## Both Import and Publish can create the target; only Publish can rerun
+
+Microsoft Learn states it for each. Publish: if the database doesn't exist on the server, the
+publish operation creates it, otherwise an existing database is updated. Import: a new database
+can be created by the import action when the authenticated user has create database permissions.
+
+What Import will not do is load into a target that already holds a user object:
+
+```text
 Error SQL71659: Data cannot be imported into target because it contains one or more user objects.
 ```
 
-**Publish**, pointed at a target it had already published to, with no source changes since, ran
-its full plan-and-apply cycle and reported `Update complete` with nothing to change. Publish also
-created the target database outright when it did not exist yet, with no separate provisioning
-step: `Creating database dq_from_dacpac...` appeared in its own output before the first object was
-created. Do not assume a database has to exist before a Publish; it does have to exist before an
-Import, which never creates one.
+It refuses before any statement runs against the target, and retrying the same Import against the
+same name refuses again, every time, until that database is dropped and recreated or a new name is
+chosen. Publish diffs instead: rerun it against a target it already published to and it reports
+`Update complete` with nothing to apply.
 
-This asymmetry is the one that costs a rerun after a partial failure. Import is a one-shot
-operation into a database with nothing in it yet: retry it against the same target name and it
-refuses, every time, until the target is dropped and recreated or a new name is chosen. Publish is
-a diffing operation and is the one safe to run again.
+## The property decides what is in the file, not the extension
 
-## A vector index makes the import fail, and the export looks fine
+An Extract of a database with one table and one view produced a `.dacpac` carrying no data entry
+of any kind, and an Export of the same database produced a `.bacpac` carrying
+`Data/dbo.Widget/TableData-000-00000.BCP`, one entry per base table holding rows.
 
-**Check for vector indexes before you plan anything around a bacpac.**
+Then the same Extract with one property added:
+
+```bash
+sqlpackage /Action:Extract /TargetFile:app-with-data.dacpac \
+  /SourceServerName:your-server.database.windows.net /SourceDatabaseName:<database> \
+  /SourceUser:<user> /SourcePassword:"$SQLPACKAGE_PASSWORD" /p:ExtractAllTableData=true
+```
+
+That file is still named `.dacpac`, is still the output of Extract, and now carries
+`Data/dbo.Widget/TableData-000-00000.BCP` as well. `/p:TableData` is the narrower form, accepted
+by both Extract and Export, naming one table per occurrence:
+
+```bash
+sqlpackage /Action:Extract /TargetFile:app-two-tables.dacpac \
+  /SourceServerName:your-server.database.windows.net /SourceDatabaseName:<database> \
+  /SourceUser:<user> /SourcePassword:"$SQLPACKAGE_PASSWORD" \
+  /p:TableData=dbo.Widget /p:TableData=dbo.WidgetAudit
+```
+
+Open the file and look rather than reading the name:
+
+```bash
+unzip -l app-with-data.dacpac
+```
+
+## An export is not a backup, and is not consistent by default
+
+Microsoft Learn states plainly that bacpac files aren't intended to be used for backup and restore
+operations. `BACKUP DATABASE app TO DISK='/tmp/x.bak'` against this engine returns `Msg 40510`, and
+there is no RESTORE either.
+
+Learn again, on Export: for an export to be transactionally consistent, either no write activity is
+occurring during the export, or the export is taken from a transactionally consistent copy of the
+database. Nothing in the output of a successful export says which of those was true. Export from a
+database copy, or from a database nothing is writing to, or state in the answer that the file may
+be internally inconsistent.
+
+## Before an Export or Extract from a database with operating history
+
+Export is limited to the Azure SQL Database surface area, so a source carrying an element outside
+it fails with `SQL71627` after the whole schema model has already been built, discarding the entire
+attempt rather than the one object. The usual carriers are Windows-authenticated users and logins,
+such as an inherited `NT AUTHORITY\SYSTEM`, and leftover Service Broker or query notification
+permissions, most often a `RECEIVE` grant on `QueryNotificationErrorsQueue`.
+
+Open [references/preflight-and-sql71627.md](references/preflight-and-sql71627.md) before running an
+export against a database you did not create yourself: it holds the queries that find both classes
+and the remediation for each.
+
+Extract accepts two properties that drop the offending model elements, and Export accepts neither:
+
+```bash
+sqlpackage /Action:Extract /TargetFile:app.dacpac \
+  /SourceServerName:your-server.database.windows.net /SourceDatabaseName:<database> \
+  /SourceUser:<user> /SourcePassword:"$SQLPACKAGE_PASSWORD" \
+  /p:IgnoreUserLoginMappings=true /p:IgnorePermissions=true
+```
+
+So when a database will not export, extracting the schema and moving the rows separately is the
+route that still runs.
+
+## Read the plan before a Publish that could drop something
+
+DeployReport writes XML and Script writes T-SQL. Neither one changes the target database.
+
+```bash
+sqlpackage /Action:DeployReport /SourceFile:app.dacpac /DeployReportPath:deploy-report.xml \
+  /TargetServerName:your-server.database.windows.net /TargetDatabaseName:<database> \
+  /TargetUser:<user> /TargetPassword:"$SQLPACKAGE_PASSWORD"
+```
+
+```bash
+sqlpackage /Action:Script /SourceFile:app.dacpac /DeployScriptPath:publish.sql \
+  /TargetServerName:your-server.database.windows.net /TargetDatabaseName:<database> \
+  /TargetUser:<user> /TargetPassword:"$SQLPACKAGE_PASSWORD"
+```
+
+`/p:BlockOnPossibleDataLoss` defaults to True and is what stops a publish that would drop data.
+Leave it on. `/p:CreateNewDatabase=true` does not mean "create it if it is missing", which Publish
+already does: Learn describes it as whether the target database should be updated or whether it
+should be dropped and re-created. Setting it against a populated target destroys that target.
+
+## A vector index breaks the round trip, and the export looks fine
+
+Check before planning anything around a bacpac:
 
 ```sql
 SELECT OBJECT_NAME(object_id) AS table_name, name
 FROM sys.indexes WHERE type_desc = 'VECTOR';
 ```
 
-The import creates schema objects before it loads data, so a vector index is
-created against an empty table. Vector indexes require at least 100 rows with
-non-null vectors, measured 2026-08-31 against `12.0.2000.8`: 99 rows is refused
-with `Msg 42266` and 100 succeeds. The index cannot be created, and the import
-fails.
+An import creates schema objects before it loads data, so a vector index is created against an
+empty table. Measured 2026-08-31 against `12.0.2000.8`: a vector index needs at least 100 rows
+carrying non-null vectors, 99 is refused with `Msg 42266` and 100 succeeds. Drop the vector indexes
+before exporting and recreate them after the data is loaded. `TRUNCATE TABLE` is refused while a
+vector index exists (`Msg 42232`), so reloading in place hits the same wall one step earlier.
 
-**The export succeeds.** Nothing warns at export time. The failure lands later,
-on the import, on the machine that was counting on it, which is the worst place
-to discover a migration will not work.
+## Check it worked
 
-The documented workaround is to drop the vector indexes before exporting and
-recreate them after importing. Recreating needs the data loaded first, so the
-order is: drop, export, import, load, recreate.
+Exit code 0 says the action SqlPackage attempted finished. It does not say the rows arrived.
 
-Note also that `TRUNCATE TABLE` is refused while a vector index exists
-(`Msg 42232`), so a reload-in-place plan has the same problem one step earlier.
+```bash
+unzip -l app.bacpac | grep TableData
+```
 
-`azuresql-db-rag` and `vector-search-azure-sql` own vector indexes themselves.
-This skill owns the fact that one silently breaks a bacpac round trip.
+Expect one `Data/<schema>.<table>/TableData-000-00000.BCP` entry per base table that held rows, and
+none for a view. Then compare the target against the source:
 
-## Deciding which of the four to run
+```sql
+SELECT SUM(p.rows) AS row_count, COUNT(DISTINCT t.object_id) AS table_count
+FROM sys.tables AS t
+JOIN sys.partitions AS p ON p.object_id = t.object_id AND p.index_id IN (0, 1);
+```
 
-1. **Decide whether the row data has to move, not just the schema.** If the destination only
-   needs the object definitions, an Extract and Publish round trip is smaller, faster, and (unlike
-   Import) safe to repeat against a target that already exists.
-2. **If data has to move, use Export and Import, and provision the target as new and empty
-   first.** Import will not accept anything else. Do not pre-create tables in the target expecting
-   Import to fill them.
-3. **Before an Export or Extract from a database with any history, scan it for the objects that
-   fail SQL71627.** Documented, not reproduced live here: users or logins carrying
-   `AuthenticationType` set to Windows authentication (commonly inherited logins such as
-   `NT AUTHORITY\SYSTEM`), and permissions left over from an inherited Service Broker or query
-   notification use, most often a `RECEIVE` grant on `QueryNotificationErrorsQueue`. Both are
-   schema-model elements Azure SQL Database has never supported, and SqlPackage reports them only
-   after schema extraction has already completed, discarding the whole file rather than the one
-   offending object. `references/preflight-and-sql71627.md` has the queries to find them ahead of
-   time and the exact remediation for each.
-4. **Run `/Action:DeployReport` or `/Action:Script` before a Publish against a target that already
-   has data you care about.** Both write a file and change nothing in the database; read the plan
-   before applying it. This is the same guidance `sql-database-projects` gives for a project-built
-   dacpac, and it applies just as much to one extracted from a live database.
-5. **After an Import or Publish, verify row counts and object counts in the target rather than
-   trusting the exit code alone.** A `0` exit code says the action SqlPackage attempted completed;
-   it does not say the row count matches, particularly after a retried Import against a
-   half-populated target that had to be dropped and recreated first.
-
-## Validation rules
-
-- Whether the row data needs to move was decided before choosing between the dacpac pair and the
-  bacpac pair, and the choice is stated, not implied by which file extension got used.
-- A source database with any operating history was scanned for Windows-authenticated logins,
-  server-login-mapped users and Service Broker permissions before an Export or Extract was run
-  against it, or the scan was explicitly skipped with a reason.
-- Import was pointed at a target confirmed new and empty, never at a target being reused from a
-  previous attempt without first dropping and recreating it.
-- A Publish against a target holding data was preceded by `/Action:DeployReport` or
-  `/Action:Script`, and the plan was read before the publish ran.
-- No claim that a bacpac or dacpac export satisfies a backup or recovery requirement went
-  unchallenged; that requirement is routed to `restore-and-recover`.
-- Row and object counts in the target were checked after the action, not inferred from a `0` exit
-  code.
-
-## Do not
-
-- Do not infer a file's contents from its extension. `.dacpac` is the default for Extract and
-  Publish, not a guarantee; `ExtractAllTableData` puts row data in a file still named `.dacpac`.
-- Do not present an Export or a Publish as a backup. Neither carries a retention policy or a
-  restore SLA, and Azure SQL Database already runs automated backups that do.
-- Do not retry a failed Import against the same target name without dropping and recreating it, or
-  choosing a new name. It will refuse again with SQL71659 every time.
-- Do not run an Export or Extract against a database with real operating history without scanning
-  for Windows-authenticated users, login-mapped users and Service Broker permissions first. The
-  failure lands after extraction, not before it, and it discards the whole file.
-- Do not treat `BlockOnPossibleDataLoss`, the refactorlog, or pre and post deployment scripts as
-  this skill's territory when the dacpac came from a tracked SQL project. That mechanics belongs
-  to `sql-database-projects`; read it when the source of the dacpac is a project rather than a
-  live database.
-- Do not assume the target database must exist before a Publish. It does not; SqlPackage creates
-  it. An Import target, by contrast, must exist and must be empty.
+Run it on both databases. Equal numbers, or a stated reason they differ, is the check. A schema
+only dacpac publishes to zero rows and that is correct, not a failure.
 
 ## References
 
-- [references/measured-behaviour.md](references/measured-behaviour.md): every command run for
-  this skill, the exact output, the file listings inside each dacpac and bacpac, and the exit
-  codes. Read it to reproduce a claim above or to see the full transcript behind a shortened one.
-- [references/preflight-and-sql71627.md](references/preflight-and-sql71627.md): the queries that
-  find Windows-authenticated logins, login-mapped users and leftover Service Broker permissions
-  before an export runs into them, sourced from Microsoft Learn and Microsoft support content
-  rather than measured against this container.
-- [SqlPackage Export](https://learn.microsoft.com/en-us/sql/tools/sqlpackage/sqlpackage-export),
-  [SqlPackage Import](https://learn.microsoft.com/en-us/sql/tools/sqlpackage/sqlpackage-import),
-  [SqlPackage Extract](https://learn.microsoft.com/en-us/sql/tools/sqlpackage/sqlpackage-extract),
-  and [SqlPackage Publish](https://learn.microsoft.com/en-us/sql/tools/sqlpackage/sqlpackage-publish):
-  the full property reference for each action. Read the property list before assuming a default.
+- [Measured runs, file listings, exit codes and provenance](references/dacpac-bacpac-contents-and-errors.md): open it when a claim above disagrees with what you are seeing, or to reproduce a measurement.
+- [The SQL71627 pre-flight scan](references/preflight-and-sql71627.md)
+- The property reference per action, and the only authority on whether a property exists:
+  [Extract](https://learn.microsoft.com/sql/tools/sqlpackage/sqlpackage-extract),
+  [Export](https://learn.microsoft.com/sql/tools/sqlpackage/sqlpackage-export),
+  [Import](https://learn.microsoft.com/sql/tools/sqlpackage/sqlpackage-import),
+  [Publish](https://learn.microsoft.com/sql/tools/sqlpackage/sqlpackage-publish),
+  [Script](https://learn.microsoft.com/sql/tools/sqlpackage/sqlpackage-script) and
+  [DeployReport](https://learn.microsoft.com/sql/tools/sqlpackage/sqlpackage-deploy-drift-report).
