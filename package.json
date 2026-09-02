@@ -13,8 +13,9 @@
     "parity": "node scripts/generate.mjs --check",
     "sidecars:check": "node scripts/backfill-container-sidecars.mjs --check",
     "contract:check": "node scripts/check-prefill-contract.mjs",
-    "test": "node scripts/validate-catalog.mjs && node scripts/generate.mjs --check && node scripts/backfill-container-sidecars.mjs --check && node scripts/check-prefill-contract.mjs && node scripts/check-house-rules.mjs",
-    "house": "node scripts/check-house-rules.mjs"
+    "test": "node scripts/validate-catalog.mjs && node scripts/generate.mjs --check && node scripts/backfill-container-sidecars.mjs --check && node scripts/check-prefill-contract.mjs && node scripts/check-house-rules.mjs && node scripts/check-apm.mjs",
+    "house": "node scripts/check-house-rules.mjs",
+    "apm:check": "node scripts/check-apm.mjs"
   },
   "license": "MIT"
 }

@@ -1,6 +1,6 @@
 # Azure SQL Agent Skills
 
-Domain expertise for the AI coding agents developers already use. Skills teach an agent what it otherwise gets wrong about Azure SQL Database, usually because it learned SQL from PostgreSQL or from documentation written before Azure existed.
+Curated by the Azure SQL Database product team. Skills that correct what coding agents get wrong about the engine, from connection strings to vector search, measured against a live database rather than quoted from documentation.
 
 [![Documentation](https://img.shields.io/badge/Documentation-blue?logo=github)](https://learn.microsoft.com/azure/azure-sql/database/)
 [![Agent Plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-8A2BE2?logo=github)](https://agent-plugins.org/specification)

@@ -34,8 +34,8 @@ That is fine and it is not a leak. The file never enters the agent's context, be
 provenance. **Do not "fix" this by moving sidecars out of the skill folder**: co-location is what
 keeps a skill and its contract from drifting apart, and the eval finds them by that path.
 
-Fan-out to other collections is the exception. Section 13.2 of the PRD strips the sidecar on
-syndication unless the destination asks for it, because it names our domains and our personas, which
+Fan-out to other collections is the exception. The sidecar is stripped when a skill is copied into
+another collection, unless that collection asks for it, because it names our domains and our personas, which
 mean nothing in someone else's repository.
 
 ## The manifest is checked in both directions
@@ -72,10 +72,10 @@ that looks correct and resolves to nothing.
 
 ## What this repository does NOT check
 
-Skill **content** rules are not gated here. The linter that enforces the 29
-constitution rules lives in `azure-sql-skills-lab`, and this workflow cannot reach it, so
-nothing in this repository checks frontmatter limits, body budget, reference depth, security
-patterns or the value gate against the skills it ships.
+Skill **content** rules are not gated here. The linter that enforces them lives in the authoring
+repository and this workflow cannot reach it, so nothing here checks frontmatter limits, body size,
+reference depth, security patterns, or whether a skill earns its place, against the skills it
+ships.
 
 What IS checked here: structure, manifest parity in both directions, sidecar schema conformance,
 generated-surface parity, the feedback prefill contract, and the house rules on files this
@@ -94,8 +94,8 @@ less than it looks like it means.
 ## House conventions
 
 - **Feature branch and a pull request, always.** Never commit to `main`.
-- **No em-dashes** in files this repository authors. Rule ST007, checked in CI. The carried-over
-  container skills are excluded: they are the product's files, not ours to reformat.
+- **No em-dashes** in files this repository authors, checked in CI. The carried-over container
+  skills are excluded: they are the product's files, not ours to reformat.
 - **No AI attribution in commits or pull requests.**
 - **Validate, do not assume.** `npm test` before opening a pull request, and if you are claiming an
   install behaviour, install it and look at where the files landed.
