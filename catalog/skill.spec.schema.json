@@ -54,7 +54,7 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "description": "The value bar. A skill must pass at least one of the first four. `convenience-only` alone is a reject, enforced by rule VAL001 rather than by this schema, so the rejection message can explain itself.",
+      "description": "Why this skill is worth shipping. It must claim at least one of the first four. Claiming only `convenience-only` is a reject, meaning the model already does this correctly and a skill would add a description to the selection surface and nothing else. That rejection is enforced by the linter rather than by this schema, so it can explain itself instead of only failing validation.",
       "items": {
         "enum": [
           "not-in-training-data",
@@ -103,7 +103,7 @@
           "azure-sql-db-container"
         ]
       },
-      "description": "Scope is fixed (rules SCP001 to SCP003). Managed Instance, Fabric SQL and SQL Server on VMs are not values here and never will be."
+      "description": "Scope is fixed and the linter enforces it. Managed Instance, Fabric SQL and SQL Server on VMs are not values here and never will be."
     },
     "related": {
       "type": "array",

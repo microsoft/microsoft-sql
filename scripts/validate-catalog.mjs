@@ -84,7 +84,7 @@ function frontmatter(text, where) {
 const ALLOWED_FRONTMATTER = new Set(['name', 'description', 'license', 'compatibility']);
 const onDisk = new Set();
 
-// LAY001. The Agent Plugins specification fixes discovery at skills/ and states
+// The Agent Plugins specification fixes discovery at skills/ and states
 // clients MUST NOT recurse. A skill one level deeper is invisible to every
 // conforming client, and the closed manifest schema has no field to point at
 // it. Grouping by domain looks tidy and would ship a catalog that loads
@@ -96,7 +96,7 @@ for (const name of skillDirs) {
   if (!existsSync(join(nested, 'SKILL.md'))) {
     for (const inner of readdirSync(nested).filter((n) => statSync(join(nested, n)).isDirectory())) {
       if (existsSync(join(nested, inner, 'SKILL.md'))) {
-        errors.push(`${join(nested, inner)}: LAY001, a skill must be an immediate child of ${SKILLS}/. ` +
+        errors.push(`${join(nested, inner)}: a skill must be an immediate child of ${SKILLS}/, never nested deeper. ` +
           `It sits inside "${name}/", where no conforming client will find it. ` +
           `Move it up and record the domain in its sidecar; the grouping is generated.`);
       }
@@ -127,7 +127,7 @@ for (const name of skillDirs) {
       check(d.length <= 1024, `${md}: description is ${d.length} characters, over the 1024 limit`);
       for (const k of Object.keys(fm.fields)) {
         check(ALLOWED_FRONTMATTER.has(k),
-          `${md}: frontmatter key "${k}" is not allowed. House rule FM001 permits ${[...ALLOWED_FRONTMATTER].join(', ')}.`);
+          `${md}: frontmatter key "${k}" is not allowed. Only ${[...ALLOWED_FRONTMATTER].join(' and ')} may appear; everything else belongs in the sidecar beside the skill.`);
       }
       warn(fm.bodyLines < 500, `${md}: body is ${fm.bodyLines} lines, over the 500 line guidance`);
     }
