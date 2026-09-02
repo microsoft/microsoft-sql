@@ -279,7 +279,7 @@ Loads data into Azure SQL Database fast by choosing the right route: BULK INSERT
 
 **[sqlpackage-import-export](skills/sqlpackage-import-export/SKILL.md)**
 
-Chooses the right SqlPackage action, Extract, Publish, Export or Import, to move a whole Azure SQL Database as a portable file, and states what each one carries.
+Moves a whole Azure SQL Database as a portable file with SqlPackage, choosing between the Extract, Publish, Export and Import actions, stating what each one carries, and giving the command line for each.
 
 </details>
 
