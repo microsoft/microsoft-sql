@@ -160,7 +160,7 @@ Takes an application identity to a working passwordless connection to Azure SQL 
 
 **[prevent-sql-injection](skills/prevent-sql-injection/SKILL.md)**
 
-Handles SQL injection on Azure SQL Database, where parameterising values is already right and what is left are the identifier and literal cases parameters cannot reach: QUOTENAME returning NULL above 128 characters, so a concatenated dynamic statement runs as a silent no-op with no error and no rows; a CASE in a dynamic ORDER BY that fails only for the sort values whose column is the lower-precedence type; and Always Encrypted rejecting a literal predicate outright.
+Handles SQL injection on Azure SQL Database past what an agent already gets right: a typed sp_executesql parameter matches nothing where the same input concatenated into EXEC() returns every row; QUOTENAME returns NULL above 128 characters, so the batch built from it becomes NULL and runs as a silent no-op at no severity; one CASE over columns of different types in a dynamic ORDER BY fails only for the sort key selecting the lower-precedence branch; dynamic SQL breaks the ownership chain, so EXECUTE AS decides what a statement may touch and who the engine thinks is running it; and Always Encrypted refuses a literal with Msg 206.
 
 **[rls-multi-tenant](skills/rls-multi-tenant/SKILL.md)**
 

@@ -1,209 +1,214 @@
 ---
 name: prevent-sql-injection
 description: >-
-  Handles SQL injection on Azure SQL Database, where parameterising values is already
-  right and what is left are the identifier and literal cases parameters cannot reach:
-  QUOTENAME returning NULL above 128 characters, so a concatenated dynamic statement
-  runs as a silent no-op with no error and no rows; a CASE in a dynamic ORDER BY that
-  fails only for the sort values whose column is the lower-precedence type; and Always
-  Encrypted rejecting a literal predicate outright. Use for a general injection question
-  or a pre-production review, when a dynamic statement built with QUOTENAME returns
-  nothing and raises nothing, when a sort-by-column feature throws an operand type clash
-  or a date conversion error for one column but not the others, or when a query against
-  an Always Encrypted column will not take a literal. Row-level tenant isolation is
-  rls-multi-tenant.
+  Handles SQL injection on Azure SQL Database past what an agent already gets right: a typed
+  sp_executesql parameter matches nothing where the same input concatenated into EXEC() returns
+  every row; QUOTENAME returns NULL above 128 characters, so the batch built from it becomes NULL
+  and runs as a silent no-op at no severity; one CASE over columns of different
+  types in a dynamic ORDER BY fails only for the sort key selecting the lower-precedence branch;
+  dynamic SQL breaks the ownership chain, so EXECUTE AS decides what a statement may touch and who
+  the engine thinks is running it; and Always Encrypted refuses a literal with Msg 206. Use for a
+  general injection question or a pre-production review, when a QUOTENAME-built statement returns
+  and raises nothing, when a sort-by-column feature throws an operand type clash for one
+  column only, when a procedure works until its query becomes dynamic, or when a query against an
+  encrypted column will not take a literal. Row level tenant isolation is rls-multi-tenant.
 ---
 
-# Prevent SQL injection: the identifier and literal cases parameters do not cover
+# Prevent SQL injection: the value, the identifier, and the context it runs under
 
-**Asked a general injection question, answer it from here, and lead with the part that
-is already true.** Parameterising values and refusing string-built predicates is
-something an agent does correctly on Azure SQL Database without being told, so say so
-and do not spend the reply teaching it. Then cover what parameters cannot reach, which
-is where the real defects on this platform live: an identifier, or a column whose
-encryption makes a literal invalid.
+Parameterising a value is the part an agent already gets right. Confirm it in a sentence and spend
+the answer on what a parameter cannot reach: an identifier, the type of a runtime-chosen sort
+expression, the permissions a dynamic batch runs under, and an encrypted column.
 
-That is the whole shape of a good answer here. Confirm the basics in a sentence, then
-check the three cases below, which are measured and which an agent otherwise gets
-wrong.
+Measured 2026-08-29 against an engine reporting `EngineEdition` 5 and Edition `SQL Azure`.
+`QUOTENAME`, `PARSENAME`, `sp_executesql`, ownership chaining and Always Encrypted were checked
+against Microsoft Learn on 2026-09-03; flags from `sqlcmd` 1.10.0 help.
 
-Measured on 2026-08-29 against a live engine reporting `EngineEdition` 5 and Edition
-`SQL Azure`. Full statements, messages and the safe pattern are in
-[references/verified-behaviour.md](references/verified-behaviour.md).
+## 1. A parameter is a value, a concatenation is code, and the difference is measurable
 
-## The fact that makes this dangerous
-
-A parameter binds a **value**. It never binds an **identifier**: a table name, a
-column name, a schema name. `EXEC sp_executesql N'SELECT * FROM @t', N'@t
-sysname', @t = @tableName` does not work, because `@t` is a value, not a table.
-Any dynamic identifier has to be built into the SQL text itself, which is exactly
-the operation a naive skill would tell you to avoid entirely and exactly the
-operation this catalog's readers actually need to do safely: sort-by-any-column
-grids, multi-tenant table naming, and admin tooling that targets a caller-chosen
-object all need it.
-
-The two safe tools for that job, `QUOTENAME` and a fixed allowlist, are both
-correct in the case an agent tests first and both have a failure mode that only
-shows up later.
-
-## 1. QUOTENAME above 128 characters is a silent no-op, not an error
+Do not assert this. Run it. Both statements get the same string.
 
 ```sql
-DECLARE @n128 NVARCHAR(200) = REPLICATE(N'a', 128);
-DECLARE @n129 NVARCHAR(200) = REPLICATE(N'a', 129);
-SELECT QUOTENAME(@n128);  -- bracketed string, 130 characters, no complaint
-SELECT QUOTENAME(@n129);  -- NULL
+CREATE TABLE dbo.Users (id int NOT NULL PRIMARY KEY, name nvarchar(50) NOT NULL);
+INSERT INTO dbo.Users (id, name) VALUES (1, N'ann'), (2, N'bob');
+
+DECLARE @input nvarchar(100) = N'ann'' OR 1=1--';
+
+-- Typed parameter: the input is one value, and no row holds it. Returns 0.
+EXEC sp_executesql N'SELECT COUNT(*) AS matched FROM dbo.Users WHERE name = @n',
+                   N'@n nvarchar(100)', @n = @input;
+
+-- Same input concatenated: the input is now part of the statement. Returns 2.
+DECLARE @sql nvarchar(max) =
+        N'SELECT COUNT(*) AS matched FROM dbo.Users WHERE name = N''' + @input + N'''';
+EXEC (@sql);
 ```
 
-At 128 characters `QUOTENAME` returns the bracketed identifier. At 129 it returns
-`NULL`, exactly at the boundary. Concatenating that `NULL` into a statement makes
-the whole statement `NULL`, and handing a `NULL` batch to `sp_executesql`, or to
-`EXEC()` of the same string, runs it as nothing: no rows, `@@ERROR` stays 0, the
-process exit code stays 0. There is no severity level at which this reports
-itself. The only place it shows is a caller who expected rows and got none.
+Zero against two, from one string. Learn's rule for `@params` is the discipline in one line: values
+can only be constants or variables, never expressions built with operators.
 
-`QUOTENAME` does correctly double an embedded closing bracket (`QUOTENAME(N'my]col')`
-returns `[my]]col]`), so escaping itself is not the defect. The defect is
-exclusively the 128-character ceiling and the fact that crossing it produces
-`NULL` rather than a truncated string or a thrown error.
+## 2. No parameter binds an identifier, and QUOTENAME's ceiling is a NULL
 
-The fix: check the result of `QUOTENAME` for `NULL` before executing anything
-built from it, and reject or flag the input rather than silently running a no-op.
-Where the set of valid identifiers is known in advance, such as the columns a UI
-is allowed to sort by, prefer a fixed allowlist over `QUOTENAME` entirely; an
-allowlist has no length ceiling to cross.
-
-## 2. A single CASE mixing types in a dynamic ORDER BY fails for some sort values and not others
+`EXEC sp_executesql N'SELECT * FROM @t', N'@t sysname', @t = @name` cannot work: `@t` is a value,
+not a table. A dynamic identifier has to enter the SQL text, so `QUOTENAME`'s documented edges are
+load bearing. Learn: `character_string` is **sysname**, limited to 128 characters, and inputs
+greater than 128 characters return `NULL`; an unacceptable quote character returns `NULL` too.
+Escaping is not the defect: an embedded `]` is doubled correctly. Crossing 128 is, because a
+`NULL` concatenated into a batch makes the whole batch `NULL`:
 
 ```sql
--- Chooses between id (int) and created (date) at runtime.
-ORDER BY CASE @col
-            WHEN N'id'      THEN id
-            WHEN N'created' THEN created
-         END
+DECLARE @n129 nvarchar(200) = REPLICATE(N'a', 129);
+SELECT LEN(QUOTENAME(REPLICATE(N'a', 128)))       AS len_at_128,      -- 130
+       IIF(QUOTENAME(@n129) IS NULL, 1, 0)        AS null_at_129,     -- 1
+       IIF(QUOTENAME(N'tbl', N'#') IS NULL, 1, 0) AS null_bad_quote;  -- 1
+
+DECLARE @sql nvarchar(max) = N'SELECT * FROM ' + QUOTENAME(@n129);
+EXEC sp_executesql @sql;
+SELECT IIF(@sql IS NULL, 1, 0) AS batch_was_null, @@ERROR AS err;     -- 1, 0
 ```
 
-A single `CASE` forces every branch to one common type, picked by SQL Server's
-type precedence, not by which branch the current `@col` actually selects. What
-that means at runtime is not the same for every pairing, and the difference is
-the whole trap.
+`EXEC (@sql)` on the same `NULL` behaves identically: this is the `NULL` batch, not one calling
+convention. Nothing reports it at any severity:
 
-**`int` mixed with `date` fails unconditionally, at compile time.** No implicit
-conversion exists between them at all, so `CASE @c WHEN N'a' THEN i WHEN N'b'
-THEN d END` raises `Msg 206, Operand type clash: int is incompatible with date`
-whatever `@c` is, including a value that matches neither branch. It also aborts
-the batch outright: wrapping the same statement in `BEGIN TRY` / `END CATCH`
-does not catch it, because the clash is caught at compile time, before the
-`TRY` block's error handling is in scope. Nothing downstream of this statement
-in the same batch runs.
+```bash
+sqlcmd -S <server-name>.database.windows.net,1433 -d <database> -U <user> -C -b -m-1 \
+  -Q "DECLARE @s nvarchar(max)=N'SELECT 1 FROM '+QUOTENAME(REPLICATE(N'x',129)); EXEC sp_executesql @s; SELECT @@ERROR AS err;"
+```
 
-**A string column mixed with `int` or `date` fails only when the matched
-branch is the lower-precedence side, and only for that one value of the sort
-key.** `date` and `int` both outrank `nvarchar`, so the branch typed
-`nvarchar` is the one converted, and only when it is the branch actually
-selected. Measured on columns `i INT`, `d DATE`, `s NVARCHAR(50)`:
+`-b` exits non-zero only at severity 11 and above, and `-m-1` lowers the level at which messages
+print, but there is no message at any level: `err` is 0 and so is the exit code. The `NULL` has to
+be the check.
 
-| Branches | `@c` value | Branch selected | Result |
-|---|---|---|---|
-| `WHEN N'a' THEN s` `WHEN N'b' THEN d` | `'b'` (matches `d`, the higher-precedence branch) | `d` | Runs clean |
-| `WHEN N'a' THEN s` `WHEN N'b' THEN d` | `'a'` (matches `s`, the lower-precedence branch) | `s` | `Msg 241, Conversion failed when converting date and/or time from character string` |
-| `WHEN N'a' THEN i` `WHEN N'b' THEN s` | `'a'` (matches `i`, the higher-precedence branch) | `i` | Runs clean |
-| `WHEN N'a' THEN i` `WHEN N'b' THEN s` | `'b'` (matches `s`, the lower-precedence branch) | `s` | `Msg 245, Conversion failed when converting the nvarchar value 'Ann' to data type int` |
-
-**A sort key matching neither branch also runs clean**, whatever the column
-types: `CASE` falls through to an implicit `ELSE NULL`, no branch is evaluated,
-and no conversion is attempted.
-
-This is a sharper trap than "mixing types fails," because the same statement
-passes for some sort columns and fails for others depending on which one a
-caller actually picks. It gets written against whichever sort key the author
-tested (commonly the default), passes review, and fails in production the
-first time someone clicks a column header that sorts to the lower-precedence
-branch, pointing at an `ORDER BY` clause that has not changed since the
-passing test.
-
-The fix that actually holds is one `CASE` **per candidate column**, each with a
-single type in its `THEN`, rather than one `CASE` spanning every candidate.
-This removes the value-dependence entirely: with a separate `CASE` per column,
-each expression has exactly one type across all its branches, so there is
-never a mixed-type common type to coerce toward, and every sort key behaves
-the same way whether it happens to be the one tested first or not:
+**`PARSENAME` splits a qualified name and validates nothing.** Learn: each part is **sysname**, a
+part over 256 bytes comes back `NULL`, and it does not indicate whether an object of that name
+exists. Resolve the caller's string against the catalog and build the identifier from
+what the catalog returned:
 
 ```sql
-ORDER BY
-  CASE WHEN @col = N'id'      THEN id      END,
-  CASE WHEN @col = N'name'    THEN name    END,
-  CASE WHEN @col = N'created' THEN created END
+DECLARE @requested nvarchar(400) = N'dbo.Users', @safe nvarchar(300);
+SELECT @safe = QUOTENAME(s.name) + N'.' + QUOTENAME(o.name)
+FROM sys.objects AS o JOIN sys.schemas AS s ON s.schema_id = o.schema_id
+WHERE s.name = PARSENAME(@requested, 2) AND o.name = PARSENAME(@requested, 1) AND o.type = 'U';
+IF @safe IS NULL THROW 50001, 'No such table, or the name is not a valid identifier.', 1;
+
+DECLARE @sql nvarchar(max) = N'SELECT COUNT(*) AS n FROM ' + @safe;
+EXEC sp_executesql @sql;
 ```
 
-Columns that do not match `@col` evaluate to `NULL` for every row and sort as
-ties, so this composes correctly with `OFFSET`/`FETCH` and with an `ASC`/`DESC`
-toggle per column. A server-side allowlist mapping a UI sort key to one of a
-fixed, reviewed set of column names is the other pattern that holds, and it
-depends on neither `QUOTENAME` nor `CASE`.
+That has no ceiling to cross: an over-long or unquotable name matches no row and is thrown. Where
+the legal identifiers are known in advance, an allowlist is simpler.
 
-## 3. Always Encrypted makes parameterisation mandatory, not optional
+## 3. One CASE over mixed types in a dynamic ORDER BY fails for some sort keys and not others
 
-On a column protected by Always Encrypted, a literal predicate does not merely
-weaken security, it fails to run: the literal is never encrypted client side, so
-comparing it to the ciphertext stored in the column is a type mismatch the
-engine rejects. Only a value passed as a parameter through a driver connection
-string with `Column Encryption Setting=Enabled` is encrypted before it reaches
-the server and can be compared. So on such a column, the fix that is usually
-framed as best practice is the only way the query runs at all.
+A single `CASE` forces every branch to one common type chosen by type precedence, not by the branch
+the sort key selects. Measured on `dbo.T (i int, d date, s nvarchar(50))`:
 
-This is documented behaviour, not measured against the engine behind the rest of
-this skill: reproducing it needs a column master key provisioned outside the
-database, in a certificate store, Azure Key Vault, or an HSM, which the run
-behind [references/verified-behaviour.md](references/verified-behaviour.md) did
-not set up. Say what the column requires; do not claim it was verified here.
+| Branches | sort key selects | Result |
+|---|---|---|
+| `THEN i` / `THEN d` | anything, including neither | `Msg 206`, operand type clash, int against date |
+| `THEN s` / `THEN d` | `d`, the higher-precedence side | runs clean |
+| `THEN s` / `THEN d` | `s`, the lower-precedence side | `Msg 241`, conversion failed from character string |
+| `THEN i` / `THEN s` | `s`, the lower-precedence side | `Msg 245`, conversion failed converting nvarchar to int |
 
-## What this skill assumes is already handled
+`int` and `date` have no implicit conversion, so that pairing is refused at compile time and a
+surrounding `BEGIN TRY` does not catch it. The string pairings are the sharper trap: the identical
+statement passes for one sort key and fails for another, so it survives a test against whichever
+column the author tried. One `CASE` per candidate column, each carrying a single type, has no common
+type to coerce toward; non-matching columns evaluate to `NULL` and tie, so this composes with
+`OFFSET`/`FETCH` and a direction toggle:
 
-A probe of both a larger and a smaller model, with no skill loaded, found these
-already correct and they are not repeated here: a dynamic statement inside a
-procedure, run with `sp_executesql` and full parameter binding, still runs under
-the caller's own permissions because ownership chaining is broken by dynamic SQL,
-so `EXECUTE`-only callers with no table permission fail rather than succeed;
-Dynamic Data Masking is a presentation control, not a defence against injection
-or against a user who can already run arbitrary queries; and when an agent
-composes and runs a whole statement from free text, the control that matters is
-the database permission boundary the agent's own connection runs under, not
-parameterising the one value inside it. Route those elsewhere rather than
-re-deriving them here.
+```sql
+DECLARE @col sysname = N'created', @dir char(1) = N'A';
+SELECT id, name, created FROM dbo.Grid
+ORDER BY CASE WHEN @col = N'id'      AND @dir = N'A' THEN id      END ASC,
+         CASE WHEN @col = N'id'      AND @dir = N'D' THEN id      END DESC,
+         CASE WHEN @col = N'created' AND @dir = N'A' THEN created END ASC
+OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY;
+```
 
-## Validation rules
+## 4. Dynamic SQL breaks the ownership chain, so EXECUTE AS is part of the answer
 
-- Every dynamic statement built with `QUOTENAME` checks the result for `NULL`
-  before executing anything built from it.
-- No generated `ORDER BY` uses one `CASE` expression with columns of more than
-  one data type as its branches. Either one `CASE` per candidate column, or a
-  fixed allowlist.
-- Nothing claims `QUOTENAME` truncates an over-length identifier, or merely
-  fails to verify the object exists. It returns `NULL`.
-- Any claim about Always Encrypted rejecting a literal is stated as documented
-  behaviour unless it was actually run against an engine with a column master
-  key provisioned.
+Learn: executing dynamically created SQL in procedural code breaks the ownership chain, so the
+engine checks the caller's permissions against every object the dynamic statement touches. A
+procedure a caller could run yesterday stops working the day its query becomes dynamic, and
+parameterising does not bring it back.
+
+```sql
+CREATE TABLE dbo.Ledger (id int NOT NULL PRIMARY KEY);
+INSERT INTO dbo.Ledger (id) VALUES (1);
+CREATE USER app_reader WITHOUT LOGIN;
+GO
+CREATE PROCEDURE dbo.CountLedgerDynamic AS
+  EXEC sp_executesql N'SELECT COUNT(*) AS n FROM dbo.Ledger';
+GO
+CREATE PROCEDURE dbo.CountLedgerAsOwner WITH EXECUTE AS OWNER AS
+  EXEC sp_executesql N'SELECT COUNT(*) AS n, CURRENT_USER AS running_as FROM dbo.Ledger';
+GO
+GRANT EXECUTE ON dbo.CountLedgerDynamic TO app_reader;
+GRANT EXECUTE ON dbo.CountLedgerAsOwner TO app_reader;
+GO
+EXECUTE AS USER = 'app_reader';
+EXEC dbo.CountLedgerDynamic;   -- Msg 229, SELECT permission denied on 'Ledger'
+EXEC dbo.CountLedgerAsOwner;   -- 1, dbo
+REVERT;
+```
+
+Learn names two remedies. `EXECUTE AS` replaces the caller's permissions for the whole module,
+nested modules inherit the proxy context, and the identity functions report the proxy, which is what
+`running_as` returning `dbo` shows, so anything keyed to the caller must arrive as a parameter.
+Certificate signing merges the certificate user's permissions with the caller's and leaves the
+execution context alone, at the cost of re-signing on every change. Open `rls-multi-tenant` before
+putting `EXECUTE AS` on a module touching a table under a security policy: the proxy context is what
+a tenant predicate reads. Neither remedy substitutes for parameterising.
+
+## 5. On an Always Encrypted column a literal does not run at all
+
+Learn lists it under Always Encrypted's limitations: comparing an encrypted column to a literal, or
+inserting one, fails with `Msg 206, Level 16, State 2, Operand type clash`. Only a value bound as a
+parameter over a connection with `Column Encryption Setting=Enabled` is encrypted before it leaves
+the driver, so parameterising is the only thing that returns a row. Documented, not reproduced here:
+it needs a column master key provisioned outside the database.
+
+## Check it worked
+
+```sql
+-- Every module that builds SQL, and the context it runs under. A NULL principal id means the
+-- caller's permissions apply to whatever the dynamic statement touches.
+SELECT o.name, m.execute_as_principal_id
+FROM sys.sql_modules AS m JOIN sys.objects AS o ON o.object_id = m.object_id
+WHERE m.definition LIKE N'%sp_executesql%' OR m.definition LIKE N'%EXECUTE (%';
+```
+
+```sql
+-- No dynamic batch executes while NULL. Expect the rejection, not zero rows.
+DECLARE @batch nvarchar(max) = N'SELECT * FROM ' + QUOTENAME(REPLICATE(N'x', 129));
+IF @batch IS NULL SELECT 'rejected before execution' AS result ELSE EXEC sp_executesql @batch;
+```
+
+Then re-run section 1's pair against the real table: parameterised must match zero rows,
+concatenated every row. Finally run the generated `ORDER BY` once per sort key a caller may send,
+not only the one tested. Any one raising `Msg 206`, `241` or `245` means a mixed-type `CASE` is
+still there.
 
 ## Do not
 
-- Do not present `QUOTENAME` as sufficient on its own for a caller-supplied
-  identifier without a length check on its result.
-- Do not build a caller-chosen `ORDER BY` with one `CASE` spanning columns of
-  different types, even when the columns tried in testing happen to share a
-  type.
-- Do not repeat that `QUOTENAME` truncates long identifiers. It returns `NULL`.
-- Do not tell a developer their agent-composed-SQL risk is solved by
-  parameterising the one user-supplied value inside a model-authored statement.
-  The model authors the whole statement, so the control is the permission
-  boundary the connection runs under, not the parameter.
-- Do not warn about `xp_cmdshell`, linked servers, or `OPENROWSET` against
-  arbitrary providers as live risks on Azure SQL Database. None of them exist
-  here to escalate to.
+- Do not present `QUOTENAME` as sufficient for a caller-supplied identifier without checking its
+  result for `NULL`, and do not say it truncates a long name. It returns `NULL`.
+- Do not build a caller-chosen `ORDER BY` from one `CASE` spanning columns of different types, even
+  when the columns tried in testing share a type.
+- Do not add `WITH EXECUTE AS OWNER` to clear a permission error without saying what the module can
+  now reach and that the caller's identity is no longer visible inside it.
+- Do not tell a developer an agent-composed statement is made safe by parameterising the one value
+  inside it. The model authored the whole statement, so the control is the permission boundary its
+  connection runs under.
+- Do not warn about `xp_cmdshell`, linked servers or `OPENROWSET` against arbitrary providers. None
+  exist on Azure SQL Database to escalate to.
 
 ## References
 
-- [references/verified-behaviour.md](references/verified-behaviour.md): every
-  statement behind this page, the exact messages for each type pairing, the
-  128 versus 129 character boundary, and what is documented rather than
-  measured for Always Encrypted.
+- Open [the measured runs](references/quotename-null-and-order-by-clashes.md) when a claim above
+  disagrees with what you see, or to look up the message a column-type pairing produces.
+- Microsoft Learn, if a number above looks stale:
+  [QUOTENAME](https://learn.microsoft.com/sql/t-sql/functions/quotename-transact-sql),
+  [PARSENAME](https://learn.microsoft.com/sql/t-sql/functions/parsename-transact-sql),
+  [secure dynamic SQL](https://learn.microsoft.com/sql/connect/ado-net/sql/writing-secure-dynamic-sql).

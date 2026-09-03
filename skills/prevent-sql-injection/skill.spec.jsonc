@@ -27,6 +27,108 @@
       "a generated dynamic ORDER BY that lets the caller choose the sort column uses one CASE expression per candidate column rather than one CASE with every candidate column as a branch, or uses a server-side allowlist instead of CASE entirely",
       "no generated answer claims QUOTENAME truncates a long identifier or merely fails to check the object exists; it returns NULL",
       "an answer touching an Always Encrypted column states that a literal predicate against it fails outright, not merely that parameters are the safer choice"
+    ],
+    "probes": [
+          {
+                "sql": "CREATE TABLE dbo.probe_inj_users (id int NOT NULL PRIMARY KEY, name nvarchar(50) NOT NULL);\nINSERT INTO dbo.probe_inj_users (id, name) VALUES (1, N'ann'), (2, N'bob');\nCREATE TABLE dbo.probe_inj_concat (matched int NOT NULL);\nDECLARE @input nvarchar(100) = N'ann'' OR 1=1--';\nDECLARE @parameterised int;\nEXEC sp_executesql N'SELECT @out = COUNT(*) FROM dbo.probe_inj_users WHERE name = @n', N'@n nvarchar(100), @out int OUTPUT', @n = @input, @out = @parameterised OUTPUT;\nDECLARE @sql nvarchar(max) = N'INSERT INTO dbo.probe_inj_concat SELECT COUNT(*) FROM dbo.probe_inj_users WHERE name = N''' + @input + N'''';\nEXEC (@sql);\nSELECT @parameterised AS parameterised, (SELECT matched FROM dbo.probe_inj_concat) AS concatenated;",
+                "expect": {
+                      "rows": [
+                            [
+                                  0,
+                                  2
+                            ]
+                      ]
+                },
+                "why": "Section 1 made executable, and the claim the whole skill rests on. One string reaches both statements. Bound to a typed sp_executesql parameter it is a value that matches no row, so 0. Concatenated into the text of the same query it is code, the trailing -- comments out the closing quote, OR 1=1 survives, and every row comes back, so 2. Zero against two from one input is the difference between a value and a statement, measured rather than asserted."
+          },
+          {
+                "sql": "SELECT LEN(QUOTENAME(REPLICATE(N'a', 128))) AS len_at_128,\n       IIF(QUOTENAME(REPLICATE(N'a', 129)) IS NULL, 1, 0) AS null_at_129,\n       IIF(QUOTENAME(N'tbl', N'#') IS NULL, 1, 0) AS null_bad_quote,\n       IIF(QUOTENAME(N'my]col') = N'[my]]col]', 1, 0) AS bracket_doubled;",
+                "expect": {
+                      "rows": [
+                            [
+                                  130,
+                                  1,
+                                  1,
+                                  1
+                            ]
+                      ]
+                },
+                "why": "The 128 boundary is precise and it is a NULL, not a truncation. Microsoft Learn states that character_string is sysname, limited to 128 characters, and that inputs greater than 128 characters return NULL, and that an unacceptable quote character returns NULL. Measured 2026-08-29: 128 characters come back bracketed at length 130 and 129 come back NULL. The fourth column pins the half an agent gets right, so a future failure cannot be blamed on escaping."
+          },
+          {
+                "sql": "DECLARE @sql nvarchar(max) = N'SELECT 1 AS x FROM ' + QUOTENAME(REPLICATE(N'x', 129));\nEXEC sp_executesql @sql;\nDECLARE @err_sp int = @@ERROR;\nEXEC (@sql);\nDECLARE @err_exec int = @@ERROR;\nSELECT IIF(@sql IS NULL, 1, 0) AS batch_was_null, @err_sp AS err_after_sp_executesql, @err_exec AS err_after_exec;",
+                "expect": {
+                      "rows": [
+                            [
+                                  1,
+                                  0,
+                                  0
+                            ]
+                      ]
+                },
+                "why": "The silent no-op, asserted through both calling conventions so the claim cannot be pinned on one of them. A NULL from QUOTENAME makes the whole concatenated batch NULL, and handing that NULL to sp_executesql and to EXEC() both leave @@ERROR at 0 with nothing executed. Measured 2026-08-29. This probe is the reason the skill tells a reader to check the NULL rather than the error, and a failure here would mean the engine started reporting it."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_inj_intdate (i int NOT NULL, d date NOT NULL);\nINSERT INTO dbo.probe_inj_intdate (i, d) VALUES (1, '2026-01-01');\nDECLARE @col sysname = N'matches_no_branch';\nSELECT i FROM dbo.probe_inj_intdate ORDER BY CASE WHEN @col = N'i' THEN i WHEN @col = N'd' THEN d END;",
+                "expect": {
+                      "error": 206
+                },
+                "why": "int and date have no implicit conversion, so one CASE spanning them is refused while the expression is compiled, before any branch is chosen. The sort key here deliberately matches NEITHER branch, which is what makes this unconditional rather than value-dependent. Measured 2026-08-29: Msg 206, operand type clash, int is incompatible with date."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_inj_prec (i int NOT NULL, s nvarchar(50) NOT NULL);\nINSERT INTO dbo.probe_inj_prec (i, s) VALUES (2, N'bob'), (1, N'ann');\nDECLARE @col sysname = N's';\nSELECT i FROM dbo.probe_inj_prec ORDER BY CASE WHEN @col = N'i' THEN i WHEN @col = N's' THEN s END;",
+                "expect": {
+                      "error": 245
+                },
+                "why": "The trap that survives testing. int outranks nvarchar by type precedence, so the common type is int and the string branch is the one converted, but only when the sort key selects it. Measured 2026-08-29: Msg 245, conversion failed when converting the nvarchar value to data type int. Paired with the next probe, which runs the IDENTICAL statement and passes."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_inj_prec_ok (i int NOT NULL, s nvarchar(50) NOT NULL);\nINSERT INTO dbo.probe_inj_prec_ok (i, s) VALUES (2, N'bob'), (1, N'ann');\nDECLARE @col sysname = N'i';\nSELECT i FROM dbo.probe_inj_prec_ok ORDER BY CASE WHEN @col = N'i' THEN i WHEN @col = N's' THEN s END;",
+                "expect": {
+                      "rows": [
+                            [
+                                  1
+                            ],
+                            [
+                                  2
+                            ]
+                      ]
+                },
+                "why": "The other half of the pair, and the reason the skill calls this sharper than mixing types fails. Byte for byte the same ORDER BY as the probe above, with only the sort key changed to the higher-precedence branch, and it returns both rows in order. An author who tested this column alone would ship the previous probe's failure. Measured 2026-08-29."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_inj_safe (id int NOT NULL, name nvarchar(50) NOT NULL, created date NOT NULL);\nINSERT INTO dbo.probe_inj_safe (id, name, created) VALUES (2, N'bob', '2026-02-01'), (1, N'ann', '2026-01-01');\nDECLARE @col sysname = N'created';\nSELECT id FROM dbo.probe_inj_safe\nORDER BY CASE WHEN @col = N'id' THEN id END,\n         CASE WHEN @col = N'name' THEN name END,\n         CASE WHEN @col = N'created' THEN created END\nOFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY;",
+                "expect": {
+                      "rows": [
+                            [
+                                  1
+                            ],
+                            [
+                                  2
+                            ]
+                      ]
+                },
+                "why": "The remedy the skill actually prescribes, run on the sort key that breaks the single-CASE form. One CASE per candidate column gives each expression exactly one type, so there is no common type to coerce toward and no failing branch left. Sorting by created returns id 1 before id 2, which also shows the non-matching CASE expressions evaluating to NULL and tying rather than reordering, and that it composes with OFFSET and FETCH."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_inj_ledger (id int NOT NULL PRIMARY KEY);\nINSERT INTO dbo.probe_inj_ledger (id) VALUES (1);\nCREATE USER probe_inj_reader WITHOUT LOGIN;\nEXEC sys.sp_executesql N'CREATE PROCEDURE dbo.probe_inj_dynamic AS EXEC sp_executesql N''SELECT COUNT(*) AS n FROM dbo.probe_inj_ledger'';';\nGO\nGRANT EXECUTE ON dbo.probe_inj_dynamic TO probe_inj_reader;\nEXECUTE AS USER = 'probe_inj_reader';\nEXEC dbo.probe_inj_dynamic;",
+                "expect": {
+                      "error": 229
+                },
+                "why": "Section 4 made executable. Microsoft Learn states that executing dynamically created SQL in procedural code breaks the ownership chain, so the engine checks the caller against every object the dynamic statement touches. The caller holds EXECUTE on the procedure and nothing on the table, and a fully parameterised dynamic statement still fails: Msg 229, the SELECT permission was denied on the object. This is the measurement behind the claim that parameterising does not restore the chain."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_inj_ledger_owner (id int NOT NULL PRIMARY KEY);\nINSERT INTO dbo.probe_inj_ledger_owner (id) VALUES (1);\nCREATE USER probe_inj_reader_owner WITHOUT LOGIN;\nEXEC sys.sp_executesql N'CREATE PROCEDURE dbo.probe_inj_as_owner WITH EXECUTE AS OWNER AS EXEC sp_executesql N''SELECT COUNT(*) AS n, CURRENT_USER AS running_as FROM dbo.probe_inj_ledger_owner'';';\nGO\nGRANT EXECUTE ON dbo.probe_inj_as_owner TO probe_inj_reader_owner;\nEXECUTE AS USER = 'probe_inj_reader_owner';\nEXEC dbo.probe_inj_as_owner;",
+                "expect": {
+                      "rows": [
+                            [
+                                  1,
+                                  "dbo"
+                            ]
+                      ]
+                },
+                "why": "The remedy, and its cost, in one result. The identical procedure with WITH EXECUTE AS OWNER returns the row the previous probe was refused, and CURRENT_USER inside it reports dbo rather than the caller. Microsoft Learn states that some functions returning the identity of the user return the user named in the EXECUTE AS clause, not the original caller, and that this can break applications relying on row level security. The second column is why the skill sends a reader to rls-multi-tenant before adding this clause."
+          }
     ]
   },
   "triggering": {

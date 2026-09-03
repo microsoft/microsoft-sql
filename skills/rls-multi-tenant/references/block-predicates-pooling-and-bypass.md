@@ -1,4 +1,4 @@
-# Verified behaviour: tenant isolation, block predicates, pooling and bypass
+# Block predicates, pooling and bypass: the runs behind tenant isolation
 
 ## Contents
 

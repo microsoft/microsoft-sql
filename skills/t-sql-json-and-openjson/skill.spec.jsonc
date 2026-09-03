@@ -33,6 +33,136 @@
       "a single scalar property read is JSON_VALUE rather than an OPENJSON construction",
       "a property that every query filters on is either promoted to an indexed computed column or covered by a JSON index on a native json column",
       "no answer describes the nvarchar plus functions pattern as removed or deprecated"
+    ],
+    "probes": [
+        {
+              "sql": "CREATE TABLE dbo.probe_doc_json (id INT IDENTITY PRIMARY KEY CLUSTERED, payload JSON NULL);\nINSERT INTO dbo.probe_doc_json (payload) VALUES (N'{not json at all');",
+              "expect": {
+                    "error": 13609
+              },
+              "why": "The correction the skill turns on, made executable. A json column parses on write and refuses text that is not a document. Measured 2026-08-28, message \"JSON text is not properly formatted. Unexpected character 'n' is found at position 1.\""
+        },
+        {
+              "sql": "CREATE TABLE dbo.probe_doc_nv (id INT IDENTITY PRIMARY KEY CLUSTERED, payload NVARCHAR(MAX) NULL);\nINSERT INTO dbo.probe_doc_nv (payload) VALUES (N'{not json at all');\nSELECT COUNT(*) AS rows_accepted FROM dbo.probe_doc_nv;",
+              "expect": {
+                    "rows": [
+                          [
+                                1
+                          ]
+                    ]
+              },
+              "why": "The half that makes the probe above mean something. The same text into nvarchar(max) is stored with no message of any kind, so the row lands and the damage surfaces later as a JSON_VALUE returning NULL. Measured 2026-08-28. Asserting the refusal without asserting the silence leaves the reader no reason to switch."
+        },
+        {
+              "sql": "CREATE TABLE dbo.probe_doc_chk (id INT IDENTITY PRIMARY KEY CLUSTERED, payload NVARCHAR(MAX) NULL\n    CONSTRAINT ck_probe_doc_chk CHECK (ISJSON(payload) = 1));\nINSERT INTO dbo.probe_doc_chk (payload) VALUES (N'{not json at all');",
+              "expect": {
+                    "error": 547
+              },
+              "why": "The escape for a column that must stay nvarchar(max): CHECK (ISJSON(payload) = 1) buys the refusal back, as a constraint violation rather than a parse failure. Measured 2026-08-28."
+        },
+        {
+              "sql": "CREATE TABLE dbo.probe_sort (id INT IDENTITY PRIMARY KEY CLUSTERED, payload JSON NOT NULL);\nINSERT INTO dbo.probe_sort (payload) VALUES (N'{\"a\":1}');\nSELECT TOP 1 id FROM dbo.probe_sort ORDER BY payload;",
+              "expect": {
+                    "error": 13636
+              },
+              "why": "The json type is not comparable, so ORDER BY, GROUP BY and a join on the column all fail the same way. Measured 2026-08-28, message \"The JSON data type cannot be compared or sorted, except when using the IS NULL operator.\" design-azure-sql-schema already measured Msg 402 for equality against nvarchar; this is the sort and group half, not a restatement of it."
+        },
+        {
+              "sql": "CREATE TABLE dbo.probe_like (id INT IDENTITY PRIMARY KEY CLUSTERED, payload JSON NOT NULL);\nINSERT INTO dbo.probe_like (payload) VALUES (N'{\"a\":1}');\nSELECT TOP 1 id FROM dbo.probe_like WHERE payload LIKE '%a%';",
+              "expect": {
+                    "error": 8116
+              },
+              "why": "LIKE over a json column is refused rather than falling back to the text, which is the trap for anyone porting a query that grepped an nvarchar(max) document. Measured 2026-08-28, \"Argument data type json is invalid for argument 1 of like function.\""
+        },
+        {
+              "sql": "CREATE TABLE dbo.probe_ix_nv (id INT IDENTITY PRIMARY KEY CLUSTERED, payload NVARCHAR(MAX) NOT NULL);\nCREATE JSON INDEX jix_probe_nv ON dbo.probe_ix_nv (payload);",
+              "expect": {
+                    "error": 13680
+              },
+              "why": "The difference the skill says cannot be worked around. A JSON index requires the native type, so the storage choice closes this door permanently. Measured 2026-08-28, \"Column 'payload' ... is not of JSON data type, which is required to create a JSON index on it.\""
+        },
+        {
+              "sql": "CREATE TABLE dbo.probe_ix_json (id INT IDENTITY PRIMARY KEY CLUSTERED, payload JSON NOT NULL);\nCREATE JSON INDEX jix_probe_json ON dbo.probe_ix_json (payload)\n    FOR ('$.customer', '$.lines') WITH (OPTIMIZE_FOR_ARRAY_SEARCH = ON, FILLFACTOR = 80);",
+              "expect": {
+                    "succeeds": true
+              },
+              "why": "The statement the body tells the reader to run, with the two options Learn documents on the CREATE JSON INDEX page, asserted end to end. This one settles a live disagreement rather than padding a count: that Learn page omits Azure SQL Database from its applies-to banner and calls the feature preview, yet the statement built on the engine measured 2026-08-28, which reported EngineEdition 5 and Edition 'SQL Azure'. If it ever stops building, the body's central recommendation is wrong and this probe is how we find out."
+        },
+        {
+              "sql": "SELECT qty FROM OPENJSON(N'[{\"qty\":\"abc\"}]') WITH (qty INT '$.qty');",
+              "expect": {
+                    "error": 245
+              },
+              "why": "The correctness argument for the WITH clause, which the body ranks above the speed argument. A typed column refuses a value that is not that type; the default output would hand back 'abc' as nvarchar(max) and let it travel. Measured 2026-08-28."
+        },
+        {
+              "sql": "SELECT qty FROM OPENJSON(N'[{\"sku\":\"A-100\"}]') WITH (qty INT 'strict $.qty');",
+              "expect": {
+                    "error": 13608
+              },
+              "why": "The lax and strict pairing. Lax is the default when no mode is written and returns NULL for a property that is absent; strict raises. Measured 2026-08-28, \"Property cannot be found on the specified JSON path.\" The same document read without the strict keyword returns a NULL row instead."
+        },
+        {
+              "sql": "SELECT lines FROM OPENJSON(N'[{\"lines\":[1,2]}]') WITH (lines NVARCHAR(100) '$.lines' AS JSON);",
+              "expect": {
+                    "error": 13618
+              },
+              "why": "AS JSON is the only way to pull a nested object or array through the WITH clause, and it accepts one type. Measured 2026-08-28 and stated verbatim on Microsoft Learn's error list: \"AS JSON option can be specified only for column of nvarchar(max) type in WITH clause.\" Written as NVARCHAR(100) here because that is the mistake, not an invented one."
+        },
+        {
+              "sql": "DECLARE @j JSON = JSON_OBJECT('big': REPLICATE(CAST(N'x' AS NVARCHAR(MAX)), 5000));\nSELECT ISNULL(LEN(JSON_VALUE(@j, '$.big')), -1) AS lax_len,\n       LEN(JSON_VALUE(@j, '$.big' RETURNING NVARCHAR(MAX))) AS returning_len,\n       (SELECT LEN(v) FROM OPENJSON(@j) WITH (v NVARCHAR(MAX) '$.big')) AS openjson_len;",
+              "expect": {
+                    "rows": [
+                          [
+                                -1,
+                                5000,
+                                5000
+                          ]
+                    ]
+              },
+              "why": "The 4000 character cliff and both escapes in one statement. JSON_VALUE without RETURNING is typed nvarchar(4000) and lax mode turns the overflow into NULL, reported here as -1 so the row is unambiguous; RETURNING nvarchar(max) and OPENJSON WITH both return all 5000. Measured 2026-08-28, and Learn states the lax NULL and the strict error on the JSON_VALUE page. The CAST inside REPLICATE is load-bearing: without it REPLICATE returns nvarchar(4000) and the fixture silently becomes NULL."
+        },
+        {
+              "sql": "DECLARE @j JSON = JSON_OBJECT('big': REPLICATE(CAST(N'x' AS NVARCHAR(MAX)), 5000));\nSELECT JSON_VALUE(@j, 'strict $.big');",
+              "expect": {
+                    "error": 13625
+              },
+              "why": "The other side of the cliff, and the reason the body calls the lax behaviour data loss dressed as a missing key. Under a strict path the same read raises rather than returning NULL. Measured 2026-08-28, \"String value in the specified JSON path would be truncated.\""
+        },
+        {
+              "sql": "DECLARE @j JSON = N'{\"orderId\":7}';\nSELECT CASE WHEN JSON_VALUE(@j, '$.orderid') IS NULL THEN 1 ELSE 0 END AS wrong_case_is_null,\n       JSON_VALUE(@j, '$.orderId' RETURNING INT) AS right_case;",
+              "expect": {
+                    "rows": [
+                          [
+                                1,
+                                7
+                          ]
+                    ]
+              },
+              "why": "JSON paths are case-sensitive regardless of the database collation, so a lower-cased path matches nothing and returns NULL rather than erroring. Measured 2026-08-28 on a case-insensitive database, where the OPENJSON key column carries Latin1_General_BIN2 and behaves the same way. This is the failure the description lists as 'JSON_VALUE returns NULL but the property is right there'."
+        },
+        {
+              "sql": "SELECT COUNT(*) AS openjson_rows FROM OPENJSON(N'{\"a\":1,\"b\":2}');",
+              "expect": {
+                    "rows": [
+                          [
+                                2
+                          ]
+                    ]
+              },
+              "why": "The compatibility level 130 requirement is real, and this asserts the half that matters to a reader: OPENJSON resolves on a database created normally, with nobody having run ALTER DATABASE SET COMPATIBILITY_LEVEL first. Measured 2026-08-28 failing with Msg 208 at levels 100 and 120 and working from 130 up, which Learn states on the OPENJSON page. Deliberately does not assert the level number, because a freshly created database's default moves over time and a pinned value would be a single sample."
+        },
+        {
+              "sql": "DECLARE @j JSON = N'{  \"orderId\" : 7,   \"dup\": 1, \"dup\": 2 }';\nSELECT CAST(@j AS NVARCHAR(MAX)) AS normalized;",
+              "expect": {
+                    "rows": [
+                          [
+                                "{\"orderId\":7,\"dup\":1}"
+                          ]
+                    ]
+              },
+              "why": "A json column stores a parsed document, not the bytes it was given: whitespace goes and the second duplicate key is discarded. Measured 2026-08-28. This is the check the body's 'Check it worked' section reads first, because it is how a reader tells which type they actually have, and the reason the body says to keep the raw text separately if a signature covers the exact bytes."
+        }
     ]
   },
   "triggering": {

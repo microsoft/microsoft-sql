@@ -3,16 +3,15 @@ name: rag-local-with-container
 description: >-
   Answers whether a retrieval augmented generation prototype proved against the local Azure SQL
   Database container still holds in Azure SQL Database, and names the three things that do not
-  survive the move. Owns the offline loop, with the embedding model on the developer's own
-  machine, and the parity claim. Use when someone asks to "prototype RAG offline with no
-  cloud account", "use a local embedding model with SQL", "develop against the container and
-  deploy to Azure SQL Database", or asks what will have to be redone after the move; and when the
-  engine refuses a local embedding endpoint, or a vector index and a security policy will not
-  coexist. A plain request to build RAG on the container, the first vector table and a top
-  k search over it, belongs to azuresql-db-rag; come here for the move. The cloud pipeline is
-  rag-on-azure-sql, the type and the query are vector-search-azure-sql, embedding inside the
-  engine is embeddings-and-external-models, and framework wiring is
-  langchain-and-llamaindex-on-azure-sql.
+  survive the move. Owns the offline loop, the embedding model on the developer's own machine, and
+  the parity claim. Use when someone asks to "prototype RAG offline with no cloud account", "use a
+  local embedding model with SQL", "develop against the container and deploy to Azure SQL
+  Database", or asks what will have to be redone after the move; and when the engine refuses a
+  local embedding endpoint, or a vector index and a security policy will not coexist. A plain
+  request to build RAG on the container, the first vector table and a top k search over it, belongs
+  to azuresql-db-rag; come here for the move. The cloud pipeline is rag-on-azure-sql, the type and
+  the query are vector-search-azure-sql, embedding inside the engine is
+  embeddings-and-external-models, and framework wiring is langchain-and-llamaindex-on-azure-sql.
 ---
 
 # Local RAG on the Azure SQL Database container
@@ -20,10 +19,11 @@ description: >-
 Build the whole retrieval loop on a laptop with no cloud account, no keys and no outbound calls,
 then move it. This skill is about **what survives the move and what does not**.
 
-Verified on 2026-08-28 by running one script against the local container and the same script
-against a live Azure SQL Database provisioned for the run, and comparing the outputs line by line.
-Both engines report `SERVERPROPERTY('EngineEdition')` of 5. The full runs, the diff and the
-reproduction steps are in [references/parity.md](references/parity.md).
+Verified 2026-08-28 by running one script against the local Azure SQL Database container and the
+same script against a live Azure SQL Database and comparing line by line; both report
+`SERVERPROPERTY('EngineEdition')` of 5. The local model commands were rerun 2026-09-03 on Ollama
+0.33.2. Open [references/parity.md](references/parity.md) before repeating any number below, or
+whenever someone disputes that the offline prototype is real.
 
 ## What this owns
 
@@ -31,226 +31,246 @@ reproduction steps are in [references/parity.md](references/parity.md).
 |---|---|
 | The `vector` type, `VECTOR_DISTANCE`, the index and the query shape that reaches it | `vector-search-azure-sql` |
 | The cloud pipeline: chunk identity, provenance, re-embedding, grounding | `rag-on-azure-sql` |
-| Producing a vector inside the engine, credentials and the endpoint allowlist | `embeddings-and-external-models` |
-| Vector store adapters, retrievers, agent toolkits and their guardrails | `langchain-and-llamaindex-on-azure-sql` |
+| A vector produced inside the engine, credentials and the endpoint allowlist | `embeddings-and-external-models` |
+| Vector store adapters, retrievers and their guardrails | `langchain-and-llamaindex-on-azure-sql` |
 | A first vector table and a full scan top k on a fresh container | `azuresql-db-rag` |
 
-`azuresql-db-rag` is the shipped starting recipe: start the container, create the table, embed from
-application code, run a full scan search. **A plain "build RAG on the container" is that skill's,
-not this one's.** This skill is the next question, which that one does not answer: **is the thing I
-just proved locally still true in the cloud?**
+This skill is the next question after those: **is what I just proved locally still true in the
+cloud?**
 
 ## The correction
 
-An agent told the container is the same engine concludes that anything proved locally holds in the
-cloud, and an agent told it is "just a container" refuses to prototype offline at all and reaches
-for a hosted endpoint and a key on day one. Both are wrong, and the measurements point in opposite
-directions.
+An agent told the container is the same engine concludes everything proved locally holds in the
+cloud. An agent told it is "just a container" will not prototype offline at all. Both are wrong.
 
 **Parity is real for the part people doubt.** The same 140 chunk corpus, embedded by the same local
-model, inserted into both engines, produced **identical cosine distances to six decimal places**,
-an identical top three, a vector index that built on both, and approximate search that returned the
-same rows in the same order on both. Every error text matched. The offline prototype is not a
-simulation.
+model and inserted into both engines, produced **identical cosine distances to six decimal
+places**, an identical top three, a vector index that built on both, and approximate search
+returning the same rows in the same order. The prototype is not a simulation.
 
-**Three things break, and each one breaks in the direction that flatters the laptop.**
+**Three things break, and each breaks in the direction that flatters the laptop.**
 
 | What | Container | Azure SQL Database | Consequence |
 |---|---|---|---|
-| Outbound calls from the engine | any public host answers | only an allowlist of domains, `Msg 31612` before DNS | Works locally, refused in the cloud |
-| Row level security together with a vector index | refused, `Msg 37579` and `Msg 42244` | both coexist, either order | The isolation the cloud design depends on cannot be rehearsed locally |
+| Outbound calls from the engine | any public host answers | an Azure domain allowlist, `Msg 31612` before DNS | Works locally, refused in the cloud |
+| Row level security beside a vector index | refused, `Msg 37579` and `Msg 42244` | both coexist, either order | The isolation cannot be rehearsed locally |
 | Managed identity for an outbound credential | refused, `Msg 31644` | works | The production identity has no local rehearsal |
 
-And a fourth that is not an engine difference at all and costs the most: **the code moves unchanged,
-the corpus does not.** A local embedding model and a hosted one produce different geometries and
-usually different dimensions, and the dimension is baked into the column and cannot be altered.
+A fourth is not an engine difference and costs the most: **the code moves unchanged, the corpus
+does not.** A local model and a hosted one are different geometries and usually different
+dimensions, and the dimension is baked into the column.
 
 Being wrong costs a retrieval query that passes every local test and is refused by policy on its
-first cloud run, a tenant isolation control that ships having never been exercised, and a full
-re-embed of the corpus discovered after the schema is deployed.
+first cloud run, an isolation control that ships never having been exercised, and a full re-embed
+discovered after the schema is deployed.
 
 ## Step 1: fix the dimension before writing anything
 
-This is the decision that cannot be revisited, and it is made once for both environments.
+This decision cannot be revisited and is made once for both environments. Ask the local model
+rather than assuming, because the number goes straight into the column:
 
-- Look up the output dimension of the **local** model. A common local embedding model emits 768.
-- Choose a cloud model that can be **asked** for that same number. Measured, a hosted model whose
-  default is 1536 returned a 768 dimension vector when the external model definition carried
-  `PARAMETERS = '{"dimensions":768}'`, and a 512 dimension vector when asked for 512.
-- Declare that one number once, as `vector(768)` in the schema and as the dimension requested from
-  every model.
+```bash
+ollama show nomic-embed-text
+```
 
-Matching the number keeps **the column type** portable. It does not make the vectors
-interchangeable: two models are two geometries, and a corpus embedded locally has to be re-embedded
-before the cloud model queries it. What matching buys is that the re-embed is an `UPDATE` rather
-than a new table, a new index and a migration.
+`embedding length` is the answer, and on Ollama 0.33.2 it reads `768`. Confirm that against the
+endpoint the code will actually call:
 
-If the numbers cannot be matched, plan for a second column from the start rather than discovering
-it later. `ALTER COLUMN` cannot change a vector's dimension, even on an empty table.
+```bash
+curl -s http://localhost:11434/api/embed \
+  -d '{"model": "nomic-embed-text", "input": "the parity claim"}' |
+  python3 -c "import json,sys; print(len(json.load(sys.stdin)['embeddings'][0]))"
+```
+
+Expect `768`. Two calls with the same input returned a byte identical vector, so the local corpus
+is reproducible and a diff between runs means the model changed.
+
+Then choose a cloud model that can be **asked** for that same number. A hosted model whose default
+is 1536 returned a 768 dimension vector when its external model definition carried
+`PARAMETERS = '{"dimensions":768}'`, and 512 when asked for 512; Microsoft Learn documents
+`PARAMETERS` on `CREATE EXTERNAL MODEL` and the same override per call on
+`AI_GENERATE_EMBEDDINGS`.
+
+Declare that number once, as `vector(768)` in the schema and as the dimension asked of every model.
+Matching keeps **the column type** portable, not the vectors: a locally embedded corpus still has
+to be re-embedded before the cloud model queries it. What it buys is that the re-embed is an
+`UPDATE` rather than a new table, a new index and a migration. If the numbers cannot be matched,
+plan a second column from the start. `ALTER COLUMN` cannot change a vector's dimension, even on an
+empty table.
 
 ## Step 2: embed in the application, because the engine cannot reach a local model
 
-This is the structural difference from the cloud pipeline, and it is not a preference.
+This is structural, not a preference. Microsoft Learn lists `Ollama` as an accepted `API_FORMAT`
+and gives its location path as `https://localhost:{port}/api/embed`, which reads as though the
+engine can call a model on your machine. On the container every route is closed. Ollama serves
+plain HTTP, and `LOCATION` accepts HTTPS only:
 
-The engine's own embedding function calls an endpoint over the network, and every route to a
-locally hosted model is closed. Measured on the container:
+```sql
+CREATE EXTERNAL MODEL local_embed
+WITH (LOCATION = 'http://localhost:11434/api/embed',
+      API_FORMAT = 'Ollama',
+      MODEL_TYPE = EMBEDDINGS,
+      MODEL = 'nomic-embed-text');
+-- Msg 31610. The statement never gets as far as the network.
+```
 
-- A plain `http://` endpoint is `Msg 31610`. HTTPS is required.
-- A hostname resolving to a private address is `Msg 31624`, refused before the handshake.
-- A private certificate authority is `Msg 31608`, and it stays refused after that authority is
-  installed in the container's own operating system trust store and accepted there by a command
-  line client in the same container. The engine does not read that store.
+Putting TLS in front of it does not help. A hostname resolving to a private address is `Msg 31624`,
+refused before the handshake, and a private certificate authority is `Msg 31608` even after that
+authority is installed in the container's own trust store and accepted there by a command line
+client in the same container. The engine does not read that store.
 
-So the local loop embeds in application code, calling the local model directly, and writes the
-vector in. That is the same shape `azuresql-db-rag` uses, and it is correct:
+So the local loop embeds in application code, the same shape `azuresql-db-rag` uses:
 
 ```python
 DIM = 768                       # decided in step 1, a literal in the SQL text
 
-def embed(texts: list[str]) -> list[list[float]]:
+def embed(text: str) -> list[float]:
     """The one thing that changes when this moves. Nothing else does."""
-    ...                         # local model now, hosted model later
+    r = requests.post("http://localhost:11434/api/embed",
+                      json={"model": "nomic-embed-text", "input": text}, timeout=60)
+    r.raise_for_status()
+    return r.json()["embeddings"][0]
 
 cursor.execute(
     f"INSERT dbo.kb (tenant_id, body, embedding) "
     f"VALUES (?, ?, CAST(CAST(? AS NVARCHAR(MAX)) AS VECTOR({DIM})))",
-    tenant_id, body, json.dumps(vector),
+    tenant_id, body, json.dumps(embed(body)),
 )
 ```
 
-The dimension is interpolated as a literal and the vector is bound as a JSON array string. Passing
-the dimension as a parameter is a syntax error, which is a property of the type rather than of the
-container.
+The dimension is interpolated as a literal and the vector bound as a JSON array string. Passing the
+dimension as a parameter is a syntax error, a property of the type rather than of the container.
 
-Chunking is the exception, and it is worth taking. `AI_GENERATE_CHUNKS` runs in the engine with no
-endpoint, no credential, no permission grant and no network, and produced byte identical output on
-both engines. Chunk in the database on both sides and one more piece of the pipeline stops being
-environment specific. Its options belong to `embeddings-and-external-models`.
+Chunking is the exception and it is worth taking. `AI_GENERATE_CHUNKS` runs in the engine with no
+endpoint, no credential and no network, and produced byte identical output on both engines:
+
+```sql
+SELECT c.chunk_order, c.chunk_offset, c.chunk_length
+FROM (VALUES (N'Retrieval augmented generation grounds an answer in your own text.')) AS d(body)
+CROSS APPLY AI_GENERATE_CHUNKS(SOURCE = d.body, CHUNK_TYPE = FIXED, CHUNK_SIZE = 25) AS c;
+```
+
+Expect three rows, lengths 25, 25 and 15. It needs compatibility level 170 or higher; below that
+the engine cannot find the function at all. Chunk in the database on both sides and one more piece
+of the pipeline stops being environment specific.
 
 ## Step 3: build the loop, and measure it
 
-A complete offline run, verified end to end on the container: 152 chunks embedded by a local model
-in 0.8 seconds, inserted, indexed, searched with a tenant filter, and answered by a local
-generation model in 2.3 seconds. No cloud account, no key, nothing leaving the host.
+A complete offline run on the container: 152 chunks embedded locally in 0.8 s, indexed, searched
+with a tenant filter and answered by a local generation model in 2.3 s, with nothing leaving the
+host. The retrieval query is `vector-search-azure-sql`'s, unchanged, carrying the filter inside it
+that `rag-on-azure-sql` requires. Neither is restated here.
 
-The retrieval query is the one `vector-search-azure-sql` specifies, unchanged, and the filter sits
-inside it exactly as `rag-on-azure-sql` requires. Neither is restated here.
-
-Two measurements worth having in front of a team arguing about where to develop:
-
-| Operation | Container | Cloud |
+| Operation, same 140 rows | Container | Cloud |
 |---|---|---|
 | Insert 140 rows carrying a 768 dimension vector | 766 ms | 16851 ms |
-| Exact top three over 140 rows | 16 ms | 150 ms |
+| Exact top three by distance | 16 ms | 150 ms |
+| `CREATE VECTOR INDEX` over those rows | 145 ms | 276 ms |
 
-The gap is round trips and provisioned throughput, not engine capability. It is the actual reason
-the inner loop belongs on the laptop, and it is worth stating rather than asserting that local is
-faster.
+The gap is round trips and provisioned throughput, not engine capability, and it is the honest
+reason the inner loop belongs on the laptop. The last row also settles the belief that a vector
+index cannot be built on the container: it builds, with no `ALTER DATABASE SCOPED CONFIGURATION`
+to make it.
 
 ## Step 4: know what you cannot rehearse locally
 
-**Row level security and a vector index are mutually exclusive on the container.** Measured, in
-both orders:
+**Row level security and a vector index are mutually exclusive on the container**, in both orders.
+On a table holding at least 100 rows with non null vectors:
 
-- Create the vector index first, then the security policy: `Msg 37579, The security policy '<name>'
-  cannot reference tables with vector indexes`.
-- Create the security policy first, then the vector index: `Msg 42244, A vector index cannot be
-  created on tables with security policies`.
+```sql
+CREATE VECTOR INDEX vi_kb ON dbo.kb (embedding) WITH (METRIC = 'cosine', TYPE = 'diskann');
+GO
+CREATE FUNCTION dbo.fn_kb (@t INT) RETURNS TABLE WITH SCHEMABINDING AS
+    RETURN SELECT 1 AS ok WHERE @t = CAST(SESSION_CONTEXT(N'tenant_id') AS INT);
+GO
+CREATE SECURITY POLICY dbo.p_kb
+    ADD FILTER PREDICATE dbo.fn_kb (tenant_id) ON dbo.kb WITH (STATE = ON);
+-- Container: Msg 37579. Cloud: succeeds.
+```
 
-In the cloud both orders succeeded and both objects coexisted. This matters because the security
-predicate on the chunk table is the cheapest defence in the whole design, and the local environment
-cannot hold it and the index at the same time. Two workable answers, and the wrong answer is to
-drop the predicate:
+Reverse the order and the container refuses the index instead, with `Msg 42244`. No ordering trick
+gets both. The predicate on the chunk table is the cheapest defence in the design, so it has to be
+exercised somewhere. Two workable answers, and the wrong one is to drop it:
 
 1. **Rehearse the predicate on an unindexed local table.** Under a few thousand rows an exact scan
-   is fast, and the predicate is what is being tested, not the plan.
-2. **Keep the indexed local table for retrieval work and prove the isolation in the cloud**, with a
-   test that runs there and fails loudly if the policy is missing.
+   is fast, and the predicate is what is under test, not the plan.
+2. **Keep the indexed local table for retrieval and prove the isolation in the cloud**, with a test
+   that runs there and fails loudly when the policy is missing.
 
-Either way, the tenant filter still belongs inside the retrieval query locally, so the query text
+Either way the tenant filter still belongs inside the retrieval query locally, so the query text
 that ships is the query text that was tested.
 
-**Managed identity has no local rehearsal.** The container answers `Msg 31644` and names an
-`sp_configure` remedy that the container itself refuses with `Msg 40510`. Use a key locally,
-managed identity in the cloud, and keep the difference in the credential rather than in the code.
+**Managed identity has no local rehearsal.** The container answers `Msg 31644` and names
+`sp_configure 'allow server scoped db credentials'` as the remedy, which it then refuses with
+`Msg 40510`. Use a key locally and an identity in the cloud, keeping the difference in the
+credential rather than in the code that names it.
 
 **The allowlist cannot be tested locally.** The container calls any public host, so a successful
-local call is not evidence of anything. Check every endpoint the design depends on from a cloud
+local call is evidence of nothing. The cloud list is a fixed set of Azure service domains published
+on the `sp_invoke_external_rest_endpoint` page. Check every endpoint the design needs from a cloud
 database before believing it.
 
 ## Step 5: make the move
 
-Change the connection string. Then change these four things and nothing else:
+Change the connection string, then these four things and nothing else:
 
-1. **The embedding function's endpoint**, and its requested dimension if the model differs.
+1. **The embedding endpoint**, and its requested dimension if the model differs.
 2. **The credential**, from a key to managed identity. The `USE MODEL` text does not change.
-3. **Re-embed the corpus** with the cloud model. Same column, same index, new vectors, in one pass
-   before any retrieval runs against it. A half migrated column is the failure `rag-on-azure-sql`
-   describes and nothing raises it.
-4. **Add the security policy** on the chunk table, which the local environment could not carry
-   alongside the index.
+3. **Re-embed the corpus** with the cloud model, in one pass before any retrieval runs against it.
+   A half migrated column is the failure `rag-on-azure-sql` describes and nothing raises it.
+4. **Add the security policy** the local environment could not carry alongside the index.
 
-Then re-run the same retrieval assertions against the cloud database. The point of the whole
-exercise is that they are the same assertions.
+Then re-run the same retrieval assertions against the cloud database. The point of the exercise is
+that they are the same assertions.
 
-## Validation rules
+## Check it worked
 
-- One dimension number appears in the schema, in the local embedding call and in the cloud model's
-  requested dimensions, and a test fails if any of the three disagree.
-- The embedding call is a single function with one endpoint in it, and nothing else in the codebase
-  calls a model.
-- The retrieval query text is identical in both environments, filter included, and was executed
-  against both.
-- Nothing in the local path requires an outbound call. Running with the machine offline reaches the
-  same results.
-- No key, endpoint host name or account name is committed. The local password is a development
-  value and the cloud identity is a managed identity.
-- Every endpoint the design depends on was checked against the cloud allowlist from a cloud
-  database, not from the container.
-- The tenant or permission predicate was exercised somewhere: on an unindexed local table, or in
-  the cloud, and there is a test that fails when the policy is absent.
-- The corpus was fully re-embedded after the model changed, and a group by over the model column
-  returns exactly one row.
-- Sample corpora are fabricated. No customer text, no internal document, no real identifier.
+Run these with sqlcmd 1.10.0 or later. `-b` returns a non-zero exit on an error and `-m-1` makes
+severity 10 messages arrive with their `Msg` numbers rather than as anonymous text, which `-b`
+alone never surfaces. Start with the declared dimension against what the model produces:
+
+```bash
+sqlcmd -S localhost,1433 -U sa -P "$SQL_PASSWORD" -d appdb -C -b -m-1 -h -1 \
+  -Q "SET NOCOUNT ON;
+      SELECT vector_dimensions FROM sys.columns
+      WHERE object_id = OBJECT_ID('dbo.kb') AND name = 'embedding';"
+```
+
+Expect one row equal to the number `ollama show` printed in step 1. Two vector widths in one
+database, or a width the model does not produce, is the half migrated corpus arriving as a schema
+fact rather than as quietly worse answers.
+
+For the offline claim, run the ingest and the retrieval again with the host's network down. Same
+rows, same distances, no error. A failure names an outbound call you did not know you had.
 
 ## Do not
 
-- Do not point the engine's embedding function at a locally hosted model. Every route to it is
-  refused, and the fix is to embed in application code.
-- Do not install a certificate authority in the container to work around that. The engine does not
-  read the container's trust store, and a workaround that depends on modifying the image is not a
-  design.
-- Do not treat a successful local outbound call as evidence the cloud will allow it. The container
-  has no allowlist.
-- Do not conclude row level security is unavailable because the container refuses it next to a
-  vector index. It works in the cloud, in either order.
-- Do not drop the security predicate to make the local environment agree with itself.
-- Do not assume a locally embedded corpus is usable by a different model in the cloud. It is not,
-  whatever the dimensions say.
-- Do not pick the local model and the cloud model independently. Their dimensions have to agree or
-  the column has to be planned twice.
-- Do not pass the vector dimension as a bind parameter. It is a literal in the statement text.
-- Do not carry the development password into the cloud, and do not carry a key where an identity
-  belongs.
-- Do not re-teach the vector type, the distance function, the index or the query shape here. Those
-  are `vector-search-azure-sql`, and the pipeline around them is `rag-on-azure-sql`.
+- Do not point the engine's embedding function at a locally hosted model, and do not add a
+  certificate authority to the container to work around the refusal. The engine does not read that
+  store, and modifying the image is not a design.
+- Do not treat a successful local outbound call as evidence the cloud allows it, and do not
+  conclude row level security is unavailable because the container refuses it beside a vector
+  index. Never drop the predicate to make the local environment agree with itself.
+- Do not pass the vector dimension as a bind parameter, and do not carry the development password
+  into the cloud or a key where an identity belongs.
 
 ## References
 
-- [references/parity.md](references/parity.md): the one script run against both engines, the line
-  by line comparison, the three breaks with their exact error numbers in both orders, the timing
-  table, and how to reproduce the whole thing in about ten minutes. Read it before claiming
-  anything about parity, including the claims above.
-- `azuresql-db-rag`: starting the container, provisioning the user database, the first vector table
-  and a full scan search. Start there, then come back here for the move.
-- `vector-search-azure-sql`: the type, the restriction list, and the query shape that reaches the
-  index rather than scanning.
-- `rag-on-azure-sql`: chunk identity, provenance, idempotent ingest, re-embedding and grounding.
-  Everything this skill assumes about the pipeline is defined there.
-- `embeddings-and-external-models`: the in engine embedding path, the credential and the allowlist,
-  which is what the cloud half of the move switches on.
-- `langchain-and-llamaindex-on-azure-sql`: retrievers, vector store adapters and the guardrails, if
-  the local loop is being built on a framework rather than by hand.
-- [Intelligent applications with Azure SQL Database](https://learn.microsoft.com/azure/azure-sql/database/ai-artificial-intelligence-intelligent-applications):
-  the first party view of the AI surface. Read it when checking whether one of the three breaks
-  above has closed.
+- [references/parity.md](references/parity.md): read it before quoting any parity number, when a
+  plan assumes the two engines agree, or when a break needs its exact error text in both orders. It
+  holds the side by side run, the timings, the claims that did not hold, and how to reproduce all
+  of it in about ten minutes.
+- `azuresql-db-rag`: start there for the container, the first vector table and a full scan search,
+  then come back here for the move.
+- `vector-search-azure-sql`: open it before writing any similarity query, for the type, the
+  restrictions and the shape that reaches the index rather than scanning.
+- `rag-on-azure-sql`: read it when the pipeline around the query needs designing, for chunk
+  identity, provenance, idempotent ingest and grounding.
+- `embeddings-and-external-models`: the in engine embedding path, the credential, the allowlist and
+  the chunking options, which is what the cloud half of the move switches on. Its neighbour
+  `langchain-and-llamaindex-on-azure-sql` has the retrievers and adapters, if the loop runs on a
+  framework rather than by hand.
+- [sys.sp_invoke_external_rest_endpoint](https://learn.microsoft.com/sql/relational-databases/system-stored-procedures/sp-invoke-external-rest-endpoint-transact-sql)
+  and [CREATE EXTERNAL MODEL](https://learn.microsoft.com/sql/t-sql/statements/create-external-model-transact-sql):
+  the allowed endpoints table, `API_FORMAT`, `PARAMETERS` and the HTTPS requirement, when deciding
+  whether an endpoint that answers locally will answer from Azure SQL Database.
