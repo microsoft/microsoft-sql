@@ -21,13 +21,92 @@
       "the database's default LAST_QUERY_PLAN_STATS scoped configuration, left at its default OFF"
     ],
     "assert": [
-      "SET SHOWPLAN_XML ON run alongside another statement in the same batch is rejected outright rather than silently ignored",
       "the estimated plan for a query with an unindexed equality or range predicate carries a MissingIndexes recommendation naming that column",
-      "CAST(query_plan AS NVARCHAR(MAX)) returned by sys.dm_exec_query_plan never contains the attribute ActualRows, even for a plan that has already executed at least once",
       "sys.dm_exec_query_plan_stats returns zero rows for a plan until LAST_QUERY_PLAN_STATS is turned on for the database, and returns the actual plan with ActualRows populated once it is",
-      "calling .nodes() or .value() against the plan XML column with QUOTED_IDENTIFIER OFF raises error 1934 naming indexed views and computed columns rather than XML data type methods or the session setting",
       "a query executed only two or three times does not appear in sys.query_store_query immediately afterward, under the database's default AUTO capture policy",
-      "sys.query_store_query_text.query_sql_text stores the engine's parameterized form of a query rather than the literal text submitted, so a LIKE search against a literal predicate value or a comment can return zero rows for a query that is genuinely captured"
+      "sys.query_store_query_text.query_sql_text stores the engine's parameterized form of a query rather than the literal text submitted, so a LIKE search against a literal predicate value or a comment can return zero rows for a query that is genuinely captured",
+      "sys.dm_exec_query_plan returns query_plan NULL, and raises no error, for a plan at or past 128 levels of nested xml elements, where sys.dm_exec_text_query_plan returns the same plan as text: not probed here because building a plan that deep is out of reach for one batch, sourced to Microsoft Learn",
+      "sys.dm_exec_query_plan_stats returns a simplified Showplan carrying only the root SELECT node, with no RelOp elements, for a query the engine judges simple: not probed here because the threshold is internal and undocumented, sourced to Microsoft Learn"
+    ],
+    "probes": [
+      {
+        "sql": "SET SHOWPLAN_XML ON;\nSELECT 1 AS never_runs;",
+        "expect": {
+          "error": 1067
+        },
+        "why": "The skill's first retrieval step turns on a rule that has no partial failure: a SET SHOWPLAN statement sharing a batch with anything else takes the whole batch down, so the SELECT never runs and no plan comes back either. Msg 1067, 'The SET SHOWPLAN statements must be the only statements in the batch', from the Microsoft Learn error table for 1000 to 1999. An agent that writes the SET and the query into one round trip gets nothing and has no plan to read."
+      },
+      {
+        "sql": "ALTER DATABASE CURRENT SET QUERY_STORE = OFF;\nSELECT actual_state_desc FROM sys.database_query_store_options;",
+        "expect": {
+          "rows": [
+            [
+              "READ_WRITE"
+            ]
+          ]
+        },
+        "why": "Advice written for SQL Server tells a reader to enable Query Store. On Azure SQL Database it is already on and cannot be turned off: Microsoft Learn's Query Store management page states that SET QUERY_STORE = OFF returns the warning 'QUERY_STORE=OFF' is not supported in this version of SQL Server. A warning, not an error, so the statement completes and the state is unchanged. If this ever starts failing or ever actually turns Query Store off, step 5 of the skill is describing a different engine."
+      },
+      {
+        "sql": "CREATE USER probe_plan_reader WITHOUT LOGIN;\nEXECUTE AS USER = 'probe_plan_reader';\nSELECT HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'SHOWPLAN') AS has_showplan,\n       HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'VIEW DATABASE STATE') AS has_view_database_state;\nREVERT;",
+        "expect": {
+          "rows": [
+            [
+              0,
+              0
+            ]
+          ]
+        },
+        "why": "Every route in this skill needs a permission that SELECT does not imply: SHOWPLAN for the SET options and VIEW DATABASE STATE for the plan-handle views, per the Microsoft Learn permissions sections of SET SHOWPLAN_XML and sys.dm_exec_query_plan. A plain database user has neither, so an agent that writes a working retrieval query for an application login still gets nothing back. Both names resolving to 0 rather than NULL also proves they are real database-scoped permissions on this engine."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_plan_text_orders (id int NOT NULL PRIMARY KEY, status nvarchar(20) NOT NULL);\nINSERT INTO dbo.probe_plan_text_orders (id, status)\n  SELECT TOP (500) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)), 'open'\n  FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b;\nEXEC sys.sp_executesql N'CREATE PROCEDURE dbo.probe_plan_text_proc AS BEGIN DECLARE @n int; SELECT @n = COUNT(*) FROM dbo.probe_plan_text_orders WHERE status = ''open''; END';\nEXEC dbo.probe_plan_text_proc;\nSELECT COUNT(*) AS text_plans_with_operators\n  FROM sys.dm_exec_procedure_stats AS ps\n  CROSS APPLY sys.dm_exec_text_query_plan(ps.plan_handle, 0, -1) AS tqp\n  WHERE ps.object_id = OBJECT_ID('dbo.probe_plan_text_proc')\n    AND tqp.query_plan LIKE '%<RelOp%';",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "sys.dm_exec_text_query_plan is the documented escape hatch for the case the skill warns about: sys.dm_exec_query_plan returns query_plan NULL, with no error, for a plan at or past 128 levels of xml nesting. That is the one silent failure a reader cannot work around without knowing the alternative exists, so the alternative has to be present and has to return an operator tree. The 0, -1 offsets ask for the whole batch."
+      },
+      {
+        "sql": "SET QUOTED_IDENTIFIER OFF;\nDECLARE @plan xml = '<RelOp NodeId=\"0\" PhysicalOp=\"Table Scan\" />';\nSELECT @plan.value('(/RelOp/@NodeId)[1]', 'int') AS node_id;",
+        "expect": {
+          "error": 1934
+        },
+        "why": "Every XQuery call this skill recommends against the plan column dies here first, and Msg 1934 names indexed views, computed columns and spatial indexes while saying nothing about XML methods or the session setting that actually caused it. Measured 2026-08-29, on a client session whose SESSIONPROPERTY('QUOTED_IDENTIFIER') read 0."
+      },
+      {
+        "sql": "ALTER DATABASE SCOPED CONFIGURATION SET LAST_QUERY_PLAN_STATS = ON;",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The whole actual-plan-without-re-running route depends on this one scoped configuration existing and being settable, and while it is off sys.dm_exec_query_plan_stats returns zero rows with no error at all. If the knob ever goes away, step 4 of the skill has no mechanism left and the failure would otherwise look like an empty view."
+      },
+      {
+        "sql": "SELECT actual_state_desc, query_capture_mode_desc FROM sys.database_query_store_options;",
+        "expect": {
+          "rows": [
+            [
+              "READ_WRITE",
+              "AUTO"
+            ]
+          ]
+        },
+        "why": "The skill tells a reader not to wait on Query Store, and that advice only makes sense if Query Store is already on with the AUTO capture policy that made it unreliable. Measured 2026-08-29 on a freshly created database with nothing configured, which is exactly the state of the scratch database a probe runs in."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_plan_orders (id int NOT NULL PRIMARY KEY, status nvarchar(20) NOT NULL);\nINSERT INTO dbo.probe_plan_orders (id, status)\n  SELECT TOP (2000) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)), 'open'\n  FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b;\nEXEC sys.sp_executesql N'CREATE PROCEDURE dbo.probe_plan_proc AS BEGIN DECLARE @n int; SELECT @n = COUNT(*) FROM dbo.probe_plan_orders WHERE status = ''open''; END';\nEXEC dbo.probe_plan_proc;\nSELECT COUNT(*) AS plans_carrying_actualrows\n  FROM sys.dm_exec_procedure_stats AS ps\n  CROSS APPLY sys.dm_exec_query_plan(ps.plan_handle) AS qp\n  WHERE ps.object_id = OBJECT_ID('dbo.probe_plan_proc')\n    AND CAST(qp.query_plan AS nvarchar(max)) LIKE '%ActualRows%';",
+        "expect": {
+          "rows": [
+            [
+              0
+            ]
+          ]
+        },
+        "why": "This is the wrong turn the skill exists to prevent, made executable: the procedure has genuinely run, sys.dm_exec_query_plan returns a plan for it without error, and that plan carries zero occurrences of ActualRows. Measured 2026-08-29. An agent reporting numbers out of this DMV is reporting an estimate as a measurement."
+      }
     ]
   },
   "triggering": {

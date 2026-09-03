@@ -1,32 +1,29 @@
 # DMVs, error codes and limits for Azure SQL Database resource pressure
 
-Checked on 2026-08-29 against a live engine reporting `SERVERPROPERTY('EngineEdition')` = 5 and
-`SERVERPROPERTY('Edition')` = `SQL Azure` (the local Azure SQL Database container), and against
-Microsoft Learn.
+Checked on 2026-09-03 against Microsoft Learn and on 2026-08-29 against a live engine reporting `SERVERPROPERTY('EngineEdition')` = 5 and
+`SERVERPROPERTY('Edition')` = `SQL Azure` (the local Azure SQL Database container).
 
 ## Contents
 
 - [How to use this file](#how-to-use-this-file)
 - [DMV availability, container versus a real Azure SQL Database](#dmv-availability-container-versus-a-real-azure-sql-database)
-- [The queries, by question](#the-queries-by-question)
+- [The purchasing model, and the numbers behind the percentages](#the-purchasing-model-and-the-numbers-behind-the-percentages)
 - [Resource governance error codes](#resource-governance-error-codes)
-- [MAXDOP: the default that is invisible in its own setting](#maxdop-the-default-that-is-invisible-in-its-own-setting)
+- [MAXDOP: the same 0 means two different things](#maxdop-the-same-0-means-two-different-things)
 - [Worker and session limits by tier](#worker-and-session-limits-by-tier)
 - [Transaction log rate governance](#transaction-log-rate-governance)
 - [Sources](#sources)
 
 ## How to use this file
 
-The skill body gives the decision order. This file gives the exact object names, the exact query
-to run for each question, and what each object returned when checked directly. Read the
-availability table first when the target is the local container, because roughly a third of the
-objects a search engine or a model's own memory suggests do not exist there at all.
+The skill body gives the decision order. This file gives what each object returned when checked
+directly. Read the availability table first when the target is the container: about a third of the
+objects a model reaches for do not exist there.
 
 ## DMV availability, container versus a real Azure SQL Database
 
-Every "container" cell here was run directly, not inferred. Every "cloud" cell is Microsoft Learn's
-documented behavior for Azure SQL Database; none of it was measured against a live paid database in
-this check, because none was available.
+Every "container" cell was run directly. Every "cloud" cell is Learn's documented behavior, not
+measured, because no paid database was available for this check.
 
 | Object | Container | Azure SQL Database (documented) |
 |---|---|---|
@@ -34,66 +31,34 @@ this check, because none was available.
 | `sys.resource_stats` | Does not exist in any database, including `master` | Exists in the logical server's `master` database only, five-minute granularity, longer retention |
 | `sys.dm_user_db_resource_governance` | Does not exist | Exists, reports the effective governance limits (including MAXDOP and storage quota) actually in force for the current database |
 | `sys.dm_instance_resource_governance` | Does not exist | Exists, server-wide governance settings |
-| `sys.database_service_objectives` | Exists, but returns a fixed placeholder (`GeneralPurpose` / `GP_Gen5_2`) for every database regardless of anything about the container | Exists, reflects the real provisioned or serverless service objective |
-| `sys.dm_os_wait_stats` | Exists, real data (76 wait types observed with load in the check database) | Exists, scoped to the resource pool serving the current database |
-| `sys.dm_os_performance_counters` | Exists (2695 rows observed), including the full `SQLServer:Buffer Manager` and log-flush counter families, because the container is not sharing the process with any other tenant | Exists; the numbers describe the shared engine process, so read them as a container-only diagnostic rather than a stand-in for `sys.dm_db_resource_stats` on a real database |
-| `sys.dm_exec_query_resource_semaphores` | Exists, returns rows (memory grant semaphore state) | Exists |
-| `sys.dm_os_memory_clerks` | Exists, returns rows (`MEMORYCLERK_SQLBUFFERPOOL` was the largest clerk in the check) | Exists |
-| `sys.dm_exec_query_stats` / `sys.dm_exec_cached_plans` | Exist, plan cache and per-plan CPU and IO stats populate normally | Exist |
-| `sys.dm_exec_requests` / `sys.dm_exec_sessions` (`blocking_session_id`, `wait_type`) | Exist, populate normally | Exist |
-| `sys.dm_resource_governor_workload_groups` | Exists, shows only `internal` and `default` groups, both at 25% max memory grant | Exists, with the Azure-specific `SloSharedPool1` and `UserPrimaryGroup.DBId[N]` groups Learn documents; the container's generic groups are not that |
-| `sp_configure 'max degree of parallelism'` | Fails: `Msg 15123, The configuration option 'max degree of parallelism' does not exist` | Not the configuration surface either; `ALTER DATABASE SCOPED CONFIGURATION` is documented as the way to change MAXDOP |
-| `sys.database_scoped_configurations` (MAXDOP) | Exists, reports `value = 0` by default | Exists, also reports `0` by default on an unconfigured database, per Microsoft Learn and the platform behavior described below |
+| `sys.database_service_objectives` | Exists, but returns a fixed placeholder (`GeneralPurpose` / `GP_Gen5_2`) for every database regardless of the container's real size | Exists, reflects the real provisioned or serverless service objective |
+| `sys.dm_os_wait_stats` | Exists, real data (76 wait types under load in the check) | Exists, scoped to the resource pool serving the current database |
+| `sys.dm_os_performance_counters` | Exists (2695 rows observed), including the full `SQLServer:Buffer Manager` and log-flush counter families, because the container is not sharing the process with any other tenant | Exists, but the permission differs by service objective: Basic, S0, S1 and any pooled database need the server admin, the Microsoft Entra admin or `##MS_ServerStateReader##`, elsewhere `VIEW DATABASE STATE` is enough. The numbers describe the shared engine process, so it is no stand-in for `sys.dm_db_resource_stats` |
+| `sys.dm_exec_query_resource_semaphores`, `sys.dm_os_memory_clerks`, `sys.dm_exec_query_stats`, `sys.dm_exec_cached_plans`, `sys.dm_exec_requests`, `sys.dm_exec_sessions` | All exist and populate normally: memory grant semaphore state, `MEMORYCLERK_SQLBUFFERPOOL` as the largest clerk in the check, plan cache with per-plan CPU and IO, and live `blocking_session_id` and `wait_type` | All exist |
+| `sp_configure 'max degree of parallelism'` | Not installed: `Msg 2812, Could not find stored procedure 'sp_configure'`, measured 2026-09-03 | Not supported either, and not the configuration surface; see the MAXDOP section below |
+| `sys.database_scoped_configurations` (MAXDOP) | Exists, reports `value = 0` (measured) | Exists, reports `8` on every database created since September 2020, and `0` on one created before it |
 
-## The queries, by question
+## The purchasing model, and the numbers behind the percentages
 
-Run these against the target database, not `master`, unless a column is noted otherwise.
-
-**Is it CPU?** On a real Azure SQL Database:
+Every percentage in `sys.dm_db_resource_stats` is against a governed limit, so the limit has to be
+known first. The same row identifies the model:
 
 ```sql
-SELECT TOP 20 CONVERT(date, end_time) AS d, avg_cpu_percent, avg_instance_cpu_percent
-FROM sys.dm_db_resource_stats
-ORDER BY end_time DESC;
+SELECT TOP 1 end_time, dtu_limit, cpu_limit, avg_cpu_percent, avg_instance_cpu_percent,
+       avg_data_io_percent, avg_log_write_percent, avg_memory_usage_percent,
+       max_worker_percent, max_session_percent
+FROM sys.dm_db_resource_stats ORDER BY end_time DESC;
 ```
 
-On the container, there is no equivalent single number. Use the plan cache instead, ordered by the
-metric itself rather than a derived ratio:
-
-```sql
-SELECT TOP 20 qs.total_worker_time, qs.execution_count,
-       qs.total_worker_time / qs.execution_count AS avg_worker_time,
-       SUBSTRING(st.text, 1, 200) AS query_text
-FROM sys.dm_exec_query_stats qs
-CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
-ORDER BY qs.total_worker_time DESC;
-```
-
-**Is it data IO or log IO?** On a real database, `avg_data_io_percent` and `avg_log_write_percent`
-in `sys.dm_db_resource_stats` are the governance-relative view; `sys.dm_io_virtual_file_stats()`
-works in both places for the raw per-file numbers, including `io_stall_queued_read_ms` and
-`io_stall_queued_write_ms`, which show delay added specifically by IO governance rather than by the
-storage layer itself.
-
-**Is it memory?** `sys.dm_os_memory_clerks` (largest consumer) and
-`sys.dm_exec_query_resource_semaphores` (`available_memory_kb` near zero means grants are queuing)
-work in both places. On a real database, `avg_memory_usage_percent` and `avg_instance_memory_percent`
-from `sys.dm_db_resource_stats` are the documented headline numbers, and Microsoft Learn is explicit
-that both routinely sit near 100% on a non-idle database by design, because the engine caches
-aggressively; a high reading alone is not evidence of a problem.
-
-**Is it workers or sessions?**
-
-```sql
-SELECT COUNT(*) AS sessions FROM sys.dm_exec_sessions WHERE is_user_process = 1;
-SELECT r.session_id, r.blocking_session_id, r.wait_type, r.status
-FROM sys.dm_exec_requests r
-WHERE r.session_id > 50;
-```
-
-A large gap between session count and worker count (visible only indirectly, since neither the
-container nor a normal user connection exposes a live worker count) usually means parallelism, not
-connection volume. See the MAXDOP section below.
+- `dtu_limit` is `NULL` on a vCore database; `cpu_limit`, the vCore count, is `NULL` on a DTU one.
+- On a DTU database the headline is not a column. Learn defines it as
+  `avg_dtu_percent = MAX(avg_cpu_percent, avg_data_io_percent, avg_log_write_percent)`, memory
+  excluded because the data cache keeps `avg_memory_usage_percent` near 100 regardless of load.
+- `avg_cpu_percent` (user workload) and `avg_instance_cpu_percent` (every workload) are
+  percentages of two different limits, not comparable with each other, and either in the 70 to 100
+  range flattens throughput.
+- `sys.dm_user_db_resource_governance` is the view Learn names as where the actual DTU and vCore
+  limits are exposed, and the one to compare when sizing a move between models. Cloud only.
 
 ## Resource governance error codes
 
@@ -103,30 +68,29 @@ Verified against Microsoft Learn on 2026-08-29.
 |---|---|---|
 | `10928` | `1` = workers, `2` = sessions | `Resource ID : %d. The %s limit for the database is %d and has been reached` |
 | `10936` | Same as `10928`, for an elastic pool | `Resource ID : %d. The %s limit for the elastic pool is %d and has been reached` |
-| `10929` | Same Resource ID meaning, phrased as a soft limit | `Resource ID: %d. The %s minimum guarantee is %d, maximum limit is %d and the current usage for the database is %d. However, the server is currently too busy...` |
+| `10929` | Same Resource ID meaning, phrased as a soft limit | `Resource ID: %d. The %s minimum guarantee is %d, maximum limit is %d and the current usage for the database is %d...` |
 
-Microsoft Learn's own note on `10928`: the wording "request limit" is kept only for backward
-compatibility from when Azure SQL Database supported single-threaded queries and a request was
-always one worker. The limit actually reached today is the worker count, and a worker is consumed
-by a login, a serial query, or each parallel thread of a query running above MAXDOP 1. Diagnosing
-either error as a connection-count problem, without checking MAXDOP, is the exact substitution
-this reference exists to prevent.
+Learn's note on `10928`: "request limit" is backward compatibility from when a request was one
+worker. What is reached is the worker count, consumed by a login, a serial query, or each parallel
+thread above MAXDOP 1.
 
-`diagnose-connection-errors` owns the identification of `40613`, `18456` and `4060`, which read
-similarly but are not resource governance at all: `40613` is expected serverless resume,
-`18456` and `4060` are past the login entirely. Route those there rather than diagnosing them here.
+`40613`, `18456` and `4060` read similarly and are not resource governance at all;
+`diagnose-connection-errors` owns them.
 
-## MAXDOP: the default that is invisible in its own setting
+## MAXDOP: the same `0` means two different things
 
-`sys.database_scoped_configurations` reports `MAXDOP = 0` on both the local container and an
-unconfigured Azure SQL Database. The behavior behind that `0` is not the same in both places:
+**Corrected 2026-09-03.** An earlier revision claimed Azure SQL Database reports `0` while
+applying `8` invisibly underneath. Learn contradicts it: "the MAXDOP database-scoped configuration
+is set to 8" for each new single or elastic pool database, and Learn's own example reads
+`sys.database_scoped_configurations` to determine it. The view is the authority.
 
-- **On the container**, `0` behaves the way it does in a self-managed engine: the database engine
-  uses up to the total logical processor count, or 64, whichever is smaller.
-- **On Azure SQL Database**, a database-scoped value of `0` means "use the platform default," and
-  since September 2020 that platform default is `8` for every newly created database. A database
-  created before that date keeps whatever it already had. The database-scoped value never changes
-  itself to show `8`; the override happens beneath what the view reports.
+- **`8` in the cloud** is the default for any database created since September 2020. Databases
+  created before that date were not changed.
+- **`0` in the cloud** therefore means the database predates that change, or somebody set it back.
+  Learn recommends against `0`: it uses the logical processor count up to 64, so a scale-up
+  silently widens every parallel plan.
+- **`0` on the container** is measured, and is the engine default with no control plane to set
+  anything else. It says nothing about what a cloud database would report.
 
 Check and set it explicitly rather than trusting the default silently:
 
@@ -136,21 +100,32 @@ ALTER DATABASE SCOPED CONFIGURATION SET MAXDOP = 8;
 ```
 
 `ALTER DATABASE SCOPED CONFIGURATION` requires the server admin, `db_owner`, or a principal granted
-`ALTER ANY DATABASE SCOPED CONFIGURATION`, and cannot run against `master`.
+`ALTER ANY DATABASE SCOPED CONFIGURATION`, and cannot run against `master`. `sp_configure` is not
+an alternative, and it is absent rather than restricted. Learn lists `sp_configure` and
+`RECONFIGURE` among the syntax Azure SQL Database does not support, and the `sys.sp_configure`
+Applies to list omits Azure SQL Database. On the container it is not installed:
+`EXEC sp_configure 'max degree of parallelism';` returns `Msg 2812, Could not find stored procedure
+'sp_configure'`, measured 2026-09-03. An earlier revision published `Msg 15123`, the option error,
+which would have meant the procedure was there and had rejected the option name.
 
 ## Worker and session limits by tier
 
-The maximum worker count is set by the compute size, not a fixed platform number. Microsoft Learn's
-documented rule of thumb for standard-series (Gen5) hardware is roughly 100 concurrent workers per
-vCore, so a 2 vCore General Purpose database supports on the order of 200 workers before `10928`
-with Resource ID 1. The exact table is service-tier and generation specific and belongs to
-[Resource limits for single databases using the vCore purchasing model](https://learn.microsoft.com/azure/azure-sql/database/resource-limits-vcore-single-databases)
-and its DTU-model counterpart, not duplicated here because it is exactly the kind of number that
-changes with hardware generations. Fetch the current table rather than trusting a remembered one.
+The maximum worker count is set by the compute size, not by a fixed platform number, so the number
+in a `10928` message identifies the tier. Microsoft Learn's DTU table for single databases:
 
-The container enforces no such limit; `sys.dm_os_sys_info` in the check reported `max_workers_count`
-of 512, a generic SQL Server default unrelated to any Azure SQL Database compute size, and is not a
-number worth quoting as if it represented a service tier.
+| Compute size | Basic | S0 | S1 | S2 | S3 | S4 | S6 | S7 |
+|---|---|---|---|---|---|---|---|---|
+| Max concurrent workers | 30 | 60 | 90 | 120 | 200 | 400 | 800 | 1600 |
+| Max concurrent sessions | 300 | 600 | 900 | 1200 | 2400 | 4800 | 9600 | 19200 |
+
+So "the request limit for the database is 200 and has been reached" is an S3 out of workers, with a
+session ceiling twelve times higher. The vCore equivalents are per compute size and hardware
+generation: fetch
+[vCore resource limits](https://learn.microsoft.com/azure/azure-sql/database/resource-limits-vcore-single-databases)
+rather than quoting a remembered number.
+
+The container enforces no such limit; `sys.dm_os_sys_info` reported `max_workers_count` of 512, a
+generic engine default unrelated to any compute size and not worth quoting as a service tier.
 
 ## Transaction log rate governance
 
@@ -166,16 +141,18 @@ database when log rate governance is actively throttling:
 | `HADR_THROTTLE_LOG_RATE_LOG_SIZE` | Feedback control: avoiding an out-of-log-space condition |
 | `HADR_THROTTLE_LOG_RATE_MISMATCHED_SLO` | Geo-replication feedback control |
 
-None of these appeared in the container's `sys.dm_os_wait_stats` during the check, because the
-container has no log rate governance to throttle against; a bulk load that saturates the container's
-log will show as raw log-flush wait time (`WRITELOG`, or elevated `Log Flush Wait Time` in
-`sys.dm_os_performance_counters`) instead of one of these named waits. Do not read their absence
-locally as evidence a cloud workload is not log-rate limited.
+None appeared in the container's `sys.dm_os_wait_stats` during the check: it has no log rate
+governance to throttle against, so a bulk load that saturates its log shows as raw log-flush wait
+time (`WRITELOG`, or elevated `Log Flush Wait Time` in `sys.dm_os_performance_counters`) instead.
 
 ## Sources
 
-- [Resource management - Azure SQL Database](https://learn.microsoft.com/azure/azure-sql/database/resource-limits-logical-server), Microsoft Learn, fetched 2026-08-29.
-- [Configure the max degree of parallelism (MAXDOP)](https://learn.microsoft.com/azure/azure-sql/database/configure-max-degree-of-parallelism), Microsoft Learn, fetched 2026-08-29.
-- [Troubleshoot common connection issues](https://learn.microsoft.com/azure/azure-sql/database/troubleshoot-common-errors-issues), Microsoft Learn, fetched 2026-08-29, section on errors 10928, 10929 and 10936.
-- `sys.dm_db_resource_stats`, `sys.database_scoped_configurations`, `sys.dm_user_db_resource_governance` reference pages, Microsoft Learn.
+- [Resource management](https://learn.microsoft.com/azure/azure-sql/database/resource-limits-logical-server), fetched 2026-08-29.
+- [Configure the max degree of parallelism (MAXDOP)](https://learn.microsoft.com/azure/azure-sql/database/configure-max-degree-of-parallelism), fetched 2026-09-03.
+- [DTU purchasing model](https://learn.microsoft.com/azure/azure-sql/database/service-tiers-dtu) and [DTU resource limits](https://learn.microsoft.com/azure/azure-sql/database/resource-limits-dtu-single-databases), fetched 2026-09-03: the avg_dtu_percent formula and the worker and session table.
+- [sys.dm_os_performance_counters](https://learn.microsoft.com/sql/relational-databases/system-dynamic-management-objects/sys-dm-os-performance-counters-transact-sql), fetched 2026-09-03: the per-service-objective permission split.
+- [sys.sp_configure](https://learn.microsoft.com/sql/relational-databases/system-stored-procedures/sp-configure-transact-sql) and [T-SQL differences](https://learn.microsoft.com/azure/azure-sql/database/transact-sql-tsql-differences-sql-server), fetched 2026-09-03: the Applies to list, and `sp_configure` as unsupported.
+- [sqlcmd utility](https://learn.microsoft.com/sql/tools/sqlcmd/sqlcmd-utility), fetched 2026-09-03: the -A diagnostic connection and its incompatibility with -G.
+- [Troubleshoot common connection issues](https://learn.microsoft.com/azure/azure-sql/database/troubleshoot-common-errors-issues), fetched 2026-08-29: errors 10928, 10929 and 10936.
+- `sys.dm_db_resource_stats`, `sys.database_scoped_configurations` and `sys.dm_user_db_resource_governance` reference pages.
 - Every container row in the availability table: measured directly against the local engine on 2026-08-29.

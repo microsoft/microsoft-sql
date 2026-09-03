@@ -17,16 +17,64 @@
     "skill-feedback"
   ],
   "validation": {
-    "target": "none",
+    "target": "both",
     "setup": [
-      "no infrastructure. Every claim here is checked against a first-party page or a command's own output"
+      "a scratch database on an engine reporting EngineEdition 5, which is what the container and Azure SQL Database both report",
+      "on the host, the client tools this skill's inventory block runs: sqlpackage, dotnet and dab, with prisma reachable through npx"
     ],
     "assert": [
       "the default compatibility level for a new database is stated as 170, not 150 or 160",
-      "the vector type and the distance function are stated as generally available while the vector index is stated as preview",
+      "the vector type and VECTOR_DISTANCE are stated as generally available while the vector index and VECTOR_SEARCH are stated as preview",
       "every dated claim carries the date it was verified and a page to refetch",
-      "no routing entry names a skill that is not on disk or already shipped",
-      "the scope statement names the other engines in the family only to exclude them"
+      "no routing entry names a skill that is not a directory in skills/",
+      "the scope statement names the other engines in the family only to exclude them",
+      "the answer names the skill the task was handed to, or says plainly that no skill owns it"
+    ],
+    "probes": [
+      {
+        "sql": "SELECT CAST(SERVERPROPERTY('EngineEdition') AS int) AS engine_edition;",
+        "expect": { "rows": [[5]] },
+        "why": "The precondition for every other probe here and for the whole scope section: 5 is Azure SQL Database, 8 is Azure SQL Managed Instance, 12 is SQL database in Microsoft Fabric, 2 and 3 are SQL Server, per the SERVERPROPERTY reference (https://learn.microsoft.com/sql/t-sql/functions/serverproperty-transact-sql). If this returns anything else the substrate is a different product and nothing in this skill applies to it."
+      },
+      {
+        "sql": "USE master;",
+        "expect": { "error": 40508 },
+        "why": "The instance-level claim, made executable. Microsoft Learn states that in Azure SQL Database the USE database parameter can only refer to the current database, and that error code 40508 is returned otherwise (https://learn.microsoft.com/sql/t-sql/language-elements/use-transact-sql). Error 40508 is listed as USE statement is not supported to switch between databases in the 31000 to 41399 error reference. If this ever succeeds, the whole database-scoped-not-instance-scoped framing in this skill needs rewriting."
+      },
+      {
+        "sql": "SELECT compatibility_level FROM sys.databases WHERE name = DB_NAME();",
+        "expect": { "rows": [[170]] },
+        "why": "The single most consequential currency claim in the file. The ALTER DATABASE compatibility level reference states that the default compatibility level is 170 for newly created databases in Azure SQL Database, on database engine version 17, with 170 down to 100 supported (https://learn.microsoft.com/sql/t-sql/statements/alter-database-transact-sql-compatibility-level). Checked against Learn 2026-09-03. A red here with the EngineEdition probe green means either the local image predates engine version 17 or the default moved, and the file's table has to be corrected either way."
+      },
+      {
+        "sql": "DECLARE @a vector(3) = '[1,2,3]';\nDECLARE @b vector(3) = '[1,2,3]';\nSELECT CAST(CASE WHEN VECTOR_DISTANCE('cosine', @a, @b) < 0.000001 THEN 1 ELSE 0 END AS int) AS identical_vectors_are_distance_zero;",
+        "expect": { "rows": [[1]] },
+        "why": "The generally-available half of the vector row, run rather than asserted: the vector type declares and VECTOR_DISTANCE evaluates with no preview database scoped configuration turned on. Two identical vectors have cosine distance zero. The preview half, the DiskANN index and VECTOR_SEARCH, is deliberately not probed here because it belongs to vector-search-azure-sql and its regional rollout would make a red here mean nothing about this skill."
+      },
+      {
+        "where": "host",
+        "cmd": "sqlpackage /version:True",
+        "expect": { "succeeds": true },
+        "why": "One line of this skill's tool inventory block, which is the only thing this router itself runs. Measured 2026-09-03 on the authoring host: exit 0, build 170.4.83.3. A red means the block hands the reader a command that is not there, which is the defect this rewrite exists to remove."
+      },
+      {
+        "where": "host",
+        "cmd": "dotnet --version",
+        "expect": { "succeeds": true },
+        "why": "The same inventory block, second line. Measured 2026-09-03 on the authoring host: exit 0, 8.0.421."
+      },
+      {
+        "where": "host",
+        "cmd": "dab --version",
+        "expect": { "succeeds": true },
+        "why": "The same inventory block. Measured 2026-09-03 on the authoring host: exit 0, Microsoft.DataApiBuilder 2.0.9. Data API builder is a global .NET tool a developer installs, so it is a host probe and never a container one."
+      },
+      {
+        "where": "host",
+        "cmd": "prisma --version || npx --yes prisma --version",
+        "expect": { "succeeds": true },
+        "why": "The one line in the inventory block that is not a plain command, and the reason it is written that way. Measured 2026-09-03 on the authoring host: prisma is not on PATH, the first half exits 127, npx resolves it and the chain exits 0 reporting 8.0.0-rc.12. Prisma is normally a project-local dependency, so a bare prisma --version would be a command that fails when pasted."
+      }
     ]
   },
   "triggering": {

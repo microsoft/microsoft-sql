@@ -3,6 +3,8 @@
 ## Contents
 
 - [Retrieval query for each source](#retrieval-query-for-each-source)
+- [When the plan comes back NULL, a stub, or a root node only](#when-the-plan-comes-back-null-a-stub-or-a-root-node-only)
+- [Who is allowed to read a plan](#who-is-allowed-to-read-a-plan)
 - [The XQuery battery](#the-xquery-battery)
 - [Plan XML attributes, field by field](#plan-xml-attributes-field-by-field)
 - [Sizes actually measured](#sizes-actually-measured)
@@ -12,7 +14,9 @@
 Every query below was run against a table of tens of thousands of rows with an index that
 did not cover the filtered column, on this engine.
 
-**Estimated plan, no execution.** Must be the only statement in its batch:
+**Estimated or actual by re-running.** This is the query the sizes table at the end was
+measured against. Swap `SHOWPLAN_XML` for `STATISTICS XML` to get the actual plan; the
+one-statement-per-batch rule and the `Msg 1067` on breaking it are identical for both:
 
 ```sql
 SET SHOWPLAN_XML ON;
@@ -28,27 +32,10 @@ SET SHOWPLAN_XML OFF;
 GO
 ```
 
-**Actual plan, executes the query.** Same one-statement-per-batch rule:
-
-```sql
-SET STATISTICS XML ON;
-GO
-SELECT customer_id, COUNT(*) AS n, SUM(amount) AS total
-FROM dbo.orders
-WHERE status = 'open'
-GROUP BY customer_id
-HAVING COUNT(*) > 5
-ORDER BY total DESC;
-GO
-SET STATISTICS XML OFF;
-GO
-```
-
-**Actual plan of a query already run, by object.** Turn the scoped configuration on once
-per database, then look the plan up by object id rather than scanning the whole cache by
-text; on a busy instance a `sys.dm_exec_query_stats` join to `sys.dm_exec_sql_text` filtered
-with `LIKE` across every cached plan took several minutes, where the same lookup filtered by
-`object_id` returned in under a second:
+**Actual plan of a query already run, by object.** Turn the scoped configuration on once per
+database, then look the plan up by object id, not by scanning the cache. On a busy instance a
+`sys.dm_exec_query_stats` join to `sys.dm_exec_sql_text` filtered with `LIKE` across every
+cached plan took several minutes; filtered by `object_id` it returned in under a second:
 
 ```sql
 ALTER DATABASE SCOPED CONFIGURATION SET LAST_QUERY_PLAN_STATS = ON;
@@ -62,11 +49,10 @@ CROSS APPLY sys.dm_exec_query_plan_stats(ps.plan_handle) qp
 WHERE ps.object_id = OBJECT_ID('dbo.<procedure_name>');
 ```
 
-Confirmed on this engine: `sys.dm_exec_query_plan(ps.plan_handle)` in the same shape returns
-a plan with zero occurrences of `ActualRows`, for the same already-executed procedure.
-`sys.dm_exec_query_plan_stats` in its place returned a plan with `ActualRows` present on
-every operator, and only after the scoped configuration above was turned on; before that it
-returned zero rows, with no error.
+Confirmed on this engine: `sys.dm_exec_query_plan(ps.plan_handle)` in the same shape returns a
+plan with zero occurrences of `ActualRows` for the same already-executed procedure.
+`sys.dm_exec_query_plan_stats` in its place returned `ActualRows` on every operator, and only
+after the scoped configuration above was on; before that, zero rows and no error.
 
 **Query Store**, for a persisted history. Prefer matching on `object_id` (join
 `sys.query_store_query` to the procedure or module, if there is one) over a `LIKE` search on
@@ -83,48 +69,75 @@ WHERE qsq.object_id = OBJECT_ID('dbo.<procedure_name>');
 ```
 
 `sys.database_query_store_options.actual_state_desc` read `READ_WRITE` on a freshly created
-database with nothing configured, so this engine ships with Query Store already on.
-`query_capture_mode_desc` read `AUTO`.
+database with nothing configured, so this engine ships with Query Store on, and
+`query_capture_mode_desc` read `AUTO`. Learn documents `AUTO` as the SQL Database default and
+`ALL` as the SQL Server default, and says Query Store cannot be turned off here at all:
+`SET QUERY_STORE = OFF` returns a warning and leaves it running.
 
-**What was actually observed about capture timing, stated as one data point, not a rule.**
-A query executed three times in a row was absent from `sys.query_store_query` on an
-immediate check and again eight seconds later. The same query text was present on a check
-made roughly fifteen minutes later, after dozens of unrelated batches, including other
-agents' concurrent sessions on this shared instance, had run in between. Execution count,
-elapsed time and overall instance activity were never isolated from one another in that
-observation, so it does not show that waiting is what closed the gap, only that the gap
-closed at some point. A separate, more controlled check against this same engine ran a
-simpler, auto-parameterizable query 4 times, then 30 times, including an explicit
-`sp_query_store_flush_db` between checks, and the query stayed absent from
-`sys.query_store_query` throughout. The two observations do not agree on what makes AUTO
-capture a query, and neither pins the mechanism down. **Treat a query's absence from Query
-Store as unresolved, never as proof it did not run, and do not wait on it or retry on a
-timer**; use the plan-handle route above, which does not depend on Query Store's capture
-policy at all.
+**What was actually observed about capture timing, as data points, not a rule.** A query run
+three times was absent from `sys.query_store_query` immediately and again eight seconds later,
+and present about fifteen minutes later, after dozens of unrelated batches from other sessions
+on this shared instance. Execution count, elapsed time and instance activity were never
+isolated, so that does not show waiting closed the gap. A second, tighter check on the same
+engine ran a simpler auto-parameterizable query 4 times, then 30 times, with an explicit
+`sp_query_store_flush_db` in between, and it stayed absent throughout. The two do not agree,
+and neither pins the mechanism down. **Treat absence from Query Store as unresolved, never as
+proof the query did not run, and do not wait on it or retry on a timer**; the plan-handle route
+above does not depend on the capture policy at all.
 
 **A captured query can still look absent to a `LIKE` search.** `query_sql_text` stores the
-form the engine parameterized, not the literal text submitted. On this engine, a query
-submitted with a literal comparison value and a trailing comment was stored as:
+parameterized form, not the text submitted. Here, a query with a literal comparison value and
+a trailing comment was stored as:
 
 ```
 (@1 tinyint)SELECT COUNT(*) FROM [dbo].[q] WHERE [id]>@1
 ```
 
-with the comment gone and the literal replaced by a parameter. A `LIKE` search for the
-original literal value, or for the comment, returns zero rows for a query that is genuinely
-captured. Match on `object_id`, as above, or on the parameterized shape you expect the
-engine to produce, rather than the exact string you submitted.
+with the comment gone and the literal replaced by a parameter. A `LIKE` search for the literal
+or the comment returns zero rows for a query that is genuinely captured. Match on `object_id`,
+as above, or on the parameterized shape you expect, not the string you submitted.
+
+## When the plan comes back NULL, a stub, or a root node only
+
+Four silent outcomes, all documented on the Learn pages for
+[sys.dm_exec_query_plan](https://learn.microsoft.com/sql/relational-databases/system-dynamic-management-objects/sys-dm-exec-query-plan-transact-sql)
+and
+[sys.dm_exec_query_plan_stats](https://learn.microsoft.com/sql/relational-databases/system-dynamic-management-objects/sys-dm-exec-query-plan-stats-transact-sql).
+
+| What you see | Cause | Instead |
+|---|---|---|
+| `query_plan` is `NULL` | The plan meets 128 levels of nested elements, past what the `xml` type holds. Older engines raised error 6335; current ones return `NULL` | `sys.dm_exec_text_query_plan`, below: `nvarchar(max)`, no nesting limit |
+| `query_plan` is `NULL` | Evicted, or never cacheable: bulk operations, and statements carrying string literals over 8 KB | Re-run under `SET STATISTICS XML ON`; the cache has nothing to give |
+| `query_plan` holds statement text, no operator tree | An ad hoc query that used simple or forced parameterization; the plan sits under the prepared statement | Fetch the prepared query's plan handle, not the ad hoc one |
+| `_plan_stats` returns a root node and no `RelOp` | The engine judged the query simple, typically OLTP shaped, and returned a simplified Showplan | Nothing is broken. For the operator tree, re-run under `SET STATISTICS XML ON` |
+
+The text form of the same plan. `0, -1` asks for the whole batch rather than one statement's
+offsets:
+
+```sql
+SELECT ps.execution_count, tqp.query_plan
+FROM sys.dm_exec_procedure_stats ps
+CROSS APPLY sys.dm_exec_text_query_plan(ps.plan_handle, 0, -1) tqp
+WHERE ps.object_id = OBJECT_ID('dbo.<procedure_name>');
+```
+
+## Who is allowed to read a plan
+
+Neither is implied by `SELECT`, and this failure is loud: a permission error, not an empty
+result.
+
+| To do this | You need |
+|---|---|
+| `SET SHOWPLAN_XML`, `SET STATISTICS XML`, `SET STATISTICS PROFILE` | `SHOWPLAN` on every database holding an object the statement references: `GRANT SHOWPLAN TO [user];` |
+| `sys.dm_exec_query_plan`, `_plan_stats`, `_statistics_xml`, `_text_query_plan` | `VIEW DATABASE STATE`, or membership in the `##MS_ServerStateReader##` server role |
+| The same views on a Basic, S0, S1 or elastic pool database | `VIEW DATABASE STATE` is not enough. Server admin, Microsoft Entra admin, or `##MS_ServerStateReader##` |
 
 ## The XQuery battery
 
-Pulling the whole plan document to the client and parsing it there is the expensive path.
-Querying the `xml`-typed plan column directly, with XQuery, returns only the fields that
-carry signal. This requires `QUOTED_IDENTIFIER ON` in the session; without it, `.nodes()`,
-`.value()` and `.exist()` all fail with `Msg 1934`, an error that names indexed views,
-computed columns, filtered indexes, query notifications and spatial indexes and does not
-mention XML methods or the session setting at all. A client's default session may already
-have it off; confirmed on this engine's default client session, `SESSIONPROPERTY('QUOTED_IDENTIFIER')`
-read `0`.
+Querying the `xml`-typed plan column directly returns only the fields that carry signal.
+Requires `QUOTED_IDENTIFIER ON`: confirmed on this engine's default client session,
+`SESSIONPROPERTY('QUOTED_IDENTIFIER')` read `0`, and `.nodes()`, `.value()` and `.exist()` then
+all fail with `Msg 1934`.
 
 Per-operator estimate versus actual, in one round trip:
 
@@ -186,7 +199,6 @@ about six percent of the size.
 | Two-table join, filter, aggregate, sort | Actual, via `dm_exec_query_plan_stats` | 13,150 characters |
 | Same two-table join | The XQuery battery result, both queries combined | Under 850 characters |
 
-A default client tool may truncate `nvarchar(max)`/`xml` output to a fixed display width;
-retrieving the full document as text needs that truncation turned off, separately from
-everything above. The XQuery battery avoids the question entirely, because the reduction
-happens on the server and only the small result crosses the wire.
+A client truncates `nvarchar(max)` and `xml` output to a fixed display width, so the full
+document needs that turned off separately. The XQuery battery avoids the question: the
+reduction happens on the server and only the small result crosses the wire.

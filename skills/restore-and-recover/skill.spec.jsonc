@@ -4,7 +4,7 @@
   "id": "restore-and-recover",
   "domain": "operate-and-recover",
   "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
-  "correction": "Asked to recover an Azure SQL Database, an agent trained on SQL Server reaches for RESTORE DATABASE ... WITH REPLACE, BACKUP DATABASE, RESTORE HEADERONLY or ALTER DATABASE ... SET RECOVERY, when none of that T-SQL surface exists on the service: measured on 2026-08-29 against a live engine reporting EngineEdition 5 and Edition 'SQL Azure', every one of BACKUP DATABASE, BACKUP LOG, RESTORE DATABASE, RESTORE HEADERONLY, RESTORE FILELISTONLY and RESTORE VERIFYONLY is refused outright with Msg 40510, 'Statement is not supported in this version of SQL Server', and sys.sp_get_database_backup_policy does not exist at all, failing with Msg 2812, 'Could not find stored procedure'. Restoring is a control plane operation triggered from the CLI, PowerShell, the REST API or the portal, never from a query window. The second wrong belief compounds the first: every restore, whether point-in-time, geo-restore, or from long-term retention, creates a brand new database next to the one being recovered rather than overwriting it in place, under the name given at restore time, and putting that new database back where the application actually connects, by rename or by a connection string change, is a step the developer performs themselves. Nothing in the restore operation does that automatically and nothing warns anyone if it is skipped, which is why the failure surfaces later as a connection error attributed to the application rather than to an incomplete recovery.",
+  "correction": "Asked to recover an Azure SQL Database, an agent trained on the boxed engine reaches for RESTORE DATABASE ... WITH REPLACE, BACKUP DATABASE, RESTORE HEADERONLY or ALTER DATABASE ... SET RECOVERY, and none of that surface exists on the service. Measured 2026-08-29 against a live engine reporting EngineEdition 5 and Edition 'SQL Azure': BACKUP DATABASE, BACKUP LOG, RESTORE DATABASE, RESTORE HEADERONLY, RESTORE FILELISTONLY and RESTORE VERIFYONLY are each refused with Msg 40510, sys.sp_get_database_backup_policy does not exist at all, failing with Msg 2812, and ALTER DATABASE ... SET RECOVERY is refused with Msg 40517, so the family has no exception. Microsoft Learn says it plainly: you recover using the portal, PowerShell, the Azure CLI or the REST API, and you can't use Transact-SQL. The second wrong belief compounds the first. Learn again: you can't overwrite an existing database during restore. Every restore, point-in-time, geo or long-term, creates a new database under the name given at restore time, and moving that database to where the application connects, by rename or by a connection string change, is a step the developer performs. Nothing does it automatically and nothing warns when it is skipped, so the failure surfaces later as a connection error blamed on the application. The third belief the skill corrects is about reach: point-in-time restore is same-server only, geo-restore is same-subscription only and needs Geo or GeoZone backup storage configured beforehand, and deleting the logical server takes its databases and their point-in-time backups with it, leaving long-term retention as the only surviving route.",
   "posture": ["read", "provision", "admin"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db"],
@@ -23,11 +23,12 @@
       "administrative access sufficient to run ALTER DATABASE and CREATE DATABASE"
     ],
     "assert": [
-      "BACKUP DATABASE, BACKUP LOG, RESTORE DATABASE, RESTORE HEADERONLY, RESTORE FILELISTONLY and RESTORE VERIFYONLY are all refused with Msg 40510",
+      "BACKUP DATABASE, BACKUP LOG, RESTORE DATABASE, RESTORE HEADERONLY, RESTORE FILELISTONLY and RESTORE VERIFYONLY are all refused with Msg 40510, and ALTER DATABASE ... SET RECOVERY with Msg 40517",
       "no answer proposes RESTORE or BACKUP T-SQL as the recovery mechanism",
       "every answer states that a restore creates a new database rather than overwriting the source in place",
       "an answer describing a completed recovery includes the rename or connection string swap back to the name the application uses",
-      "no answer states a specific retention window, RPO number or CLI flag as fact without attributing it to Microsoft Learn"
+      "an answer that proposes a restore across servers, subscriptions or regions names which of the three restore types can actually reach there",
+      "no answer states a retention window, RPO number or CLI flag as fact without attributing it to Microsoft Learn or to the CLI's own help"
     ],
     "probes": [
       {
@@ -63,7 +64,30 @@
         "expect": {
           "error": 2812
         },
-        "why": "The procedure an agent reaches for once it accepts that backups are automatic, and the one whose refusal has a different number: Msg 2812, could not find stored procedure. The procedure does not exist on the service. Recorded as Msg 15817 on 2026-08-29 and corrected on 2026-09-02 after the live lane disagreed with it: measured against Azure SQL Database (EngineEdition 5, SQL Azure, 12.0.2000.8, S0) AND the container, both answer 2812, and sys.all_objects holds nothing matching %backup_policy%. 15817 is a real message, but it is what a procedure that EXISTS and is version-gated returns. The skill's claim is unchanged and still true: an answer that reads the backup policy from T-SQL cannot be built at all."
+        "why": "The procedure an agent reaches for once it accepts that backups are automatic: Msg 2812, could not find stored procedure. The procedure does not exist on the service. Recorded as Msg 15817 on 2026-08-29 and corrected on 2026-09-02 after the live lane disagreed with it: measured against Azure SQL Database (EngineEdition 5, SQL Azure, 12.0.2000.8, S0) AND the container, both answer 2812, and sys.all_objects holds nothing matching %backup_policy%. The skill's claim is unchanged and still true: an answer that reads the backup policy from T-SQL cannot be built at all."
+      },
+      {
+        "sql": "DECLARE @stmt nvarchar(max) =\n  N'ALTER DATABASE ' + QUOTENAME(DB_NAME()) + N' SET RECOVERY FULL;';\nEXEC sys.sp_executesql @stmt;",
+        "expect": {
+          "error": 40517
+        },
+        "why": "The last habit in the family, and the second number in this skill the engine disproved. Recorded 2026-08-29 as the one statement ACCEPTED, moving sys.databases.recovery_model_desc and therefore the trap the skill warned about; re-measured 2026-09-03 and refused: Msg 40517, keyword or statement option 'RECOVERY' is not supported. Microsoft Learn documents 40517 with that exact text and lists recovery models among the unsupported syntax. Stronger than the claim it replaces: the family now has no exception for a reader to trip over."
+      },
+      {
+        "cmd": "az sql db restore --help 2>/dev/null | grep -q -- '--deleted-time' && az sql db geo-backup restore --help 2>/dev/null | grep -q -- '--geo-backup-id' && az sql db ltr-backup restore --help 2>/dev/null | grep -q -- '--backup-id'",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The three restore command lines in section 3 are only useful if those flags exist in the CLI the reader has. Taken from az 2.90.0's own help on 2026-09-03 and asserted here so a CLI rename is caught by the lane rather than by a developer mid-incident. Runs on the host and needs no subscription or network: --help is answered locally. `host` because the Azure CLI is a client tool a developer installs and is not in the engine image."
+      },
+      {
+        "cmd": "sqlpackage /Action:Export /help:True 2>/dev/null | grep -q '^/TargetFile:'",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Section 6 sends the recovered data out of the subscription with a SqlPackage Export, and /TargetFile is the parameter that names the bacpac. Verified against SqlPackage 170.4.83.3 on 2026-09-03. `where` is host and not container: SqlPackage is a client tool a developer installs, it is not in the engine image, and five probes shipped on 2026-09-02 without this field failed with 'sqlpackage: command not found' for exactly that reason."
       }
     ]
   },

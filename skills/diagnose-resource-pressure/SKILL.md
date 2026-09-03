@@ -16,122 +16,178 @@ description: >-
 
 # Diagnose Azure SQL Database resource pressure
 
-**Name the bottleneck before naming the fix.** "The database is slow" is not a diagnosis. CPU, data
-IO, log IO, memory, and worker or session exhaustion each have a different cause and a different
-fix, and guessing wrong wastes a scale-up that changes nothing.
+**On SQL Server you look at the machine. Here the machine is not yours and the governed limit is
+the product.** Every headline number is a percentage of a ceiling set by the service objective,
+not a reading off hardware. Ask which limit is being hit, not how busy the box is: CPU,
+data IO, log IO, memory, and workers and sessions each have their own fix, and only some are
+fixed by scaling.
 
-Measured on 2026-08-29 against a live engine reporting `SERVERPROPERTY('EngineEdition')` = 5 and
-`SERVERPROPERTY('Edition')` = `SQL Azure` (the local Azure SQL Database container), and against
-Microsoft Learn. Full detail, every query, and the exact error text are in
-[references/dmv-and-limits-reference.md](references/dmv-and-limits-reference.md).
+Checked 2026-09-03 against Microsoft Learn and 2026-08-29 against a live engine reporting
+`SERVERPROPERTY('EngineEdition')` = 5 and `Edition` = `SQL Azure`, the local Azure SQL Database
+container.
 
-## Facts that shape the triage
+## 1. Substrate and purchasing model
 
-- **The DMV built to answer this question does not exist on the container.** `sys.dm_db_resource_stats`
-  raises `Msg 208, Invalid object name` against the local Azure SQL Database container. It is the
-  first thing to reach for on a real Azure SQL Database and it is simply absent locally, not empty
-  and not slow, absent.
-- **`sys.database_service_objectives` exists on the container and answers with a fixed value**
-  (`GeneralPurpose` / `GP_Gen5_2` in the check) regardless of anything about the container's actual
-  resources. Nothing enforces that tier locally. Do not use it, or any tier name it returns, to
-  reason about local headroom.
-- **Error 10928's "request limit" wording is a Resource ID, not a connection count.** Resource ID 1
-  means the worker limit was reached; Resource ID 2 means the session limit. The two are not the
-  same thing, and 10928 is worded around workers only for backward compatibility.
-- **MAXDOP multiplies workers per query, and its default is invisible in its own setting.** Every
-  Azure SQL Database created since September 2020 defaults to an effective MAXDOP of 8, but
-  `sys.database_scoped_configurations` still reports `value = 0` for that database, because `0` on
-  Azure SQL Database means "use the platform default" rather than "unlimited," which is what `0`
-  means on the container and on a self-managed engine. A worker-limit diagnosis that never checks
-  MAXDOP is guessing.
+```sql
+SELECT SERVERPROPERTY('EngineEdition') AS engine_edition, SERVERPROPERTY('Edition') AS edition;
+SELECT TOP 1 end_time, dtu_limit, cpu_limit
+FROM sys.dm_db_resource_stats ORDER BY end_time DESC;
+```
 
-## Triage in order
+`dtu_limit` is NULL on a vCore database and `cpu_limit`, the vCore count, is NULL on a DTU one, so
+this row settles the purchasing model. On a DTU database
+`SELECT COUNT(*) FROM sys.dm_os_schedulers WHERE status = N'VISIBLE ONLINE';` is the only way to
+see a vCore count, and on the container that count is whatever CPUs it was given and says nothing
+about a tier. The row settles the substrate too: locally the second statement fails
+`Msg 208, Invalid object name 'sys.dm_db_resource_stats'`, that view being Azure SQL Database
+only. Both answers steer everything below, so run it first.
 
-1. **Confirm the target.** Cloud database, or the local container? The available diagnostics differ
-   enough that this decides the rest of the steps. See the availability table in the reference for
-   every object this skill touches.
+## 2. CPU
 
-2. **CPU.** On a real database, read `avg_cpu_percent` and `avg_instance_cpu_percent` from
-   `sys.dm_db_resource_stats` over the last several rows. On the container, there is no equivalent
-   summary number; order `sys.dm_exec_query_stats` by `total_worker_time` directly to find the
-   heaviest queries. Order by the metric itself, never by a ratio between worker time and elapsed
-   time to guess which queries are "CPU-bound": a reversed comparison in that kind of filter
-   silently drops exactly the queries being searched for, and returns a confident, wrong, empty-handed
-   answer instead of an error.
+```sql
+SELECT TOP 20 end_time, avg_cpu_percent, avg_instance_cpu_percent, avg_memory_usage_percent
+FROM sys.dm_db_resource_stats ORDER BY end_time DESC;
+```
 
-3. **Data or log IO.** `sys.dm_io_virtual_file_stats()` works in both places and reports raw IOPS,
-   throughput and latency per file, including `io_stall_queued_read_ms` and
-   `io_stall_queued_write_ms`, which isolate delay added by IO governance from delay added by
-   storage itself. On a real database, `avg_data_io_percent` and `avg_log_write_percent` from
-   `sys.dm_db_resource_stats` give the governance-relative view on top of that.
+`avg_cpu_percent` is the user workload against the user CPU limit; `avg_instance_cpu_percent` is
+every workload, internal included, against another limit. Learn is explicit: different
+scales, not comparable, and either in the 70 to 100 range flattens throughput. On a DTU
+database the headline is
+`avg_dtu_percent = MAX(avg_cpu_percent, avg_data_io_percent, avg_log_write_percent)`.
 
-4. **Memory.** `sys.dm_os_memory_clerks` (which clerk holds the most memory) and
-   `sys.dm_exec_query_resource_semaphores` (`available_memory_kb` near zero means grants are
-   queuing) work in both places and returned real data in the check. On a real database, treat
-   `avg_memory_usage_percent` and `avg_instance_memory_percent` sitting near 100% as expected rather
-   than alarming: Azure SQL Database caches aggressively by design, and a near-100% reading on a
-   non-idle database is documented normal behavior, not evidence of a problem on its own.
+The container has no such summary. Order the plan cache on the metric itself, never on a
+worker-time-to-elapsed ratio, which silently drops the queries you want:
 
-5. **Workers and sessions.** Count sessions with `sys.dm_exec_sessions`, and look for
-   `blocking_session_id` and `wait_type` in `sys.dm_exec_requests`. If the symptom is error 10928,
-   10929 or 10936, read the Resource ID before proposing a fix: `1` is workers, `2` is sessions.
-   A worker-limit hit is usually parallelism (check MAXDOP) or a blocking pileup (route to
-   `diagnose-blocking-and-deadlocks`) rather than raw connection volume, and reducing connection
-   pool size alone will not fix a worker-limit problem it did not cause.
+```sql
+SELECT TOP 20 qs.total_worker_time, qs.execution_count,
+       qs.total_worker_time / qs.execution_count AS avg_worker_time,
+       SUBSTRING(st.text, 1, 200) AS query_text
+FROM sys.dm_exec_query_stats AS qs
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
+ORDER BY qs.total_worker_time DESC;
+```
 
-6. **Transaction log rate.** On a real database under a bulk load, look for the `LOG_RATE_GOVERNOR`,
-   `POOL_LOG_RATE_GOVERNOR` and `INSTANCE_LOG_RATE_GOVERNOR` wait types. The container has no log
-   rate governance, so these waits never appear there; a saturated container log shows up as raw
-   `WRITELOG` wait or elevated `Log Flush Wait Time` instead. Their absence locally is not evidence
-   a cloud workload is not log-rate limited.
+## 3. Data IO and log IO
 
-7. **Only after naming the bottleneck, talk about the service tier.** Scaling up fixes CPU, memory
-   and IO headroom and raises the worker and session ceiling, but it does not fix a query that is
-   simply doing more work than it needs to, and it does not change MAXDOP. State which resource is
-   exhausted before recommending it.
+```sql
+SELECT file_id, num_of_reads, num_of_writes, io_stall_read_ms, io_stall_write_ms,
+       io_stall_queued_read_ms, io_stall_queued_write_ms
+FROM sys.dm_io_virtual_file_stats(DB_ID(), NULL);
+```
 
-## Validation rules
+Runs in both places. The two queued columns separate delay added by IO governance from delay added
+by storage; `avg_data_io_percent` and `avg_log_write_percent` are the governed view on top.
 
-- The answer names one specific resource (CPU, data IO, log IO, memory, or workers/sessions), not
-  "the database is slow" or "it needs to scale."
-- If the target is the local container and `sys.dm_db_resource_stats` (or another cloud-only object
-  from the reference table) was needed, the response says so explicitly and used the local
-  substitute rather than assuming the query returned rows or silently returning nothing.
-- A worker or session limit diagnosis (10928, 10929, 10936) named the Resource ID and did not treat
-  it as a plain connection count.
-- If MAXDOP was relevant, the diagnosis checked `sys.database_scoped_configurations` and stated
-  whether the target is the container (0 means unbounded) or a real Azure SQL Database (0 means the
-  platform default of 8 applies).
-- CPU-bound queries were found by ordering on `total_worker_time`, not by a worker-time-to-elapsed-time
-  ratio filter.
-- A service-tier recommendation on the container was not based on `sys.database_service_objectives`.
+Log rate governance shows up as named waits, and only in the cloud:
+
+```sql
+SELECT wait_type, waiting_tasks_count, wait_time_ms FROM sys.dm_os_wait_stats
+WHERE wait_type IN ('LOG_RATE_GOVERNOR', 'POOL_LOG_RATE_GOVERNOR', 'INSTANCE_LOG_RATE_GOVERNOR')
+  AND waiting_tasks_count > 0;
+```
+
+The container has no log rate governor, so this returns nothing there however hard it is pushed,
+and a saturated container log surfaces as `WRITELOG`. Empty locally says nothing about the cloud.
+
+## 4. Memory
+
+```sql
+SELECT TOP 5 type, pages_kb FROM sys.dm_os_memory_clerks ORDER BY pages_kb DESC;
+SELECT resource_semaphore_id, available_memory_kb, grantee_count, waiter_count
+FROM sys.dm_exec_query_resource_semaphores;
+```
+
+Both run in both places; `waiter_count` above zero with `available_memory_kb` near zero is
+grants queuing. Do not read `avg_memory_usage_percent` near 100 as a fault: Learn states the
+engine uses all available memory for its data cache whatever the load, which is why the DTU
+formula excludes it.
+
+`sys.dm_os_performance_counters` exists on Azure SQL Database, but its permission is not uniform:
+Basic, S0, S1 and any pooled database need the server admin, the Microsoft Entra admin or
+`##MS_ServerStateReader##`, elsewhere `VIEW DATABASE STATE` is enough. The counter query that works
+on S3 fails on S1 as a permission error, not a missing counter.
+
+## 5. Workers and sessions: 10928, 10929, 10936
+
+Read the Resource ID first: `1` is workers, `2` is sessions, not one problem.
+
+```sql
+SELECT TOP 20 end_time, max_worker_percent, max_session_percent
+FROM sys.dm_db_resource_stats ORDER BY end_time DESC;
+SELECT r.session_id, r.blocking_session_id, r.wait_type, r.status
+FROM sys.dm_exec_requests AS r WHERE r.session_id > 50;
+```
+
+Learn keeps "request limit" in 10928 and 10936 for backward compatibility only, from
+when a request was one worker. What ran out is workers. A worker is spent by a login, a serial
+query, and every parallel thread above MAXDOP 1, so a blocking pileup or parallelism raises the
+count far faster than connection volume, and shrinking the pool alone does not fix it. S3
+allows 200 concurrent workers and 2400 sessions, so "the request limit for the database is 200 and
+has been reached" is an S3 out of workers.
+
+While the limit is being hit, ordinary connections are refused. One still gets in, and is the only
+way to run the query above during the incident:
+
+```bash
+sqlcmd -S your-server.database.windows.net -d <database> -U <admin-login> \
+  -P "$SQLCMD_PASSWORD" -A -Q "SELECT session_id, blocking_session_id, wait_type \
+  FROM sys.dm_exec_requests WHERE blocking_session_id <> 0;"
+```
+
+`-A` opens the diagnostic connection, also reachable by prefixing the server name with `admin:`.
+It needs a logical server administrator, is not supported with `-G`, and only one exists per
+database.
+
+## 6. MAXDOP, the worker multiplier
+
+```sql
+SELECT [value], value_for_secondary FROM sys.database_scoped_configurations WHERE [name] = 'MAXDOP';
+```
+
+Since September 2020 a new Azure SQL Database reports `8` here, and this view is the authority:
+nothing is applied underneath. `0` in the cloud means the database predates that change and
+uses every logical processor up to 64, which Learn recommends against; `0` on the container is
+just the engine default. `sp_configure` is the surface in neither place, and it is absent rather
+than restricted: Learn's `sys.sp_configure` page does not list Azure SQL Database, and on the
+container `EXEC sp_configure 'max degree of parallelism';` returns `Msg 2812, Could not find stored
+procedure 'sp_configure'`, not the option error `Msg 15123` that sends a reader hunting a
+permission problem. Change it with
+`ALTER DATABASE SCOPED CONFIGURATION SET MAXDOP = 8;`, which needs server admin, `db_owner` or
+`ALTER ANY DATABASE SCOPED CONFIGURATION` and cannot run against `master`.
+
+## 7. Only now, the tier
+
+Scaling raises CPU, memory and IO headroom and the worker and session ceilings. It does not fix a
+query doing needless work, and it does not change MAXDOP. Name the exhausted resource first.
+
+## Check it worked
+
+The diagnosis is finished when this returns a row and you can name the column that was high:
+
+```sql
+SELECT TOP 1 end_time, avg_cpu_percent, avg_instance_cpu_percent, avg_data_io_percent,
+       avg_log_write_percent, max_worker_percent, max_session_percent
+FROM sys.dm_db_resource_stats ORDER BY end_time DESC;
+```
+
+Rows land every 15 seconds and reach back about an hour; an older incident needs
+`sys.resource_stats` in the logical server's `master`, 5 minute granularity over 14 days. After the
+fix that column falls and the others do not move.
+
+On the container both return `Msg 208` and nothing substitutes, so the check is the step 2 plan
+cache query and the step 3 file stats run twice across the change: the heaviest
+`total_worker_time` drops, or `io_stall_write_ms` does. An empty cloud-only result is not health.
 
 ## Do not
 
-- Do not query `sys.dm_db_resource_stats`, `sys.resource_stats`, `sys.dm_user_db_resource_governance`
-  or `sys.dm_instance_resource_governance` against the local container and read the "invalid object
-  name" error as evidence something is broken. They are simply not implemented there.
-- Do not read `sys.database_service_objectives` on the container as if it reflects real, enforced
-  capacity. It returns a fixed value unrelated to anything about the container's actual resources.
-- Do not conclude "too many connections" from a 10928 or 10936 with Resource ID 1. That resource id
-  names workers, and MAXDOP is usually the multiplier, not the number of open sessions.
-- Do not treat `sys.database_scoped_configurations` MAXDOP `0` as unlimited parallelism when the
-  target is a real Azure SQL Database. It means the platform default (8, for databases created since
-  September 2020) applies, invisibly, underneath that reported value.
-- Do not filter candidate "CPU-bound" queries with a ratio between worker time and elapsed time.
-  Order by `total_worker_time` directly.
-- Do not diagnose a blocking chain to conclusion here; hand it to `diagnose-blocking-and-deadlocks`
-  once `blocking_session_id` shows one exists.
-- Do not read or explain an execution plan here; hand that to `read-execution-plan`.
-- Do not answer error 40613, 18456 or 4060 here even if they were pasted alongside a resource
-  question; they are connection and login failures, and belong to `diagnose-connection-errors` and
-  `entra-id-auth`.
-- Do not recommend a service tier change as the first move, before separating CPU from IO from
-  memory from worker exhaustion; each has a different fix, and only some of them are fixed by scale.
+- Do not read `Msg 208` on the container as a broken database. `sys.dm_db_resource_stats`,
+  `sys.resource_stats`, `sys.dm_user_db_resource_governance` and
+  `sys.dm_instance_resource_governance` are not implemented there.
+- Do not treat `sys.database_service_objectives` on the container as real capacity: it answers
+  `GP_Gen5_2` for every database and nothing enforces it.
 
 ## References
 
-- [references/dmv-and-limits-reference.md](references/dmv-and-limits-reference.md): every DMV named
-  above with its exact container-versus-cloud availability as measured, the query for each question,
-  the full error code table for 10928/10929/10936, the MAXDOP default history, and the log rate
-  governance wait types. Read it before running a query this skill only summarizes.
+- Open [references/dmv-and-limits-reference.md](references/dmv-and-limits-reference.md) when a
+  statement above returns `Msg 208` and you need the local substitute, or before quoting a worker
+  or session limit for a tier.
