@@ -33,8 +33,111 @@
       "embedding runs in bounded batches filtered to rows with no vector, and no statement embeds a whole table",
       "the application caller holds EXECUTE on the model and does not hold CREATE EXTERNAL MODEL",
       "every endpoint the design depends on was checked against the allowlist from a cloud database rather than from the container",
-      "chunking uses chunk_type = FIXED with sizes stated in characters"
-    ]
+      "chunking uses chunk_type = FIXED with chunk_size stated in characters and overlap stated as a percentage of it"
+    ],
+"probes": [
+        {
+              "sql": "SELECT chunk_order, chunk_offset, chunk_length\nFROM AI_GENERATE_CHUNKS(source = N'The quick brown fox jumps over the lazy dog. Azure SQL Database stores vectors natively.',\n                        chunk_type = FIXED, chunk_size = 40, overlap = 10);",
+              "expect": {
+                    "rows": [
+                          [
+                                1,
+                                1,
+                                40
+                          ],
+                          [
+                                2,
+                                37,
+                                40
+                          ],
+                          [
+                                3,
+                                73,
+                                16
+                          ]
+                    ]
+              },
+              "why": "The defect this rewrite found, made executable. The skill previously said overlap was a character count and its own measurement contradicted it. Microsoft Learn's AI_GENERATE_CHUNKS page states OVERLAP is a percentage of CHUNK_SIZE, a whole number from 0 to 50. At chunk_size 40 and overlap 10 the second chunk must start at offset 37, four characters back, not ten: 10% of 40. If overlap were characters the second offset would be 31. The third row also pins the mid-word split and the ragged final chunk of an 88 character source. Measured on both engines 2026-08-28."
+        },
+        {
+              "sql": "SELECT chunk FROM AI_GENERATE_CHUNKS(source = N'abcdefgh', chunk_type = N'FIXED', chunk_size = 2);",
+              "expect": {
+                    "error": 102
+              },
+              "why": "The one-character difference an agent writes first, because every other string-valued option in T-SQL is quoted. Learn's syntax block gives CHUNK_TYPE = FIXED as a bare keyword and lists FIXED as the only accepted value. Msg 102 is this skill's measurement of 2026-08-28, identical on both engines, and the same number comes back for SENTENCE, PARAGRAPH, RECURSIVE, SEMANTIC, TOKEN and WORD."
+        },
+        {
+              "sql": "CREATE EXTERNAL MODEL probe_em_chat\nWITH (LOCATION = 'https://zzz-not-real.openai.azure.com/openai/deployments/d/chat/completions?api-version=2024-10-21',\n      API_FORMAT = 'Azure OpenAI', MODEL_TYPE = CHAT, MODEL = 'gpt-4o');",
+              "expect": {
+                    "error": 102
+              },
+              "why": "The boundary of the whole feature, asserted rather than described. Learn's CREATE EXTERNAL MODEL page lists EMBEDDINGS as the only accepted MODEL_TYPE, so the engine can produce a vector and never an answer, and the generation half of a retrieval pipeline cannot move into T-SQL. Msg 102 is this skill's measurement of 2026-08-28 for CHAT, COMPLETION, COMPLETIONS and RERANK alike. If this ever succeeds the skill's scope boundary against rag-on-azure-sql has moved."
+        },
+        {
+              "sql": "CREATE EXTERNAL MODEL probe_em_noformat\nWITH (LOCATION = 'https://zzz-not-real.openai.azure.com/openai/deployments/d/embeddings?api-version=2024-10-21',\n      MODEL_TYPE = EMBEDDINGS, MODEL = 'text-embedding-3-small');",
+              "expect": {
+                    "error": 46505
+              },
+              "why": "API_FORMAT is the one option the DDL genuinely enforces, which is what makes the rest of the correction surprising: everything the create statement CAN check it does check, and it can check almost nothing. Msg 46505, missing required external DDL option, is this skill's measurement of 2026-08-28. Learn documents API_FORMAT as required and gives four accepted values."
+        },
+        {
+              "sql": "CREATE EXTERNAL MODEL probe_em_ddl\nWITH (LOCATION = 'http://host.docker.internal:11434/api/embed',\n      API_FORMAT = 'Ollama', MODEL_TYPE = EMBEDDINGS, MODEL = 'nomic-embed-text');\nGO\nSELECT COUNT(*) AS created FROM sys.external_models WHERE name = 'probe_em_ddl';",
+              "expect": {
+                    "rows": [
+                          [
+                                1
+                          ]
+                    ]
+              },
+              "why": "The skill's headline correction, made executable: CREATE EXTERNAL MODEL validates almost nothing. This statement names a plain-HTTP scheme the engine refuses at call time, a host that resolves to a private address, no credential at all, and an API_FORMAT that is never compared against the location. It succeeds anyway and the model appears in sys.external_models. A create that returns cleanly is therefore not evidence of anything, which is the assumption this skill exists to correct."
+        },
+        {
+              "sql": "CREATE EXTERNAL MODEL probe_em_http\nWITH (LOCATION = 'http://host.docker.internal:11434/api/embed',\n      API_FORMAT = 'Ollama', MODEL_TYPE = EMBEDDINGS, MODEL = 'nomic-embed-text');\nGO\nSELECT AI_GENERATE_EMBEDDINGS(N'probe text' USE MODEL probe_em_http);",
+              "expect": {
+                    "error": 31610
+              },
+              "why": "The same model as the probe above, called rather than created, and the pair is the point: identical DDL, one succeeds and one fails. Learn states on both the CREATE EXTERNAL MODEL and sp_invoke_external_rest_endpoint pages that only HTTPS with TLS is supported; Msg 31610 is this skill's measurement of 2026-08-28. The location is the real Ollama port on the host running this lane, so the probe also settles the question an agent asks next: an embedding model served on the developer's own machine over plain HTTP is refused by the engine before any network call, which is why local embedding belongs to rag-local-with-container and not here."
+        },
+        {
+              "sql": "IF NOT EXISTS (SELECT 1 FROM sys.symmetric_keys WHERE name = '##MS_DatabaseMasterKey##')\n    CREATE MASTER KEY ENCRYPTION BY PASSWORD = N'Pr0be-N0t-A-Real-P@ssw0rd';\nGO\nCREATE DATABASE SCOPED CREDENTIAL [badcred_dns]\nWITH IDENTITY = 'HTTPEndpointHeaders', SECRET = '{\"api-key\":\"not-a-real-key\"}';\nGO\nCREATE EXTERNAL MODEL probe_em_dns\nWITH (LOCATION = 'https://zzz-not-real.openai.azure.com/openai/deployments/d/embeddings?api-version=2024-10-21',\n      API_FORMAT = 'Azure OpenAI', MODEL_TYPE = EMBEDDINGS, MODEL = 'text-embedding-3-small',\n      CREDENTIAL = [badcred_dns]);\nGO\nSELECT AI_GENERATE_EMBEDDINGS(N'probe text' USE MODEL probe_em_dns);",
+              "expect": {
+                    "error": 31625
+              },
+              "why": "Which failure the engine reports when two things are wrong at once, and it is not the one an author expects. Microsoft Learn's error table gives 31625 as 'DNS resolution of the hostname has failed with windows sockets error %d' and 31630 as 'The database scoped credential cannot be used to invoke an external rest endpoint': different stages, not synonyms. This fixture breaks both, a credential name that is not a URL and so can never match, and a host under an allowed domain that does not exist. Measured 2026-09-03 on the container, EngineEdition 5, ProductVersion 12.0.2000.8, the answer is 31625, while the 2026-08-28 run with the same shape of bad credential against a real resolvable endpoint returned 31630. So the hostname is resolved before the credential name is judged, and a credential naming bug stays invisible until the endpoint is real. An earlier revision of this probe asserted 31630 here: it took the host from this skill's allowlist method, where a non-existent name is the whole point, and the number from its credential matrix, where the endpoint was real. That is why the probe below checks the naming rule offline instead."
+        },
+        {
+              "sql": "IF NOT EXISTS (SELECT 1 FROM sys.symmetric_keys WHERE name = '##MS_DatabaseMasterKey##')\n    CREATE MASTER KEY ENCRYPTION BY PASSWORD = N'Pr0be-N0t-A-Real-P@ssw0rd';\nGO\nCREATE DATABASE SCOPED CREDENTIAL [badcred_prefix]\nWITH IDENTITY = 'HTTPEndpointHeaders', SECRET = '{\"api-key\":\"not-a-real-key\"}';\nGO\nCREATE EXTERNAL MODEL probe_em_naming\nWITH (LOCATION = 'https://zzz-not-real.openai.azure.com/openai/deployments/d/embeddings?api-version=2024-10-21',\n      API_FORMAT = 'Azure OpenAI', MODEL_TYPE = EMBEDDINGS, MODEL = 'text-embedding-3-small',\n      CREDENTIAL = [badcred_prefix]);\nGO\nSELECT CASE WHEN LEFT(m.location, LEN(c.name)) = c.name THEN 'prefix ok'\n            ELSE 'WILL FAIL WITH 31630' END AS naming\nFROM sys.external_models AS m\nJOIN sys.database_scoped_credentials AS c ON c.credential_id = m.credential_id\nWHERE m.name = 'probe_em_naming';",
+              "expect": {
+                    "rows": [
+                          [
+                                "WILL FAIL WITH 31630"
+                          ]
+                    ]
+              },
+              "why": "The credential naming rule pinned where it can actually be pinned. The probe above shows the engine will not report 31630 until the hostname resolves, so on a lane with no reachable endpoint the rule is unprovable by calling it. This is the check the skill's own Check it worked section ships, run against a model the DDL accepted happily: Learn requires the credential name to be a valid URL matching the called URL on protocol, fully qualified domain name and every path segment, and 'badcred_prefix' is not a URL at all. The query catches that from sys.external_models and sys.database_scoped_credentials with no network call, which is the point being made: the prefix is checkable offline and should be checked before anyone regenerates a key. If this row ever reads 'prefix ok' the shipped check query has stopped detecting the failure it exists to detect."
+        },
+        {
+              "sql": "DROP EXTERNAL MODEL IF EXISTS probe_em_never_created;",
+              "expect": {
+                    "error": 156
+              },
+              "why": "The guard clause every deployment script reaches for, and it does not exist for this object type. Msg 156, incorrect syntax near the keyword IF, is this skill's measurement of 2026-08-28 on both engines, and Learn's CREATE EXTERNAL MODEL page shows only a bare DROP EXTERNAL MODEL. A rerunnable script has to test sys.external_models instead, and has to drop the model before the credential it uses."
+        },
+        {
+              "sql": "CREATE EXTERNAL MODEL probe_em_null\nWITH (LOCATION = 'https://zzz-not-real.openai.azure.com/openai/deployments/d/embeddings?api-version=2024-10-21',\n      API_FORMAT = 'Azure OpenAI', MODEL_TYPE = EMBEDDINGS, MODEL = 'text-embedding-3-small');\nGO\nSELECT AI_GENERATE_EMBEDDINGS(NULL USE MODEL probe_em_null);",
+              "expect": {
+                    "error": 8116
+              },
+              "why": "A NULL row does not embed to NULL, it stops the batch. Msg 8116, argument data type NULL is invalid, is this skill's measurement of 2026-08-28, and it is raised on the argument before anything leaves the engine, which is why this probe needs no reachable endpoint. It is the reason the batching statement in the skill filters on embedding IS NULL rather than trusting the function to pass nulls through, and an empty string by contrast is accepted and returns a real vector."
+        },
+        {
+              "sql": "CREATE TABLE dbo.probe_em_large (id int NOT NULL PRIMARY KEY, embedding vector(3072) NOT NULL);",
+              "expect": {
+                    "error": 2717
+              },
+              "why": "Which embedding model can be chosen at all, settled before a single call is made. Microsoft Learn's vector data type page states the maximum is 1998 dimensions, and its Azure OpenAI model table gives text-embedding-3-large an output of 3072, so the highest scoring model does not fit its default output into any column this engine can declare. The fix is PARAMETERS '{\"dimensions\":1536}' on the external model. Msg 2717 is the merged vector-search-azure-sql skill's measurement of the same refusal at 1999 dimensions, run against a real engine on 2026-09-03; that skill owns the column and this probe asserts only the consequence for model choice."
+        }
+  ]
   },
   "triggering": {
     "explicit": [

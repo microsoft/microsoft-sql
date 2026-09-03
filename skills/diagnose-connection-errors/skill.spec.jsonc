@@ -30,7 +30,58 @@
       "a certificate-chain failure is answered by fixing the client trust store, never by trusting the server certificate",
       "a wrong password returns 18456, and the skill names the layer that rejected it and hands it to entra-id-auth rather than answering it here or blaming the firewall",
       "a database name that does not exist returns 4060, and is likewise named and handed on rather than answered as a firewall or connection-string fault",
-      "40613 is named as expected serverless resume and handed to connect-to-azure-sql rather than answered here"
+      "40613 is named as expected serverless resume and handed to connect-to-azure-sql rather than answered here",
+      "a refusal that arrives with no visible number is not declared unknown before -m-1 has been tried, because 47072, 47073 and 42101 are severity 10 and are converted to severity 0 before the client sees them"
+    ],
+    "probes": [
+      {
+        "sql": "SELECT message_id, severity\nFROM sys.messages\nWHERE language_id = 1033 AND message_id IN (4060, 18456)\nORDER BY message_id;",
+        "expect": {
+          "rows": [
+            [4060, 11],
+            [18456, 14]
+          ]
+        },
+        "why": "The skill's central move made executable: a number can be resolved to its severity on the engine itself rather than from memory, and the severity is what names the layer. Microsoft Learn's error number tables give 4060 severity 11, which its severity definitions define as 'the given object or entity does not exist', and 18456 severity 14, 'security'. That pair is exactly the distinction the body draws between a missing database user and a refused credential. Both numbers are core Database Engine messages present on every SQL Server engine, so this is safe on the container as well as the cloud. A red here means either the engine's message catalog moved or language_id 1033 is not installed, and the body's severity table would need re-sourcing."
+      },
+      {
+        "sql": "RAISERROR (N'probe: a severity ten message does not fail the statement', 10, 1) WITH NOWAIT;",
+        "expect": {
+          "warning": 50000
+        },
+        "why": "Half of the reason this skill tells readers to run sqlcmd with -m-1. Microsoft Learn states that RAISERROR with a message string and no msg_id raises error number 50000, and that a severity of 10 or lower does not transfer control to a CATCH block. So this statement SUCCEEDS while emitting a numbered message, which is only visible because the runner passes -m-1. Not measured against a container by this skill's author, who was instructed not to start one; it is asserted from Learn and from the lane's own -m-1 behaviour, which eval/lib/container.mjs documents. This is the same class 47072, 47073 and 42101 belong to, and the reason a disabled public network access so often reaches a developer as an unexplained timeout."
+      },
+      {
+        "sql": "RAISERROR (N'probe: a severity eleven message fails the statement', 11, 1);",
+        "expect": {
+          "error": 50000
+        },
+        "why": "The other half, and the pair is the point. Identical statement, severity raised by one, and now it is an error rather than a warning. That is the exact threshold sqlcmd's -b uses: it sets a non-zero exit at severity 11 and above and stays silent below it, which is why -b alone will not fail a pipeline on the severity 10 refusals above. Severity 11 is also the level 40532, 40531 and 4060 carry, so this probe fails the way the skill's own subject matter fails."
+      },
+      {
+        "cmd": "sqlcmd '-?' | grep -q '^-b,--exit-on-error$' && sqlcmd '-?' | grep -q '^-m,--error-level$' && sqlcmd '-?' | grep -q '^-l,--login-timeOut$'",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Every diagnosis command in this body is sqlcmd -b -m-1 -l 30, and each of those three switches is checked to exist under that exact name in the build's own help output rather than from memory. Measured 2026-09-03 on sqlcmd 1.10.0, exit 0. Host rather than container deliberately: the reader of this skill is a developer connecting FROM their workstation into Azure SQL Database, and the client half is the half that has to be right. A red here means the body hands the reader a flag that no longer exists."
+      },
+      {
+        "cmd": "az sql server firewall-rule list --help > /dev/null",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The command the body tells a reader to run first when they see 40615, checked against the installed CLI rather than recalled. Measured 2026-09-03 on Azure CLI 2.90.0, exit 0. --help is used deliberately so the probe proves the command surface exists without touching a subscription or creating anything. This matters here because a sibling skill's brief records az sql server update --assign-identity as a flag that does not exist on this same CLI version, so a command name from memory is not evidence."
+      },
+      {
+        "cmd": "az sql server update --help | grep -q -- '--set'",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Microsoft Learn's connectivity settings page changes public network access with az sql server update --set publicNetworkAccess=\"Disabled\", a generic-update form rather than a dedicated flag, and the body reads the same property back with az sql server show --query. This checks that --set is still the shape this CLI offers. Measured 2026-09-03 on Azure CLI 2.90.0, exit 0."
+      }
     ]
   },
   "triggering": {
@@ -42,7 +93,8 @@
       "The certificate chain was issued by an authority that is not trusted",
       "A connection was successfully established with the server, but then an error occurred during the pre-login handshake",
       "we turned off public network access and now every connection fails with 47073, what is that",
-      "the gateway returned 40532 and the server name looks right to me"
+      "the gateway returned 40532 and the server name looks right to me",
+      "the connection just times out and there is no error number anywhere, what do I even look at"
     ],
     "routing": [
       "why can my database not be reached",
