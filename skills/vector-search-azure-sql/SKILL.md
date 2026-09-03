@@ -22,8 +22,7 @@ Syntax and status re-checked 2026-09-03 against Microsoft Learn's `vector data t
 `VECTOR_SEARCH` and `CREATE VECTOR INDEX` pages. Every error number and plan below was measured
 2026-08-28 against a live Azure SQL Database (`SERVERPROPERTY('EngineEdition')` returns 5, General
 Purpose serverless, compatibility level 170) and again against the local Azure SQL Database
-container, which reports the same edition. They agreed on every error number below. The one
-reading they differ on is `PREVIEW_FEATURES`, next.
+container, which reports the same edition. They agreed on every error number below.
 
 ## Build the fixture and the index first
 
@@ -56,18 +55,19 @@ SELECT DATEDIFF(millisecond, @t0, SYSUTCDATETIME()) AS build_ms;
 Measured over 140 rows: 145 ms on the local container, 276 ms in the cloud. If a plan, a document or
 a model says this statement is not yet buildable, run it before believing it. You turn nothing
 on first. Compatibility level is not the gate: column, insert, `VECTOR_DISTANCE` and approximate
-search over an existing index all worked at level 150. `PREVIEW_FEATURES` is not the gate either, and it is the
-one reading the two engines disagree on:
+search over an existing index all worked at level 150. `PREVIEW_FEATURES` is not the gate either:
 
 ```sql
 SELECT [name], [value] FROM sys.database_scoped_configurations WHERE [name] = 'PREVIEW_FEATURES';
 ```
 
-A freshly created database on the container returns **1**, measured 2026-09-03. A cloud database
-returns **0**: Learn documents that as the default and scopes the requirement to the boxed engine,
-its own `CREATE VECTOR INDEX` example calling the setting "not needed for Azure SQL Database". The
-index builds either way, nobody sets it, and the container's `1` is not evidence the cloud needs
-one. The type, `VECTOR_DISTANCE`, `VECTOR_NORM`, `VECTOR_NORMALIZE` and `VECTORPROPERTY` are
+**Do not read a decision out of that number.** On the container it is not deterministic: six
+freshly created databases on one engine read 0, 1, 0, 1, 1, 1 on 2026-09-03, while `model` and
+`master` both read 0. Learn documents OFF as the default, scopes the requirement to the boxed
+engine, and its own `CREATE VECTOR INDEX` example calls the setting "not needed for Azure SQL
+Database". What matters is the statement above: the index builds and you set nothing. If a
+document tells you to turn this on first, it is wrong whatever your database happens to
+report. The type, `VECTOR_DISTANCE`, `VECTOR_NORM`, `VECTOR_NORMALIZE` and `VECTORPROPERTY` are
 generally available; `CREATE VECTOR INDEX`, `VECTOR_SEARCH` and `TOP (N) WITH APPROXIMATE` are
 preview and roll out by region, so a design that only performs with the index carries preview risk.
 
