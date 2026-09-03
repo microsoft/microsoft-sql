@@ -19,5 +19,6 @@
     "agent-skills",
     "vector-search",
     "entra-id"
-  ]
+  ],
+  "skills": "skills/"
 }

@@ -232,7 +232,24 @@ const base = {
 };
 const j = (o) => JSON.stringify({ $comment: BANNER, ...o }, null, 2) + '\n';
 
-emit('.claude-plugin/plugin.json', j(base));
+// DISPLAY NAME. Every storefront that has one renders `azure-sql` raw, and
+// Cursor title-cases it into "Azure Sql", which is nobody's brand. Carlos chose
+// "Azure SQL" for the collection on 2026-09-02: the family brand rather than
+// "Azure SQL Database", because this is 56 skills across the family and not one
+// product.
+//
+// It cannot go in the portable plugin.json. That schema is
+// additionalProperties:false with no displayName, so adding one would make the
+// file invalid for every conformant client. It belongs in the per-tool
+// manifests, which is the whole reason those exist.
+// NOT the same as DISPLAY above, which titles llms.txt as "Azure SQL Agent
+// Skills". This is what a storefront shows beside the install button, and
+// Carlos chose it on 2026-09-02: the family brand, because this is 56 skills
+// across the family rather than one product. Two surfaces, two names, said
+// once each.
+const STORE_NAME = 'Azure SQL';
+
+emit('.claude-plugin/plugin.json', j({ displayName: STORE_NAME, ...base }));
 emit('.claude-plugin/marketplace.json', j({
   name: NAME,
   owner: { name: 'Microsoft', url: REPO },
@@ -241,10 +258,32 @@ emit('.claude-plugin/marketplace.json', j({
   plugins: [{ name: NAME, source: './', description: SUMMARY, version: PKG.version, skills: skillPaths }],
 }));
 
+// PER-TOOL MANIFESTS, and why there are now two of them.
+//
+// Every one of these tools already loads us from the portable plugin.json,
+// proved by installing into five of them on 2026-09-02. These files add nothing
+// to compatibility. They exist for one reason: the portable schema carries no
+// display name, so without them each storefront shows `azure-sql`.
+//
+// Generated, never hand-written. azure-sql-database-container keeps four of
+// these by hand and they have already drifted: two spell the skills path
+// differently and only one carries a logo. Generating them from one source is
+// the difference between a display name and a maintenance problem.
+//
+//   Codex   documents interface.displayName, and skills as a string path
+//   Cursor  does NOT document displayName. The container repo sets it anyway,
+//           so this is a cheap bet rather than a documented feature. Said here
+//           so nobody later reads it as evidence Cursor supports it.
+emit('.codex-plugin/plugin.json', j({
+  ...base,
+  skills: './skills/',
+  interface: { displayName: STORE_NAME, shortDescription: SUMMARY, category: 'Databases' },
+}));
+emit('.cursor-plugin/plugin.json', j({ displayName: STORE_NAME, ...base, skills: 'skills/' }));
+
 // The Agent Plugins package IS the repository root: plugin.json beside a flat
-// skills/. Nothing to generate into a subdirectory, and no per-vendor manifest
-// for Codex, Cursor, Grok or the neutral schema, because every one of those is
-// an Agent Plugins client and the portable package serves them all.
+// skills/. Nothing to generate into a subdirectory, and NO displayName here:
+// that schema is closed and has no such field.
 //
 // plugin.json is generated here so its version and description cannot drift
 // from package.json and the catalog.
