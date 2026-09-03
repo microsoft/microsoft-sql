@@ -20,5 +20,6 @@
     "vector-search",
     "entra-id"
   ],
-  "skills": "skills/"
+  "skills": "skills/",
+  "logo": "assets/plugin-logo.svg"
 }
