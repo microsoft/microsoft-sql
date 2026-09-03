@@ -1,4 +1,4 @@
-# Verified behaviour: upserts, MERGE, and the indexed view question
+# MERGE hazards and upsert concurrency: the runs behind every number in SKILL.md
 
 ## Contents
 

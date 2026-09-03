@@ -31,7 +31,7 @@
     "cutover-and-connection-string-swap"
   ],
   "validation": {
-    "target": "cloud",
+    "target": "both",
     "setup": [
       "a subscription in which a resource group, a logical server and a database can be created",
       "a signed-in Microsoft Entra identity that can be made administrator of the logical server",

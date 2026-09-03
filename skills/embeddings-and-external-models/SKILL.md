@@ -2,89 +2,95 @@
 name: embeddings-and-external-models
 description: >-
   Generates embeddings and chunks inside Azure SQL Database with CREATE EXTERNAL MODEL,
-  AI_GENERATE_EMBEDDINGS, AI_GENERATE_CHUNKS and sp_invoke_external_rest_endpoint, including the
-  database scoped credential naming rule, the permissions, and the endpoint allowlist that decides
-  which hosts the engine is allowed to call at all. Use when someone asks to "create an external
-  model", "call AI_GENERATE_EMBEDDINGS", "embed text in T-SQL", "chunk text in the database",
-  "call an Azure OpenAI endpoint from SQL", "invoke a REST endpoint from the database", or
-  "generate embeddings without an application"; and when an external endpoint call fails on the
-  credential, on permissions, on HTTPS, on managed identity or on a domain that is not allowed.
-  This skill owns producing the vector and calling out of the engine. Storing and searching it is
-  vector-search-azure-sql, the retrieval pipeline around it is rag-on-azure-sql, and embedding
-  offline against the local container is rag-local-with-container.
+  AI_GENERATE_EMBEDDINGS, AI_GENERATE_CHUNKS and sp_invoke_external_rest_endpoint, covering the
+  database scoped credential naming rule, the permissions, the dimension budget that decides which
+  embedding model can be used at all, and the outbound allowlist. Use when someone asks to "create an
+  external model", "call AI_GENERATE_EMBEDDINGS", "embed text in T-SQL", "chunk text in the
+  database", or "call an Azure OpenAI endpoint from SQL"; and when such a call fails on the
+  credential, on permissions, on HTTPS, on managed identity or on a blocked domain. This skill owns
+  producing the vector and calling out of the engine; storing and searching it is
+  vector-search-azure-sql, the pipeline around it is rag-on-azure-sql, and embedding offline is
+  rag-local-with-container.
 ---
 
 # Embeddings and external models in Azure SQL Database
 
-This is how the engine itself produces a vector and how it is allowed to reach a model. It is not
-a vector storage or similarity search reference.
+How the engine itself produces a vector, and how it is allowed to reach a model. Verified 2026-08-28
+against **both** a live Azure SQL Database (General Purpose serverless, compatibility level 170) and
+the local container, using a **real Azure OpenAI deployment created for the run**. Option lists and
+limits were re-sourced from Microsoft Learn on 2026-09-03.
 
-Verified on 2026-08-28 by running every statement below against **both** a live Azure SQL Database
-(General Purpose serverless, compatibility level 170, Microsoft Entra only) and the local Azure SQL
-Database container, against a **real Azure OpenAI deployment created for the run**. The complete
-runs, including the domain by domain allowlist probe, are in
-[references/measured-external-model.md](references/measured-external-model.md).
-
-## The four objects, and which one is the gate
-
-| Object | What it is | Needs the network |
-|---|---|---|
-| `AI_GENERATE_CHUNKS` | Splits text into fixed size pieces. A table valued function | **No** |
-| `CREATE EXTERNAL MODEL` | A named endpoint plus a credential. Metadata only | No |
-| `AI_GENERATE_EMBEDDINGS` | Sends one string to that endpoint and returns a `vector` | Yes |
-| `sp_invoke_external_rest_endpoint` | The general outbound call the other two are built on | Yes |
-
-All four exist and work in the container as well as in the cloud. The 2026 catalog note that said
-this surface was cloud only was wrong, and the correction was confirmed by running a real embedding
-call from inside a container and getting a 1536 dimension `float32` vector back.
+`AI_GENERATE_CHUNKS` splits text and `CREATE EXTERNAL MODEL` registers an endpoint; neither touches
+the network. `AI_GENERATE_EMBEDDINGS` and `sp_invoke_external_rest_endpoint`, the call it builds
+on, both do, and that is where everything below goes wrong. All four work in the container
+as well as in the cloud: the 2026 catalog note calling this surface cloud only was wrong, and a real
+embedding call completed from inside a container.
 
 ## The correction
 
-**`CREATE EXTERNAL MODEL` validates almost nothing.** Measured on both engines, the DDL accepted
-an `http://` location, a host that no allowlist would ever permit, a credential whose name can
-never match, and a deployment that does not exist. All of it succeeded, and `sys.external_models`
-listed it. Every one of those failures surfaces at the first `AI_GENERATE_EMBEDDINGS`, and each
-one arrives as a message that names an object rather than the rule that was broken:
+**`CREATE EXTERNAL MODEL` validates almost nothing.** Measured on both engines, the DDL accepted an
+`http://` location, a host no allowlist permits, a credential whose name can never match, and a
+deployment that does not exist. All of it succeeded and appeared in `sys.external_models`. Each
+failure surfaces at the first `AI_GENERATE_EMBEDDINGS`, naming an object rather than the broken
+rule:
 
 | What is actually wrong | What the engine says |
 |---|---|
 | The location is `http://` | `Msg 31610, Accessing the external endpoint is only allowed via HTTPS` |
-| The credential name is not a prefix of the location | `Msg 31630, The database scoped credential '<name>' cannot be used to invoke an external rest endpoint` |
+| The credential name is not a prefix of the location | `Msg 31630, The database scoped credential '<name>' cannot be used` |
 | A managed identity credential with no `SECRET` | `Msg 33047, Fail to obtain or decrypt secret for credential '<name>'` |
-| The caller lacks `EXECUTE` on the model | `Msg 15151, Cannot find the external model '<name>', because it does not exist or you do not have permission` |
+| The caller lacks `EXECUTE` on the model | `Msg 15151, Cannot find the external model, or you do not have permission` |
 | The domain is not on the cloud allowlist | `Msg 31612, Connections to the domain <host> are not allowed` |
 | The key is wrong, or absent | `Msg 31742, Unrecoverable HTTP error 401 occured` |
 
-Read that table as one fact: **the create statement is not the test. The first call is.** Being
-wrong here costs a pipeline that deploys clean, passes schema validation, and fails on the first
-row of the first ingest with a message pointing at a credential, a missing object or a permission
-that is all present and correct.
+**The create statement is not the test. The first call is.** Being wrong costs a pipeline that
+deploys clean, passes every schema gate, and fails on the first row of the first ingest, pointing at
+a credential, object or permission that is present and correct.
 
-The second half of the correction is quieter. **`AI_GENERATE_EMBEDDINGS` is one HTTP round trip per
-row and it does not parallelise.** Measured: a single call took 295 ms, and one `UPDATE` over 25
-rows took 8963 ms of elapsed time for 235 ms of CPU. A set based `UPDATE` over a real corpus is
-therefore a single transaction holding locks for hours, and it is the shape an agent writes first
-because it is the shape SQL rewards everywhere else.
+## Which model fits, and it is not the best one
 
-## Step 1: chunk, which needs nothing
+A `vector` column holds at most **1998 dimensions** at the default `float32` base type. Learn's
+Azure OpenAI model table gives the outputs:
 
-`AI_GENERATE_CHUNKS` runs in the engine with no endpoint, no credential and no special permission.
-A user with nothing but `db_datareader` ran it successfully on both engines.
+| Model | Output dimensions | Fits a vector column |
+|---|---|---|
+| `text-embedding-3-small` | 1536 | Yes |
+| `text-embedding-ada-002` | 1536 | Yes, and it accepts no `dimensions` parameter |
+| `text-embedding-3-large` | 3072 | **No, not at its default** |
+
+`text-embedding-3-large` is what an agent reaches for because Learn's benchmark table scores it
+highest, and its 3072 dimension output fits no column this engine can declare. Only third generation
+models accept `dimensions`, so the fix is one JSON property on the model,
+`PARAMETERS = '{"dimensions":1536}'`, not a comment. Learn's `float16` base type doubles the ceiling
+to 3996, on a page that excludes Azure SQL Database and behind `PREVIEW_FEATURES`, so do not design
+around it. `vector-search-azure-sql` owns the column and the ceiling; this skill owns making the
+model return a number that fits.
+
+## Step 1: chunk, which needs nothing but compatibility level 170
+
+`AI_GENERATE_CHUNKS` runs with no endpoint, no credential and no permission: a user holding only
+`db_datareader` ran it on both engines. Below compatibility level 170 Learn states the engine cannot
+find the function, which reads as a missing feature rather than a setting.
 
 ```sql
-SELECT chunk, chunk_order, chunk_offset, chunk_length
-FROM AI_GENERATE_CHUNKS(source = @text, chunk_type = FIXED, chunk_size = 400, overlap = 40);
+SELECT t.doc_id, c.chunk_set_id, c.chunk_order, c.chunk_offset, c.chunk
+FROM dbo.documents AS t
+CROSS APPLY AI_GENERATE_CHUNKS(source = t.body, chunk_type = FIXED, chunk_size = 400,
+                               overlap = 10, enable_chunk_set_id = 1) AS c;
 ```
 
-Three things a model gets wrong about it:
-
-- **`chunk_type = FIXED` is a keyword, not a string.** `chunk_type = N'FIXED'` is `Msg 102`.
-- **`FIXED` is the only chunk type.** `SENTENCE`, `PARAGRAPH`, `RECURSIVE`, `SEMANTIC`, `TOKEN` and
-  `WORD` are all `Msg 102` on both engines. If the design needs sentence or semantic boundaries,
-  that work happens outside this function.
-- **The sizes are characters, not tokens, and it splits mid word.** Measured with `chunk_size = 40`
-  the second chunk began `dog. Azure SQL Database stores vectors n`. `overlap` is also in
-  characters and repeats that many characters at the start of the next chunk.
+- **`overlap` is a percentage of `chunk_size`, not a character count.** Learn states a whole number
+  from 0 to 50, applied to `chunk_size`. Measured at `chunk_size = 40, overlap = 10` the second chunk
+  started at offset 37: four characters back, not ten. Read as characters it silently changes how
+  much context every chunk carries, and 50 is a hard ceiling.
+- **`chunk_type = FIXED` is a keyword, and the only one.** `chunk_type = N'FIXED'` is `Msg 102`, and
+  so are `SENTENCE`, `PARAGRAPH`, `RECURSIVE`, `SEMANTIC`, `TOKEN` and `WORD`. Learn lists `FIXED`
+  alone, so semantic boundaries are work done outside this function.
+- **`chunk_size` is characters, is required with `FIXED`, and splits mid word.** Measured at 40 the
+  second chunk began `azy dog. Azure SQL Database stores vecto`. It also keeps a chunk under the
+  model's 8192 token limit.
+- **`enable_chunk_set_id = 1` is what makes a `CROSS APPLY` usable.** Without it `chunk_order`
+  restarts at 1 per row and nothing records which row a chunk came from.
 
 ## Step 2: the credential, where the naming rule lives
 
@@ -92,42 +98,32 @@ Three things a model gets wrong about it:
 CREATE MASTER KEY ENCRYPTION BY PASSWORD = '<a strong password>';   -- once per database
 
 CREATE DATABASE SCOPED CREDENTIAL [https://<resource>.openai.azure.com/]
-WITH IDENTITY = 'HTTPEndpointHeaders',
-     SECRET   = '{"api-key":"<the key>"}';
+WITH IDENTITY = 'HTTPEndpointHeaders', SECRET = '{"api-key":"<the key>"}';
 ```
 
-**The name of the credential is not a label. It is the match key.** The engine picks a credential
-by longest URL prefix against the model's `LOCATION`, so the name has to be a prefix of that URL.
-Measured, with everything else correct:
+**The name of the credential is not a label. It is the match key.** Learn requires a valid URL on an
+allowed domain, no query string, matching the called URL on protocol, fully qualified domain name
+and every path segment, and more generic than it: a longest prefix match. So both
+`https://<resource>.openai.azure.com/` and the fuller `.../openai/deployments/<name>/` work, while
+`badcred` and a path segment the location lacks are both `Msg 31630`. That message reads like a
+broken secret and is almost always the name instead. **The engine resolves the hostname before it
+judges the name**, so an unresolvable host answers `Msg 31625` and hides the credential bug. Check
+the prefix against the catalog offline, before regenerating any key.
 
-| Credential name | Location | Result |
-|---|---|---|
-| `https://<resource>.openai.azure.com/` | `https://<resource>.openai.azure.com/openai/...` | Works |
-| `https://<resource>.openai.azure.com/openai/deployments/<name>/` | the same location | Works, narrower |
-| `badcred` | the same location | `Msg 31630` |
-| `https://<resource>.openai.azure.com/mi/` | a location with no `/mi/` segment | `Msg 31630` |
-
-`Msg 31630` names the credential and says it "cannot be used", which reads like a broken secret. It
-is almost always the name. Check the name first, before the key.
-
-**Managed identity is the production identity, and it needs the resource in the secret.**
+**Managed identity is the production identity, and needs a resource in the secret.**
 
 ```sql
 CREATE DATABASE SCOPED CREDENTIAL [https://<resource>.openai.azure.com/]
-WITH IDENTITY = 'Managed Identity',
-     SECRET   = '{"resourceid":"https://cognitiveservices.azure.com"}';
+WITH IDENTITY = 'Managed Identity', SECRET = '{"resourceid":"https://cognitiveservices.azure.com"}';
 ```
 
-Measured in the cloud: with `IDENTITY = 'Managed Identity'` and no `SECRET`, the call failed with
-`Msg 33047, Fail to obtain or decrypt secret`, which sounds like a master key problem and is not.
-Adding the `resourceid` secret made the same call succeed. The server also needs an identity
-assigned and that identity needs a role on the target resource; without the role the failure is an
-HTTP 401 rather than a credential error.
-
-**Managed identity does not work on the container.** It answers `Msg 31644, Server Managed Identity
-is disabled for this instance`, and the remedy that message names cannot be run there, because
-`sp_configure` itself returns `Msg 40510, Statement 'CONFIG' is not supported`. Use a key locally,
-managed identity in the cloud, and change only the credential.
+Measured in the cloud: with no `SECRET` the call failed with `Msg 33047, Fail to obtain or decrypt
+secret`, which sounds like a master key problem and is not. Adding `resourceid` fixed it. The server
+also needs an identity holding a role on the target resource, and without it the failure is an HTTP
+401, indistinguishable from a wrong key. **On the container managed identity does not work at all**:
+`Msg 31644, Server Managed Identity is disabled for this instance`, whose named remedy cannot run
+there either because `sp_configure` returns `Msg 40510`. Use a key locally and managed identity in
+the cloud, changing only the credential.
 
 ## Step 3: the model
 
@@ -139,72 +135,71 @@ WITH (
     MODEL_TYPE = EMBEDDINGS,
     MODEL      = 'text-embedding-3-small',
     CREDENTIAL = [https://<resource>.openai.azure.com/],
-    PARAMETERS = '{"dimensions":768}'
+    PARAMETERS = '{"dimensions":1536, "sql_rest_options": {"retry_count": 3}}'
 );
 ```
 
-- **`MODEL_TYPE = EMBEDDINGS` is the only value there is.** `CHAT`, `COMPLETION`, `COMPLETIONS` and
-  `RERANK` are all `Msg 102`. The engine can produce a vector; it cannot produce an answer, so the
-  generation half of a retrieval pipeline stays in the application.
-- **`API_FORMAT` is required and is not validated against the location.** `'Azure OpenAI'`,
-  `'OpenAI'` and `'Ollama'` were all accepted at create time on both engines, whatever the URL
-  pointed at.
-- **`PARAMETERS` is where the dimension budget is enforced.** `'{"dimensions":768}'` returned a 768
-  dimension vector from a model whose default is 1536, measured. This is the mechanism for fitting
-  under the engine's dimension ceiling and for keeping one column type across environments. A value
-  the model cannot produce is `Msg 31742, Unrecoverable HTTP error 400`.
-- **There is no `DROP EXTERNAL MODEL IF EXISTS`.** `Msg 156`. Guard on `sys.external_models`. A
-  credential in use by a model also cannot be dropped, `Msg 46556`, so drop the model first.
+- **`MODEL_TYPE = EMBEDDINGS` is the only value there is.** Learn lists no other; `CHAT`,
+  `COMPLETION`, `COMPLETIONS` and `RERANK` are all `Msg 102`. The engine makes a vector, never an
+  answer, so the generation half of a pipeline stays in the application.
+- **`API_FORMAT` is required and is not validated against the location.** Learn's four values are
+  `Azure OpenAI`, `OpenAI`, `Ollama` and `ONNX Runtime`, the last a local runtime for a different
+  engine. The first three were accepted whatever the URL pointed at. Omitting it is `Msg 46505`, an
+  unlisted value `Msg 46508`.
+- **`PARAMETERS` carries the dimension budget.** `'{"dimensions":768}'` returned a 768 dimension
+  vector from a model defaulting to 1536, measured; a value the model cannot produce is
+  `Msg 31742, Unrecoverable HTTP error 400`.
+- **`PARAMETERS` also carries the retries.** `sql_rest_options.retry_count` takes 0 to 10 and retries
+  HTTP 408, 429, 500, 502, 503 and 504, honouring `Retry-After`. It defaults to 0, so a model without
+  it fails a whole batch on one rate limit response.
+- **There is no `DROP EXTERNAL MODEL IF EXISTS`.** `Msg 156`; guard on `sys.external_models`. A
+  credential a model still uses cannot be dropped either, `Msg 46556`: drop the model first.
 
-## Step 4: permissions, all four of them
+## Step 4: permissions
 
 | Action | Permission | Failure when missing |
 |---|---|---|
-| `CREATE EXTERNAL MODEL` | `CREATE EXTERNAL MODEL` on the database | `Msg 262` |
-| Alter or drop someone else's | `ALTER ANY EXTERNAL MODEL` | `Msg 15151` or `Msg 262` |
+| Create a model, or alter someone else's | `CREATE EXTERNAL MODEL`, `ALTER ANY EXTERNAL MODEL` | `Msg 262` |
 | `AI_GENERATE_EMBEDDINGS ... USE MODEL m` | `EXECUTE ON EXTERNAL MODEL::m` | `Msg 15151`, the object appears not to exist |
 | `sp_invoke_external_rest_endpoint` | `EXECUTE ANY EXTERNAL ENDPOINT` | `Msg 8189` |
+| Naming a credential on a direct REST call | `REFERENCES` on that credential | denied on the credential |
 | `AI_GENERATE_CHUNKS` | none | it just runs |
 
 ```sql
 GRANT EXECUTE ON EXTERNAL MODEL::text_embedder TO [app_user];
-GRANT EXECUTE ANY EXTERNAL ENDPOINT TO [app_user];   -- only if the app calls REST directly
+-- the two below only if the caller invokes REST directly
+GRANT EXECUTE ANY EXTERNAL ENDPOINT TO [app_user];
+GRANT REFERENCES ON DATABASE SCOPED CREDENTIAL::[https://<resource>.openai.azure.com/] TO [app_user];
 ```
 
 **The `EXECUTE` denial is the one that wastes an afternoon.** A caller without it is told the model
-"does not exist or you do not have permission", so the obvious next move is to recreate the model,
-which changes nothing. Confirm with `SELECT name FROM sys.external_models` as the owner, then grant.
+"does not exist or you do not have permission", so the obvious move is to recreate it, which changes
+nothing. A caller going through `AI_GENERATE_EMBEDDINGS` needs neither of the other two grants,
+because the model holds the credential: that is why to prefer it over raw REST.
 
 ## Step 5: the allowlist, which is a cloud rule and not a local one
 
-**Azure SQL Database only calls hosts on a fixed allowlist.** Everything else is
-`Msg 31612, Connections to the domain <host> are not allowed`, before any DNS lookup or TLS
-handshake. Probed host by host in the cloud on 2026-08-28, a non-existent name under an allowed
-domain fails DNS (`Msg 31625`) while a blocked domain fails with `Msg 31612`, which makes the
-allowlist directly measurable:
+**Azure SQL Database only calls hosts on a fixed allowlist**, and everything else is
+`Msg 31612, Connections to the domain <host> are not allowed`, raised before DNS or TLS. Learn's
+`sp_invoke_external_rest_endpoint` page carries the list and is the contract, so read it there and
+not from any table, this skill's included. Two things that list is not:
 
-| Allowed, reached DNS | Blocked with `Msg 31612` |
-|---|---|
-| `*.openai.azure.com`, `*.cognitiveservices.azure.com`, `*.services.ai.azure.com`, `*.inference.ai.azure.com` | `*.documents.azure.com` |
-| `*.search.windows.net`, `*.vault.azure.net`, `*.azure-api.net`, `*.azurewebsites.net` | `management.azure.com` |
-| `*.blob.core.windows.net`, `*.queue.core.windows.net`, `*.table.core.windows.net` | `*.azureml.ms` |
-| `*.servicebus.windows.net`, `*.eventgrid.azure.net` | any host outside Azure |
+- **Not "all of Azure".** Probed host by host in the cloud on 2026-08-28, `documents.azure.com`,
+  `management.azure.com` and `azureml.ms` were refused while `openai.azure.com` and
+  `blob.core.windows.net` were reached. Learn's route to a host off the list is API Management in
+  front of it, since `*.azure-api.net` is on it.
+- **Not enforced on the container at all.** The same call to a public non-Azure host returned HTTP
+  200 locally and `Msg 31612` in the cloud, so a pipeline proved locally can be refused on its first
+  cloud run by a policy no retry fixes.
 
-Two of those are worth pausing on. **The list is not "all of Azure":** the Cosmos DB and resource
-manager endpoints are refused. And **the container enforces no allowlist at all.** The same call to
-a public non-Azure host returned HTTP 200 with a body locally and `Msg 31612` in the cloud. A
-pipeline proved against the container can therefore fail on its first cloud run, and the failure is
-a policy decision that no amount of retrying fixes.
+Re-probe rather than quote: call a host that does not exist under that domain. `Msg 31625` means
+the domain is permitted; `Msg 31612` means it is not.
 
-Two more outbound rules, both measured on the container and both worth knowing before designing a
-local endpoint:
-
-- **A hostname that resolves to a private address is refused**, `Msg 31624`.
-- **The certificate must chain to a root the engine trusts**, and the engine does not read the
-  container's own trust store. A private certificate authority installed with the operating
-  system's own tooling, trusted well enough that a command line client accepted it, still produced
-  `Msg 31608, HRESULT 0x80070008`. An expired certificate gives the same message with HRESULT
-  `0x80070020`.
+Local hosting is closed off by two more container rules: a private address is `Msg 31624`, and a
+certificate not chaining to a root the engine trusts is `Msg 31608`, a private authority in the
+container's own trust store included, because the engine does not read that store. Learn's
+`https://localhost:11435/api/embed` Ollama example is written for a differently hosted engine, so
+embedding against a model server on the developer's machine is `rag-local-with-container`.
 
 ## Step 6: embed, in batches, never in one statement
 
@@ -217,100 +212,99 @@ UPDATE TOP (200) c
  WHERE c.embedding IS NULL;
 ```
 
-Loop until it affects zero rows. At the measured 358 ms per row, 200 rows is roughly a 70 second
-transaction, and the whole corpus is never one transaction. Also:
+**One row is one HTTP round trip, and it does not parallelise.** One call took 295 ms and a 25 row
+`UPDATE` took 8963 ms elapsed for 235 ms of CPU. So loop the statement above until it affects zero
+rows: 200 rows is roughly a 70 second transaction, and the corpus is never one. Also:
 
 - **`NULL` input is an error, not a `NULL` result.** `Msg 8116, Argument data type NULL is invalid`.
   Filter the nulls; an empty string is accepted and returns a real vector.
-- **The returned dimension must match the target.** A 768 dimension result assigned to a
-  `vector(1536)` is `Msg 42204`, which is the one loud failure in the whole surface and the reason
-  the dimension belongs in `PARAMETERS` rather than in a comment.
-- Record which model produced each vector. The reason belongs to `rag-on-azure-sql` and it is the
-  single most expensive omission in this pipeline.
+- **The returned dimension must match the target.** A 768 dimension result into a `vector(1536)` is
+  `Msg 42204`, the one loud failure in this surface.
+- **A per call override exists** when a job needs a different dimension or retry budget than the
+  model carries: `AI_GENERATE_EMBEDDINGS(@t USE MODEL text_embedder PARAMETERS N'{"dimensions":768}')`.
+- **Concurrency is capped**, at 10% of worker threads to a maximum of 150, and `Msg 10928` past it.
+  Learn's query for the per database number reads `sys.dm_user_db_resource_governance`, cloud only
+  and `Msg 208` on the container, so size parallelism in the cloud or not at all.
+- Record which model produced each vector. The reason belongs to `rag-on-azure-sql`.
 
 ## Step 7: the general REST call, when no model type fits
 
-`sp_invoke_external_rest_endpoint` is the escape hatch, and the same allowlist, HTTPS and
-certificate rules apply.
+The escape hatch, under the same allowlist, HTTPS and certificate rules.
 
 ```sql
 DECLARE @response NVARCHAR(MAX), @return INT;
 EXEC @return = sp_invoke_external_rest_endpoint
-     @url      = 'https://<resource>.openai.azure.com/openai/deployments/<deployment>/embeddings?api-version=2024-10-21',
-     @method   = 'POST',
-     @payload  = @body,
+     @url         = 'https://<resource>.openai.azure.com/openai/deployments/<d>/embeddings?api-version=2024-10-21',
+     @method = 'POST', @payload = @body, @headers = N'{"Accept":"application/json"}',
+     @timeout = 60, @retry_count = 3,
      @credential = [https://<resource>.openai.azure.com/],
      @response = @response OUTPUT;
+
+SELECT @return AS http_status, JSON_VALUE(@response, '$.response.status.http.code') AS code;
 ```
 
-- **The response has to be JSON.** A `200` carrying plain text is
-  `Msg 11558, The @result JSON string could not be parsed`, which looks like a bug in the query and
-  is a content type mismatch.
-- A supplied `User-Agent` header is replaced by the engine and a warning says so.
-- The result carries the status, the response headers and the body, so read
-  `@response` as JSON rather than assuming a bare payload.
+- **`@timeout` defaults to 30 seconds**, accepts 1 to 230, and becomes the cumulative budget once
+  `@retry_count` is set; a slow endpoint fails on that default first.
+- **`@return` is 0 for a 2xx and otherwise the HTTP status code.** Only a call that could not be made
+  at all throws, so a procedure never reading `@return` treats a 429 as success. An unparseable `200`
+  body is `Msg 11558`, which looks like a query bug and is a content type mismatch.
 
-## Validation rules
+## Check it worked
 
-- Every external model was called once, successfully, immediately after it was created. A model
-  that has only been created has not been tested.
-- The database scoped credential's name is a URL prefix of the model's `LOCATION`, and this was
-  checked before any key was regenerated.
-- The production credential uses managed identity with a `resourceid` secret, the server has an
-  identity, and that identity holds a role on the target resource.
-- No key, endpoint host name or resource name appears in source control. The credential holds the
-  secret and the code names the credential.
-- The dimension is set in `PARAMETERS` and equals the declared column dimension, and there is a
-  test that fails if they diverge.
-- Embedding runs in bounded batches with a null filter, and no statement embeds a whole table.
-- The application caller holds `EXECUTE` on the model and nothing more; it does not own the model
-  and does not hold `CREATE EXTERNAL MODEL`.
-- Every endpoint the design depends on was checked against the cloud allowlist from a cloud
-  database, not from the container.
-- Chunking uses `chunk_type = FIXED` with sizes stated in characters, and the design does not
-  assume a sentence or semantic boundary.
+Run these in the target database in order: each fails faster than the next.
 
-## Do not
+```sql
+-- 1. The model is registered. Expect one row per model, with the dimensions
+--    you set visible in the parameters column, without parsing any DDL.
+SELECT name, api_format, model_type_desc, model, parameters FROM sys.external_models;
 
-- Do not treat a successful `CREATE EXTERNAL MODEL` as evidence that anything works. It validates
-  neither the URL, the domain, the credential nor the deployment.
-- Do not regenerate the key when the credential error appears. Check the credential name first.
-- Do not use a bare managed identity credential with no secret and conclude the master key is
-  broken.
-- Do not expect managed identity to work against the container, and do not follow the remedy its
-  error message names.
-- Do not embed a whole table in one statement. One row is one HTTP call and one transaction is one
-  long lock.
-- Do not pass `NULL` text to the embedding function.
-- Do not quote `FIXED`, and do not ask for a chunk type that does not exist.
-- Do not assume an endpoint is reachable because it is an Azure endpoint. Two well known Azure
-  domains are refused.
-- Do not validate outbound access against the container. It has no allowlist, so it proves nothing
-  about the cloud.
-- Do not point an external model at a local endpoint with a private certificate. It is refused, and
-  the local answer is `rag-local-with-container`.
-- Do not teach the vector type, the distance function or the retrieval query here. Those belong to
-  `vector-search-azure-sql` and `rag-on-azure-sql`.
+-- 2. The credential name is a prefix of the location. The engine will not
+--    report this until the host resolves, so check it here. Expect 'prefix ok'.
+SELECT m.name, c.name AS credential,
+       CASE WHEN c.name IS NULL THEN 'no credential, expect HTTP 401'
+            WHEN LEFT(m.location, LEN(c.name)) = c.name THEN 'prefix ok'
+            ELSE 'WILL FAIL WITH 31630' END AS naming
+FROM sys.external_models AS m
+LEFT JOIN sys.database_scoped_credentials AS c ON c.credential_id = m.credential_id;
+
+-- 3. The application user holds EXECUTE and nothing wider. Expect one
+--    EXTERNAL_MODEL row for it and no CREATE EXTERNAL MODEL row.
+SELECT class_desc, permission_name, USER_NAME(grantee_principal_id) AS grantee
+FROM sys.database_permissions
+WHERE permission_name IN ('EXECUTE', 'CREATE EXTERNAL MODEL', 'EXECUTE ANY EXTERNAL ENDPOINT');
+
+-- 4. Last, because it is the only one that leaves the engine: the endpoint
+--    answers and its dimension matches the column. Expect one row reading
+--    1536; a mismatch prints nothing and fails on Msg 42204, as it should.
+DECLARE @v vector(1536) = AI_GENERATE_EMBEDDINGS(N'probe text' USE MODEL text_embedder);
+SELECT COUNT(*) AS dimensions FROM OPENJSON(CAST(@v AS nvarchar(max)));
+```
+
+Run the file rather than pasting it, so a failure stops a pipeline instead of scrolling by:
+
+```bash
+# cloud, Microsoft Entra; use -U and -P against the container instead of -G
+sqlcmd -S "$SQL_SERVER" -d "$SQL_DB" -G -b -m-1 -i check-embeddings.sql
+```
+
+`-b` sets a non-zero exit only at severity 11 and above, and this surface emits severity 10 messages:
+`Msg 31616`, the overwritten `User-Agent` header, is one. Without `-m-1` those print their text with
+no `Msg` number and the run looks clean, so use both.
 
 ## References
 
-- [references/measured-external-model.md](references/measured-external-model.md): every statement
-  run on both engines, the full allowlist probe, the credential naming matrix, the permission
-  matrix, the timings behind the per row cost, and how to reproduce the whole set. Read it when a
-  claim here needs re-verifying, which for a surface this new is often.
+- [references/measured-external-model.md](references/measured-external-model.md): open it when a
+  claim above needs re-verifying, or for the naming, permission, allowlist and certificate matrices
+  and the statements reproducing them.
 - [CREATE EXTERNAL MODEL](https://learn.microsoft.com/sql/t-sql/statements/create-external-model-transact-sql):
-  the first party statement of the option list, the supported formats and the credential
-  requirements. Read it before changing `API_FORMAT` or `PARAMETERS`.
+  read before changing `API_FORMAT`, `PARAMETERS` or `retry_count`.
 - [AI_GENERATE_EMBEDDINGS](https://learn.microsoft.com/sql/t-sql/functions/ai-generate-embeddings-transact-sql):
-  the function contract and its current availability.
+  read for the extended events to turn on when a call fails without saying why.
 - [AI_GENERATE_CHUNKS](https://learn.microsoft.com/sql/t-sql/functions/ai-generate-chunks-transact-sql):
-  the chunk types that exist at the time you read it, which is the part most likely to grow.
+  read before choosing a chunk type, the part of this surface most likely to grow.
 - [sp_invoke_external_rest_endpoint](https://learn.microsoft.com/sql/relational-databases/system-stored-procedures/sp-invoke-external-rest-endpoint-transact-sql):
-  the current allowlist, the credential forms and the response shape. Read this rather than
-  trusting the table above, which is a measurement and not a contract.
-- `vector-search-azure-sql`: storing the vector this skill produces, its dimension ceiling, and the
-  query shape that searches it.
+  read before depending on any host, for the current allowlist and the payload and header limits.
+- `vector-search-azure-sql`: storing and searching the vector this skill produces.
 - `rag-on-azure-sql`: the pipeline this call sits inside, and why provenance matters.
-- `rag-local-with-container`: embedding offline against the local container, where this in-database
-  path is not available.
-- `azuresql-db-rag`: the shipped container recipe that embeds from application code.
+- `rag-local-with-container` and `azuresql-db-rag`: embedding offline from application code, where
+  this in-database path is not available.

@@ -44,6 +44,7 @@
         "./skills/dab-rest-and-graphql",
         "./skills/deploy-app-to-azure",
         "./skills/design-azure-sql-schema",
+        "./skills/dev-container-templates",
         "./skills/diagnose-blocking-and-deadlocks",
         "./skills/diagnose-connection-errors",
         "./skills/diagnose-resource-pressure",

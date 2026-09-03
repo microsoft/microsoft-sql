@@ -1,0 +1,111 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "dev-container-templates",
+  "domain": "provisioning-and-local-dev",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
+  "correction": "Handed one of the Azure SQL Dev Container templates, an agent believes the database behind localhost,1433 is the Azure SQL Database engine because the template is named for it, when every template ships a database service running the Azure SQL Edge image, which reports EngineEdition 9 rather than 5 and rejects Azure SQL Database syntax such as the VECTOR type. The same agent then treats a running container as a ready engine and the postCreateCommand as a schema deployment that always happens, when Compose only waits for the database process to start rather than for it to accept a login, and when the script builds and publishes nothing at all and still exits zero unless exactly one dacpac file already exists in the directory it is handed, so an empty database looks like a successful create.",
+  "posture": ["read", "write", "execute"],
+  "maturity": "preview",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "related": [
+    "azuresql-db-sidecar",
+    "azuresql-db-scaffold",
+    "azuresql-db-container",
+    "azuresql-db-schema-migration",
+    "provision-azure-sql-db",
+    "connect-to-azure-sql"
+  ],
+  "validation": {
+    "target": "container",
+    "setup": [
+      "a workspace created from one of the four templates in microsoft/azuresql-devcontainers, with its two containers running",
+      "a second copy of the same template, to test whether two stacks coexist"
+    ],
+    "assert": [
+      "the engine identity is read from the running database rather than assumed, and the image is read from the compose file rather than hardcoded",
+      "SERVERPROPERTY('EngineEdition') is reported to the user, and a value of 9 is called out as not the Azure SQL Database engine",
+      "readiness is proved by a login that succeeded, never by the container being Up or by docker compose reporting the service started",
+      "the directory handed to postCreateCommand contains exactly one dacpac, because zero and two or more both skip the deployment silently and exit zero",
+      "the deployed database is named after the dacpac file, not after anything in devcontainer.json, and its tables are counted rather than assumed",
+      "publishing a port from the app service is not attempted, because the daemon refuses it while the service shares the database container's network namespace",
+      "the sample password in .devcontainer/.env is treated as a sample and is not carried into any other environment"
+    ],
+    "probes": [
+      {
+        "where": "host",
+        "cmd": "printf \"services:\\n  app:\\n    image: alpine\\n    network_mode: \\\"service:db\\\"\\n    ports: [\\\"5000:5000\\\"]\\n  db:\\n    image: alpine\\n\" > /tmp/probe-devcontainer-compose.yml && docker compose -f /tmp/probe-devcontainer-compose.yml config | grep -q \"condition: service_started\"",
+        "expect": { "succeeds": true },
+        "why": "The readiness claim the skill is built on, made executable without starting anything. A service carrying network_mode: service:db gets an implicit depends_on with condition service_started, never service_healthy, so the app container is released the moment the database process exists. Measured 2026-09-03 on Docker 29.4.0 with Compose v5.1.2. If a future Compose starts synthesising service_healthy, this probe goes red and the skill's advice to add a health check becomes unnecessary rather than wrong."
+      },
+      {
+        "where": "host",
+        "cmd": "printf \"services:\\n  app:\\n    image: alpine\\n    network_mode: \\\"service:db\\\"\\n    ports: [\\\"5000:5000\\\"]\\n  db:\\n    image: alpine\\n\" > /tmp/probe-devcontainer-ports.yml && docker compose -f /tmp/probe-devcontainer-ports.yml config > /dev/null",
+        "expect": { "succeeds": true },
+        "why": "The same file carries both network_mode: service:db and a ports: block, which the daemon refuses at container create with 'conflicting options: port publishing and the container type network mode'. This asserts that validating the compose file does NOT catch it: exit 0, no warning. Measured 2026-09-03. The skill tells readers to use forwardPorts precisely because a green config run proves nothing here."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d); touch \"$d/One.dacpac\"; one=$(bash -c \"if [ -f $d/*.dacpac ]; then echo Y; fi\" 2>/dev/null); touch \"$d/Two.dacpac\"; two=$(bash -c \"if [ -f $d/*.dacpac ]; then echo Y; fi\" 2>/dev/null); rm -rf \"$d\"; test \"$one\" = \"Y\" -a \"$two\" = \"\"",
+        "expect": { "succeeds": true },
+        "why": "The postCreateCommand dacpac detection, reproduced as the shipped shape with no container involved. One dacpac takes the publish branch and two silently do not, because an unquoted glob inside [ -f ] expands to two arguments the test cannot read. Measured 2026-09-03, identical on bash 3.2.57 and 5.3.15. Both halves are asserted in one probe so a red run cannot be explained away as the fixture never having worked."
+      },
+      {
+        "where": "host",
+        "cmd": "dotnet --list-sdks | grep -q \"^8\\\\.\"",
+        "expect": { "succeeds": true },
+        "why": "Every template needs a .NET SDK 8 for the SQL database project, and the Node.js and Python templates install one for no other reason, so the skill tells a reader to check for it rather than assume the layer ran. Measured 2026-09-03: 8.0.421. This probe runs on the host because dotnet is a client toolchain and is not in the engine image."
+      },
+      {
+        "where": "host",
+        "cmd": "azd version > /dev/null",
+        "expect": { "succeeds": true },
+        "why": "The dotnet and dotnet-aspire templates layer azd on top of their toolchain image and the other two do not, which is a difference the skill's table asserts. Measured 2026-09-03: azd 1.32.0, exit 0, no cloud resource touched. Host, because azd is a developer's client tool."
+      },
+      {
+        "where": "container",
+        "cmd": "/opt/mssql-tools18/bin/sqlcmd -S localhost,1433 -U sa -P \"$MSSQL_SA_PASSWORD\" -C -I -b -l 2 -Q \"SELECT 1\"",
+        "expect": { "succeeds": true },
+        "why": "The readiness gate the skill hands the reader, run as written against the engine image so the path, the flags and the environment variable are all settled rather than recalled. The image ships sqlcmd at that path; -l bounds the login wait so a poll against a half-started engine fails fast instead of hanging, -C trusts the self-signed certificate, and -I sets QUOTED_IDENTIFIER ON because that build leaves it OFF while every shipping driver defaults it ON."
+      },
+      {
+        "sql": "SELECT CAST(SERVERPROPERTY('EngineEdition') AS int) AS engine_edition;",
+        "expect": { "rows": [[5]] },
+        "why": "The discriminator the whole skill turns on. Microsoft Learn's SERVERPROPERTY reference gives 5 for Azure SQL Database and 9 for Azure SQL Edge, and the templates' shipped image answers 9. This asserts the query returns 5 against the real Azure SQL Database engine, which is what makes it a test rather than a formality: if it ever returned 9 here the skill's table would be describing nothing."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_dct_vector (id int NOT NULL PRIMARY KEY, embedding vector(3) NOT NULL);\nINSERT INTO dbo.probe_dct_vector (id, embedding) VALUES (1, CAST('[1.0,2.0,3.0]' AS vector(3)));\nSELECT COUNT(*) AS rows_stored FROM dbo.probe_dct_vector;",
+        "expect": { "rows": [[1]] },
+        "why": "The positive half of the skill's Msg 2715 example. A vector column is accepted on EngineEdition 5 and refused on the templates' Azure SQL Edge image with 'Cannot find data type VECTOR', so the failure quoted in the body is a property of that engine and not of the syntax. Only the success half can be measured here, because the lane has no Azure SQL Edge container and the brief forbids starting one."
+      }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the dev-container-templates skill",
+      "set this project up from the Azure SQL dev container template",
+      "which Azure SQL dev container template should be used for a Python app"
+    ],
+    "implicit": [
+      "start a new project from the Azure SQL devcontainer templates with a database already in it",
+      "the dev container came up but the database is empty",
+      "the dacpac never deployed after the dev container was created",
+      "the devcontainer attaches before the database has finished starting",
+      "why is the database at localhost and not at the service name in this devcontainer",
+      "the second dev container will not start, it says the name SQL-Library is already in use"
+    ],
+    "routing": [
+      "give this repo a dev container with a database and a schema already loaded",
+      "the local database in this template does not support the syntax that works in Azure",
+      "adding a port to the app service in this devcontainer compose file fails"
+    ],
+    "negative": [
+      "add a SQL database service to an existing docker compose stack",
+      "scaffold a new FastAPI app wired to a local database",
+      "run the Azure SQL Database container directly and connect with sqlcmd",
+      "my Azure SQL Database container says Up but nothing can log in to it yet",
+      "create an Azure SQL database in a subscription and open the firewall",
+      "deploy this dacpac to Azure SQL Database in the cloud",
+      "write a Dockerfile for a Node.js service"
+    ]
+  }
+}

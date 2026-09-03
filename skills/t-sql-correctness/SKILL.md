@@ -1,183 +1,217 @@
 ---
 name: t-sql-correctness
 description: >-
-  Writes T-SQL that is correct on Azure SQL Database rather than PostgreSQL or MySQL syntax wearing
-  a T-SQL name, and stops the opposite mistake of avoiding syntax the engine has supported since
-  2025. Use when writing, porting or reviewing any SQL for Azure SQL Database or the local
-  container, and when someone writes LIMIT, RETURNING, SERIAL, ILIKE, NOW(), true or false,
-  double-quoted string literals, TEXT columns, ON CONFLICT or USE, or asks "how do I paginate",
-  "how do I get the id I just inserted", "is this comparison case sensitive", or "does Azure SQL
-  support the double pipe operator". Covers pagination with OFFSET and FETCH, OUTPUT and its
-  trigger restriction, IDENTITY, the bit type, collation as the case-sensitivity control, and
-  identifier quoting. Upserts belong to t-sql-upserts-merge and JSON to t-sql-json-and-openjson.
+  Writes T-SQL that returns the right answer on Azure SQL Database, and catches the statements that
+  return a wrong answer with no error at all: NULL compared using = or <> or NOT IN, ISNULL and
+  COALESCE differing in return type, integer division truncating, a string variable declared with
+  no length, and a session where QUOTED_IDENTIFIER is OFF. Also corrects PostgreSQL and MySQL habit
+  (LIMIT, RETURNING, SERIAL, ILIKE, NOW(), true, false, double-quoted string literals, TEXT
+  columns, ON CONFLICT, USE) and the opposite mistake of avoiding syntax the engine has supported
+  since 2025. Use when writing, porting or reviewing SQL for Azure SQL Database or the local
+  container, and for "why is that row missing", "why did NOT IN return nothing", "why is this
+  average wrong", "how do I paginate", "how do I get the id I just inserted", "is this comparison
+  case sensitive". Upserts belong to t-sql-upserts-merge, JSON to t-sql-json-and-openjson, and
+  column, index and collation design to design-azure-sql-schema.
 ---
 
-# Write T-SQL that is correct on Azure SQL Database
+# Write T-SQL that returns the right answer
 
-Two failures, opposite directions. **The first is PostgreSQL habit**: `LIMIT`, `RETURNING`,
-`SERIAL`, `true`. **The second is overcorrection**: told the target is T-SQL, an agent falls back
-to syntax from a decade ago and hand-rolls things the engine now does natively.
+Three failures. **The silent one first**, because nothing raises it: the statement succeeds, the
+row count looks plausible, the answer is wrong. Then **PostgreSQL habit**, which at least fails
+loudly. Then **overcorrection**, hand-rolling what the engine now does natively.
 
-Verified against Microsoft Learn on 2026-08-27. The full translation table, with sources, is in
-[references/postgres-to-tsql.md](references/postgres-to-tsql.md).
+Checked against Microsoft Learn and sqlcmd 1.10.0, 2026-09-03.
 
-## What an agent writes here, and what it must write instead
+## Wrong answers that raise no error
+
+**Nothing equals NULL, and nothing is unequal to it either.** `ANSI_NULLS` is permanently `ON`
+and `SET ANSI_NULLS OFF` is deprecated, so every comparison against `NULL` is `UNKNOWN`, and
+`WHERE` keeps only the rows that are `TRUE`.
+
+```sql
+CREATE TABLE dbo.orders (id INT, status NVARCHAR(20) NULL);
+INSERT INTO dbo.orders VALUES (1, N'shipped'), (2, N'held'), (3, NULL);
+
+DECLARE @p NVARCHAR(20) = NULL;
+SELECT COUNT(*) FROM dbo.orders WHERE status = @p;          -- 0, not 1
+SELECT COUNT(*) FROM dbo.orders WHERE status <> N'shipped'; -- 1, not 2
+
+-- Null-safe equality, true or false and never unknown:
+SELECT COUNT(*) FROM dbo.orders WHERE status IS NOT DISTINCT FROM @p;  -- 1
+```
+
+The second line reaches production: "everything not shipped" drops every row whose status is
+unknown.
+
+**`NOT IN` over a nullable column returns nothing at all.** One `NULL` in the subquery makes the
+predicate `UNKNOWN` for every candidate row, so the answer is empty rather than short by one.
+
+```sql
+CREATE TABLE dbo.assigned (customer_id INT NULL);
+INSERT INTO dbo.assigned VALUES (1), (NULL);
+CREATE TABLE dbo.customers (id INT NOT NULL);
+INSERT INTO dbo.customers VALUES (1), (2), (3);
+
+SELECT COUNT(*) FROM dbo.customers c
+WHERE c.id NOT IN (SELECT customer_id FROM dbo.assigned);   -- 0
+
+-- NOT EXISTS is the fix, and the habit worth defaulting to:
+SELECT COUNT(*) FROM dbo.customers c
+WHERE NOT EXISTS (SELECT 1 FROM dbo.assigned a WHERE a.customer_id = c.id);  -- 2
+```
+
+**Aggregates skip nulls, and say nothing about it.** Measured 2026-09-03 on `EngineEdition` 5
+through `sqlcmd -I -m-1`: this batch returns 30 and **no message at all**. Message 8153, "Null
+value is eliminated by an aggregate", is in `sys.messages` at severity 10 and was never raised.
+Microsoft Learn's `SET ANSI_WARNINGS` page says a warning is generated. It is not, so do not plan
+on being told.
+
+```sql
+CREATE TABLE dbo.readings (v INT NULL);
+INSERT INTO dbo.readings VALUES (10), (NULL), (20);
+SET ANSI_WARNINGS ON;  -- makes no difference here
+SELECT SUM(v), COUNT(*), COUNT(v), AVG(v) FROM dbo.readings;  -- 30, 3, 2, 15
+```
+
+`AVG` divides by 2, not 3, and `COUNT(v)` disagrees with `COUNT(*)` for the same reason. If the
+intent was 10, write `AVG(ISNULL(v, 0))` and mean it.
+
+**Integer division truncates, and `ISNULL` truncates its own replacement.** `/` returns the
+higher-precedence operand's type, and two integers give an integer. `ISNULL` returns the type of
+its **first** argument and converts the second into it; `COALESCE` returns the highest-precedence
+type of all of them.
+
+```sql
+SELECT 7 / 2, CAST(7.0 / 2 AS DECIMAL(4,1));  -- 3 and 3.5
+
+DECLARE @short NVARCHAR(3) = NULL;
+SELECT ISNULL(@short, N'abcdef'), COALESCE(@short, N'abcdef');  -- abc and abcdef
+```
+
+`ISNULL` also reports its result as not nullable where `COALESCE` reports nullable, so a computed
+column that must come out `NOT NULL` needs `ISNULL`.
+
+**A string with no length is one character, except in a cast, where it is thirty.** Assigning to
+an undersized variable truncates in silence; only an undersized column refuses.
+
+```sql
+DECLARE @v NVARCHAR = N'abcdef';
+SELECT @v, LEN(CAST(REPLICATE(CAST(N'a' AS NVARCHAR(MAX)), 40) AS NVARCHAR));  -- a and 30
+```
+
+Always give a length. The inner cast is there because `REPLICATE` otherwise returns
+`nvarchar(4000)`.
+
+## Session settings change what a statement means
+
+`QUOTED_IDENTIFIER` is decided at parse time, so the same text is two different statements:
+
+```sql
+SET QUOTED_IDENTIFIER OFF;
+SELECT "not a column";   -- returns the string, one row
+SET QUOTED_IDENTIFIER ON;
+SELECT "not a column";   -- Msg 207, invalid column name
+```
+
+`ON` is the default and the ODBC and OLE DB drivers set it on connect, so application code sees
+`ON`. The container's own `sqlcmd` leaves it **OFF**, so a script behaves one way in a container
+shell and another way run by the app. Pass `-I` to settle it.
+
+## PostgreSQL habit, translated
 
 | It will write | It must write | Because |
 |---|---|---|
-| `LIMIT 10` | `ORDER BY id OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY` | `OFFSET` and `FETCH` are clauses **of** `ORDER BY`, so the sort is not optional |
-| `LIMIT 10 OFFSET 20` | `ORDER BY id OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY` | Offset first, then fetch. `FETCH` without `OFFSET` is not valid |
-| `RETURNING id` | `OUTPUT INSERTED.id` | And read the trigger rule below before shipping it |
-| `id SERIAL PRIMARY KEY` | `id INT IDENTITY(1,1) PRIMARY KEY` | Or a `SEQUENCE` when the value must be shared across tables |
-| `is_active = true` | `is_active = 1` | There is no Boolean type. `bit` is an integer type taking `1`, `0` or `NULL` |
-| `WHERE is_active` | `WHERE is_active = 1` | A `bit` column is a value, not a predicate |
-| `NOW()` | `SYSDATETIME()`, or `SYSUTCDATETIME()` for UTC | `CURRENT_TIMESTAMP` also works and is ANSI |
-| `name ILIKE 'ana%'` | `name LIKE 'ana%'` | Case sensitivity is a **collation** property, not an operator. See below |
-| `WHERE name = "ana"` | `WHERE name = 'ana'` | Double quotes delimit **identifiers**, not strings |
-| `bio TEXT` | `bio NVARCHAR(MAX)` | `text` and `ntext` are deprecated and excluded from several operators |
+| `LIMIT 10 OFFSET 20` | `ORDER BY id OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY` | `OFFSET` and `FETCH` are clauses **of** `ORDER BY`; `FETCH` without `OFFSET` is invalid |
+| `RETURNING id` | `OUTPUT INSERTED.id` | Read the trigger rule below before shipping it |
+| `id SERIAL PRIMARY KEY` | `id INT IDENTITY(1,1) PRIMARY KEY` | Or a `SEQUENCE` when the generator is shared |
+| `is_active = true`, `WHERE is_active` | `is_active = 1` | No Boolean type. `bit` is an integer, and a value rather than a predicate |
+| `NOW()` | `SYSDATETIME()`, or `SYSUTCDATETIME()` | `CURRENT_TIMESTAMP` also works and is ANSI |
+| `name ILIKE 'ana%'` | `name LIKE 'ana%'` | The default collation `SQL_Latin1_General_CP1_CI_AS` is already case-insensitive |
+| `WHERE name = "ana"` | `WHERE name = 'ana'` | Escape a quote by doubling it, `'it''s'`, and prefix Unicode with `N` |
+| `bio TEXT` | `bio NVARCHAR(MAX)` | `text` and `ntext` are deprecated and barred from several operators |
 | `ON CONFLICT DO UPDATE` | See `t-sql-upserts-merge` | That skill owns upserts, including when not to use `MERGE` |
-| `USE otherdb;` | Open a new connection to that database | Unsupported on Azure SQL Database: to change database context, connect again |
+| `USE otherdb;` | Open a new connection | Unsupported, along with cross-database three and four part names |
 
-`USE` failing is the one that surprises people most, and it has a second half: cross-database and
-cross-instance queries with three or four part names are not supported either, except three part
-names for `tempdb` and the current database.
+`USE` is the trap that survives review: it **works on the container** and fails in the cloud. Open [references/postgres-to-tsql.md](references/postgres-to-tsql.md) before porting a
+schema or a query file, and when a statement crosses a database boundary.
 
-**This is the one rule on the page where the local container and the cloud genuinely differ, and it
-differs in the direction that hurts.** `USE` and cross-database three part names **work** on the
-Azure SQL Database container, because it is a single engine hosting several databases. They fail
-against Azure SQL Database, where each database is its own boundary. So a query tested locally
-passes, ships, and fails in the cloud with nothing in the local run to warn you. Test anything that
-crosses a database boundary against the cloud, or do not write it.
+`TOP` and `OFFSET FETCH` cannot be combined in one query expression, and a stable page needs a
+**unique** sort key: `ORDER BY placed_at DESC, order_id DESC`.
 
-## Pagination has two more rules than the substitution
+A bare `OUTPUT` fails with `Msg 334` when the target has an enabled trigger for that action, so
+capture into a table variable:
 
 ```sql
-SELECT order_id, placed_at
-FROM dbo.orders
-ORDER BY placed_at DESC, order_id DESC   -- a tiebreaker, so pages do not overlap
-OFFSET @skip ROWS FETCH NEXT @take ROWS ONLY;
+CREATE TABLE dbo.new_orders (order_id INT IDENTITY PRIMARY KEY, total DECIMAL(9,2));
+DECLARE @new TABLE (order_id INT);
+INSERT INTO dbo.new_orders (total)
+OUTPUT INSERTED.order_id INTO @new
+VALUES (19.99);
+SELECT order_id FROM @new;
 ```
 
-- **`TOP` and `OFFSET FETCH` cannot be combined in the same query expression.** Pick one.
-- **Stable paging needs a unique sort key**, and every page read in one snapshot or serializable
-  transaction. Without both, rows move between pages while the user is reading them. Documented,
-  not folklore: each page is an independent query, and the client holds the state.
-
-`TOP (n)` is still the right answer for "give me a few rows"; `OFFSET FETCH` is the right answer
-for paging. `TOP` without `ORDER BY` returns an arbitrary set, and the documentation says to always
-pair them.
-
-## OUTPUT is not quite RETURNING
-
-```sql
-INSERT INTO dbo.orders (customer_id, total)
-OUTPUT INSERTED.order_id, INSERTED.placed_at
-VALUES (@customer_id, @total);
-```
-
-Three things `RETURNING` does not make you think about:
-
-1. **A bare `OUTPUT` fails on a table with a trigger.** If `OUTPUT` is used without `INTO`, the
-   target of the DML statement cannot have an enabled trigger for that action. Capture into a table
-   variable instead, and read the rows back:
-
-   ```sql
-   DECLARE @new TABLE (order_id INT);
-   INSERT INTO dbo.orders (customer_id, total)
-   OUTPUT INSERTED.order_id INTO @new
-   VALUES (@customer_id, @total);
-   SELECT order_id FROM @new;
-   ```
-
-2. **The `INTO` target has its own restrictions.** It cannot have enabled triggers, cannot sit on
-   either side of a foreign key, and cannot carry `CHECK` constraints or enabled rules.
-3. **Order is not guaranteed.** The order rows are applied and the order they land in the output
-   target need not match.
-
-Prefer `OUTPUT` over `SCOPE_IDENTITY()`: it returns every row of a multi-row insert, and it works
-for `UPDATE`, `DELETE` and `MERGE` as well. `DELETED` is unavailable on `INSERT`, and `INSERTED` is
-unavailable on `DELETE`.
-
-## Case sensitivity is collation, and the default is already insensitive
-
-A new database in Azure SQL Database gets `SQL_Latin1_General_CP1_CI_AS` when no collation is
-given. `CI` is case-insensitive and `AS` is accent-sensitive, so `WHERE name = 'ana'` already
-matches `Ana`, and `ILIKE` has nothing to translate to.
-
-That makes the overcorrection the real risk. Wrapping the column in `LOWER()` to force something
-the database already does makes the predicate non-sargable and gives up the index. If one query
-genuinely needs a different sensitivity, ask for it at the point of comparison:
-
-```sql
-WHERE name = 'ana' COLLATE Latin1_General_CS_AS
-```
-
-Two things worth carrying: the **catalog** collation, which governs object identifiers, is fixed at
-creation and cannot be changed afterwards; and a database created with a case-sensitive collation
-means the column and alias names in every query become case-sensitive too.
-
-## Quoting, and why brackets are the safe habit
-
-`QUOTED_IDENTIFIER` is `ON` by default, and the client drivers set it `ON` when they connect. With
-it on, **double quotes delimit identifiers and single quotes delimit literals**, so a
-double-quoted string is read as an object name and fails as one.
-
-- String literals: single quotes, and an embedded quote is escaped by **doubling** it,
-  `'it''s'`. There is no backslash escape.
-- Unicode literals: prefix with `N`, as `N'ana'`. Without it the literal is non-Unicode first.
-- Identifiers: `[order]` is the T-SQL idiom and brackets are unaffected by `QUOTED_IDENTIFIER`.
+The `INTO` target has its own limits: no enabled triggers, neither side of a foreign key
+(`Msg 332`), no enabled `CHECK` constraints or rules (`Msg 333`), and no guaranteed row order.
+Prefer `OUTPUT` to `SCOPE_IDENTITY()`: it returns every row of a multi-row insert, and works on
+`UPDATE`, `DELETE` and `MERGE`.
 
 ## Do not avoid these. They work
 
-This is the half most reviewers miss, because the training data predates them.
-
 | Available | Note |
 |---|---|
-| `a || b` string concatenation, and `||=` | Generally available since July 2025. It is ANSI, and unlike `CONCAT` it yields `NULL` if any input is `NULL` |
-| `UNISTR` for Unicode literals | Generally available since July 2025 |
-| Regular expression functions | Generally available since November 2025. Three of them need a compatibility level check first, so route to `t-sql-regex-and-new-functions` |
-| `STRING_AGG(x, ',') WITHIN GROUP (ORDER BY x)` | Available at any compatibility level. Nulls are skipped, and the separator with them |
-| `TRIM(BOTH '.' FROM s)` | `TRIM` itself is long-standing; the `LEADING`, `TRAILING` and `BOTH` keywords are the newer part and need a recent compatibility level. Below it they are a **parse** error, so check the level before reaching for them |
-| `GREATEST(a, b, c)` and `LEAST(...)` | Row-wise maximum and minimum. Nulls are ignored unless every argument is null |
-| `a IS NOT DISTINCT FROM b` | Null-safe equality, so `NULL IS NOT DISTINCT FROM NULL` is true where `=` is unknown |
+| `a \|\| b` and `\|\|=`, `UNISTR` | Generally available July 2025. Unlike `CONCAT`, `\|\|` yields `NULL` if any input is `NULL` |
+| Regular expression functions | Generally available November 2025. Route to `t-sql-regex-and-new-functions` |
+| `STRING_AGG(x, ',') WITHIN GROUP (ORDER BY x)` | Any compatibility level, but returns `nvarchar(4000)` for `nvarchar(1..4000)` input, so cast to `max` or lose the tail |
+| `TRIM(BOTH '.' FROM s)` | The positional keywords need a recent compatibility level; below it they are a **parse** error |
+| `GREATEST(a, b, c)`, `LEAST(...)` | Nulls ignored unless every argument is null |
+| `a IS NOT DISTINCT FROM b` | Null-safe equality, as above |
 
-Two traps inside that list:
+A migrated database can sit at an old compatibility level, where the failure looks exactly like
+the function not existing: `Msg 102`, `Msg 195` or `Msg 208` at level 150. Check the level before
+believing the error. See `post-migration-compatibility-level`.
 
-- **`STRING_AGG` truncates.** The return type follows the input: `varchar(1..8000)` returns
-  `varchar(8000)` and `nvarchar(1..4000)` returns `nvarchar(4000)`. Aggregating many rows without
-  converting the input to a `max` type silently loses the tail.
-- **`||` and `CONCAT` disagree about `NULL`.** `CONCAT` treats a null argument as an empty string;
-  `||` propagates the null and ignores `SET CONCAT_NULL_YIELDS_NULL`.
+## Check it worked
 
-## Validation rules
+Save this as `check-correctness.sql`. The exit code proves nothing here: every statement
+succeeds.
 
-- Every paging query has an `ORDER BY` with a unique tiebreaker, and does not mix `TOP` with
-  `OFFSET FETCH`.
-- Every insert that needs its new key uses `OUTPUT`, with `INTO` if the table has a trigger.
-- No `LIMIT`, `RETURNING`, `SERIAL`, `ILIKE`, `NOW()`, `true`, `false`, `ON CONFLICT` or `USE`
-  survives into the generated SQL.
-- Boolean columns are `bit`, compared against `1` or `0`, never used bare as a predicate.
-- Literals are single-quoted, doubled to escape, and `N`-prefixed when they carry Unicode.
-- No `LOWER()` wrapper was added to defeat a collation that is already case-insensitive.
+```sql
+-- 1. The session your script was actually parsed and run under.
+SELECT IIF((256 & @@OPTIONS) = 256, 'ON', 'OFF') AS quoted_identifier,
+       IIF((32  & @@OPTIONS) = 32,  'ON', 'OFF') AS ansi_nulls,
+       IIF((8   & @@OPTIONS) = 8,   'ON', 'OFF') AS ansi_warnings;
+
+-- 2. String columns declared with no length: they hold one character.
+SELECT OBJECT_NAME(object_id) AS t, name AS c FROM sys.columns
+WHERE system_type_id IN (231, 239, 167, 175) AND max_length <= 2;
+```
+
+```bash
+sqlcmd -S <server-name>.database.windows.net,1433 -d <database> -U <user> -C -I -b -m-1 \
+  -i check-correctness.sql -o check-correctness.out
+```
+
+Expected: check 1 returns `ON ON ON`, check 2 no rows. An `OFF` means your script was
+parsed under different rules from the ones the application connects with. `-m-1` is there because
+`-b` sets a non-zero exit only at severity 11 and above, so any severity 10 message leaves a
+script reporting success.
 
 ## Do not
 
+- Do not compare with `= NULL` or `<> NULL`, and do not "fix" it by turning `ANSI_NULLS` off.
+  That setting is deprecated and permanently `ON`.
+- Do not use `NOT IN` against a subquery over a nullable column. Use `NOT EXISTS`.
+- Do not swap `ISNULL` for `COALESCE` as a cosmetic edit. The return type differs, so the value
+  can change.
 - Do not translate `ILIKE` into `LOWER(col) = LOWER(@v)`. It fixes nothing on a case-insensitive
-  collation and costs the index.
-- Do not reach for `MERGE` because `ON CONFLICT` needed a home. Read `t-sql-upserts-merge` first.
-- Do not hand-roll string aggregation with `FOR XML PATH`, or a maximum with a `CASE` ladder. Both
-  have had a real function for years.
-- Do not assume a function is missing because it is missing from memory. A migrated database can
-  sit at an old compatibility level, and the failure then looks exactly like the function not
-  existing: measured at level 150, the newer syntax comes back as `Msg 102` incorrect syntax,
-  `Msg 195` not a recognized built-in function name, or `Msg 208` invalid object name. That is why
-  the wrong conclusion is so easy to reach. Check the level before believing the error. See
-  `post-migration-compatibility-level`.
-- Do not put error handling in scope here. `t-sql-error-handling` owns `TRY`, `CATCH` and
-  `XACT_ABORT`, and `t-sql-programmability-objects` owns how triggers interact with `OUTPUT`.
+  collation and costs the index seek.
+- Do not size, collate or index columns here. `design-azure-sql-schema` owns that, including why
+  a `json` column compared with `=` fails with `Msg 402`.
+- Do not put error handling here. `t-sql-error-handling` owns `TRY`, `CATCH` and
+  `XACT_ABORT`, and `t-sql-programmability-objects` owns triggers.
 
 ## References
 
-- [references/postgres-to-tsql.md](references/postgres-to-tsql.md): the full translation table,
-  the data type map, and the Microsoft Learn page behind each claim. Read it when porting a schema
-  or a query file rather than writing one statement.
+- [references/postgres-to-tsql.md](references/postgres-to-tsql.md): open it when porting a schema
+  or a query file, when a statement crosses a database boundary, or to find the Microsoft Learn
+  page behind a row in the table above.

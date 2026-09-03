@@ -3,11 +3,12 @@
   "id": "t-sql-correctness",
   "domain": "tsql-correctness-and-patterns",
   "value": ["corrects-a-wrong-assumption"],
-  "correction": "Asked for SQL against Azure SQL Database, an agent writes PostgreSQL under a T-SQL name and produces LIMIT, RETURNING, SERIAL, ILIKE, NOW(), true and false, ON CONFLICT and double-quoted string literals, none of which are valid here; and when it is told the target is T-SQL it overcorrects into syntax that is a decade out of date, avoiding the ANSI double-pipe concatenation operator, IS DISTINCT FROM, GREATEST and STRING_AGG, all of which Azure SQL Database supports today.",
+  "correction": "Asked for SQL against Azure SQL Database, an agent writes statements that succeed and return the wrong answer. Comparing a nullable column with = or <> or NOT IN is three-valued logic, not two: WHERE status = @p finds nothing when @p is NULL, WHERE status <> 'shipped' silently drops every row whose status is NULL, and NOT IN over a subquery holding one NULL returns the empty set rather than a set short by one. Aggregates skip nulls, so AVG divides by the non-null count and COUNT(v) disagrees with COUNT(*), and measured on 2026-09-03 against EngineEdition 5 through sqlcmd -I -m-1 the engine says nothing at all about it: message 8153 is defined in sys.messages at severity 10 and was never raised, while Microsoft Learn's SET ANSI_WARNINGS page states a warning is generated. Integer division truncates because / returns the higher-precedence operand's type. ISNULL returns the type of its FIRST argument and converts the second into it, so ISNULL over an NVARCHAR(3) silently returns 'abc' where COALESCE returns 'abcdef'. A string declared with no length is one character, and thirty in a cast. And QUOTED_IDENTIFIER is decided at parse time, so the same double-quoted text is a string literal in one session and an identifier in another: the ODBC and OLE DB drivers set it ON at connect, the container's own sqlcmd leaves it OFF. The second failure is the loud one, PostgreSQL and MySQL syntax under a T-SQL name, and the third is overcorrecting into syntax a decade old when the engine has shipped the ANSI double pipe operator, IS NOT DISTINCT FROM, GREATEST and STRING_AGG.",
   "posture": ["read", "write"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
+    "design-azure-sql-schema",
     "t-sql-upserts-merge",
     "t-sql-json-and-openjson",
     "t-sql-regex-and-new-functions",
@@ -18,15 +19,106 @@
   "validation": {
     "target": "both",
     "setup": [
-      "a database with one table carrying an identity column",
-      "a copy of that table with an enabled AFTER INSERT trigger"
+      "a database with one table carrying a nullable column and one carrying an identity column",
+      "a copy of the identity table with an enabled AFTER INSERT trigger"
     ],
     "assert": [
-      "the generated pagination uses ORDER BY with OFFSET and FETCH, and does not combine TOP with OFFSET",
-      "the generated insert returns its new key with OUTPUT, and uses OUTPUT INTO when the target has an enabled trigger",
-      "no generated statement contains LIMIT, RETURNING, SERIAL, ILIKE, NOW(), true, false or ON CONFLICT",
-      "a bit column is compared with = 1 rather than used bare as a predicate",
+      "no predicate compares a nullable column or parameter with = or <> against a value that can be NULL, without IS NULL, IS NOT DISTINCT FROM or an explicit OR col IS NULL",
+      "no NOT IN names a subquery over a nullable column; NOT EXISTS is used instead",
+      "every average, ratio or percentage over a nullable column states whether NULL means zero or means excluded",
+      "no division intended to produce a fraction has integer operands on both sides",
+      "ISNULL is not substituted for COALESCE, or the reverse, without stating the intended return type",
+      "every character variable, parameter and cast carries an explicit length",
+      "the generated pagination uses ORDER BY with a unique tiebreaker plus OFFSET and FETCH, and does not combine TOP with OFFSET",
+      "every insert that needs its new key uses OUTPUT, with INTO when the target has an enabled trigger",
+      "no generated statement contains LIMIT, RETURNING, SERIAL, ILIKE, NOW(), true, false, ON CONFLICT or USE",
       "string literals use single quotes and double quotes appear only around identifiers"
+    ],
+    "probes": [
+      {
+        "sql": "CREATE TABLE dbo.probe_null_cmp (id INT, status NVARCHAR(20) NULL);\nINSERT INTO dbo.probe_null_cmp VALUES (1, N'shipped'), (2, N'held'), (3, NULL);\nDECLARE @p NVARCHAR(20) = NULL;\nSELECT SUM(CASE WHEN status = @p THEN 1 ELSE 0 END) AS matched_by_equals,\n       SUM(CASE WHEN status <> N'shipped' THEN 1 ELSE 0 END) AS not_shipped,\n       SUM(CASE WHEN status IS NOT DISTINCT FROM @p THEN 1 ELSE 0 END) AS matched_null_safe\nFROM dbo.probe_null_cmp;",
+        "expect": {
+          "rows": [[0, 1, 1]]
+        },
+        "why": "The claim the whole skill turns on, made executable in one row. Three rows exist, one of them NULL. Equality against a NULL parameter matches nothing, which is the documented ANSI_NULLS ON behaviour where every comparison against NULL is UNKNOWN and WHERE keeps only TRUE. The middle column is the one that reaches production: 'everything not shipped' is 1, not 2, because the NULL row is neither equal nor unequal. The third column is the fix, and IS NOT DISTINCT FROM is documented to return true or false and never unknown. Microsoft Learn: SET ANSI_NULLS truth table, and IS [NOT] DISTINCT FROM."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_assigned (customer_id INT NULL);\nINSERT INTO dbo.probe_assigned VALUES (1), (NULL);\nCREATE TABLE dbo.probe_customers (id INT NOT NULL);\nINSERT INTO dbo.probe_customers VALUES (1), (2), (3);\nSELECT (SELECT COUNT(*) FROM dbo.probe_customers c\n        WHERE c.id NOT IN (SELECT customer_id FROM dbo.probe_assigned)) AS by_not_in,\n       (SELECT COUNT(*) FROM dbo.probe_customers c\n        WHERE NOT EXISTS (SELECT 1 FROM dbo.probe_assigned a WHERE a.customer_id = c.id)) AS by_not_exists;",
+        "expect": {
+          "rows": [[0, 2]]
+        },
+        "why": "A single NULL in the subquery makes the NOT IN predicate UNKNOWN for every candidate row, so the answer is the empty set rather than a set short by one. Microsoft Learn's IN page carries this as a Caution: 'Any null values returned by subquery or expression that are compared to test_expression using IN or NOT IN return UNKNOWN'. The second column is the remedy the skill prescribes, proved to return the two customers a reader expects. Asserting both in one row is the point: the contrast is the correction, and a probe that measured only NOT IN would leave the fix unmeasured."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_readings (v INT NULL);\nINSERT INTO dbo.probe_readings VALUES (10), (NULL), (20);\nSELECT SUM(v) AS total, COUNT(*) AS all_rows, COUNT(v) AS non_null_rows, AVG(v) AS mean\nFROM dbo.probe_readings;",
+        "expect": {
+          "rows": [[30, 3, 2, 15]]
+        },
+        "why": "The mean is not the total over the row count. AVG divides 30 by the two non-null rows and returns 15, where a reader reading COUNT(*) expects 10. Measured 2026-09-03 on EngineEdition 5, where every one of these four values came back with no message of any kind. COUNT(v) beside COUNT(*) in the same row is what makes the divisor visible. Sourcing note: the first draft of this cited a NULL semantics page that turned out to be Azure Databricks rather than this engine, so the claim now rests on the measurement and on the aggregate list in Microsoft Learn's SET ANSI_WARNINGS page."
+      },
+      {
+        "sql": "SET ANSI_WARNINGS ON;\nCREATE TABLE dbo.probe_agg_silent (v INT NULL);\nINSERT INTO dbo.probe_agg_silent VALUES (10), (NULL), (20);\nSELECT (SELECT SUM(v) FROM dbo.probe_agg_silent) AS total,\n       (SELECT COUNT(v) FROM dbo.probe_agg_silent) AS non_null_rows,\n       (SELECT COUNT(*) FROM dbo.probe_agg_silent) AS all_rows,\n       @@OPTIONS & 8 AS ansi_warnings_bit,\n       (SELECT MAX(severity) FROM sys.messages WHERE message_id = 8153) AS msg_8153_severity;",
+        "expect": {
+          "rows": [[30, 2, 3, 8, 10]]
+        },
+        "why": "This probe previously asserted warning 8153 and it FAILED against a real engine on 2026-09-03, EngineEdition 5, ProductVersion 12.0.2000.8, through sqlcmd -I -m-1, the same invocation that surfaces Msg 1945 for design-azure-sql-schema. The sum returned 30 and no message at all. So the probe now asserts what the engine does. The ansi_warnings_bit column is why the result can be trusted rather than dismissed as a session that had warnings off: @@OPTIONS & 8 is 8, so ANSI_WARNINGS genuinely is ON. The msg_8153_severity column is the sharpest part: message 8153 is defined in sys.messages at severity 10 and is simply never raised, which is the skill's own thesis about statements that succeed and return a wrong answer, stated by the engine's own catalog. Microsoft Learn disagrees, and the disagreement is the finding rather than something to smooth over: SET ANSI_WARNINGS says 'When set to ON, if null values appear in aggregate functions, such as SUM, AVG, MAX, MIN, STDEV, STDEVP, VAR, VARP, or COUNT, a warning message is generated', and ALTER DATABASE SET options repeats it. On this engine no warning is generated. COUNT(v) at 2 against COUNT(*) at 3 carries the divergence in the same row, so this probe stands alone if the one above it is read without it."
+      },
+      {
+        "sql": "SELECT 7 / 2 AS integer_division, CAST(7.0 / 2 AS DECIMAL(4,1)) AS decimal_division;",
+        "expect": {
+          "rows": [[3, "3.5"]]
+        },
+        "why": "Microsoft Learn's / (Division) page: the operator returns the data type of the argument with the higher precedence, and 'if an integer dividend is divided by an integer divisor, the result is an integer that has any fractional part of the result truncated'. No warning is raised, so a percentage or a rate built from two integer columns is simply wrong. The second column is cast to DECIMAL(4,1) rather than left as the raw literal type so the printed text is stable across builds rather than a probe about decimal scale."
+      },
+      {
+        "sql": "DECLARE @short NVARCHAR(3) = NULL;\nSELECT ISNULL(@short, N'abcdef') AS isnull_result, COALESCE(@short, N'abcdef') AS coalesce_result;",
+        "expect": {
+          "rows": [["abc", "abcdef"]]
+        },
+        "why": "ISNULL and COALESCE are treated as interchangeable and are not. Microsoft Learn's ISNULL page: the function returns the same type as check_expression, and 'replacement_value can be truncated if replacement_value is longer than check_expression'. COALESCE follows the CASE rules and returns the type with the highest precedence, so it returns all six characters. Swapping one for the other as a style edit changes the value returned, silently."
+      },
+      {
+        "sql": "DECLARE @v NVARCHAR = N'abcdef';\nSELECT @v AS declared_without_length,\n       LEN(CAST(REPLICATE(CAST(N'a' AS NVARCHAR(MAX)), 40) AS NVARCHAR)) AS cast_without_length;",
+        "expect": {
+          "rows": [["a", 30]]
+        },
+        "why": "Microsoft Learn's nchar and nvarchar page: 'When n isn't specified in a data definition or variable declaration statement, the default length is 1. When n isn't specified with the CAST function, the default length is 30.' Both halves are asserted in one row because the surprise is that the same omitted length means two different things. The REPLICATE input is cast to NVARCHAR(MAX) first, without which REPLICATE returns nvarchar(4000) and a longer example would measure that limit instead of this one."
+      },
+      {
+        "sql": "SET QUOTED_IDENTIFIER OFF;\nSELECT \"not a column\" AS literal_or_identifier;",
+        "expect": {
+          "rows": [["not a column"]]
+        },
+        "why": "With QUOTED_IDENTIFIER OFF a double-quoted string is a literal, which Microsoft Learn's SET QUOTED_IDENTIFIER page states and demonstrates in its own example B. This is the half a reader meets on the container, whose own sqlcmd leaves the setting OFF while the ODBC and OLE DB drivers set it ON at connect. The pair of probes together is the claim: the same text, two different statements, decided by how the connection was made rather than by anything in the file."
+      },
+      {
+        "sql": "SET QUOTED_IDENTIFIER ON;\nSELECT \"not a column\" AS literal_or_identifier;",
+        "expect": {
+          "error": 207
+        },
+        "why": "The other half. With the setting ON, which Learn calls the default and which every shipping driver sets at connect, the same double-quoted text is read as an object name and the statement fails. Microsoft Learn's 0 to 999 error table gives 207 at severity 16 as 'Invalid column name'. QUOTED_IDENTIFIER is stated in the batch because Learn documents that it takes effect at parse time and that an occurrence inside a top-level ad hoc batch changes parsing from that point on."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_out (id INT IDENTITY PRIMARY KEY, total DECIMAL(9,2));\nCREATE TABLE dbo.probe_out_log (id INT NULL);\nEXEC('CREATE TRIGGER dbo.probe_out_trg ON dbo.probe_out AFTER INSERT AS INSERT INTO dbo.probe_out_log (id) SELECT id FROM inserted;');\nINSERT INTO dbo.probe_out (total) OUTPUT INSERTED.id VALUES (19.99);",
+        "expect": {
+          "error": 334
+        },
+        "why": "The one restriction that separates OUTPUT from PostgreSQL's RETURNING, made executable. Microsoft Learn's OUTPUT clause page: if OUTPUT is specified without INTO, the target of the DML operation cannot have an enabled trigger for that action, and the 0 to 999 error table gives 334 at severity 15 as 'The target table of the DML statement cannot have any enabled triggers if the statement contains an OUTPUT clause without INTO clause'. CREATE TRIGGER must be first in its batch, so it is issued through EXEC rather than by relying on the runner honouring a GO."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_out2 (id INT IDENTITY PRIMARY KEY, total DECIMAL(9,2));\nCREATE TABLE dbo.probe_out2_log (id INT NULL);\nEXEC('CREATE TRIGGER dbo.probe_out2_trg ON dbo.probe_out2 AFTER INSERT AS INSERT INTO dbo.probe_out2_log (id) SELECT id FROM inserted;');\nDECLARE @new TABLE (id INT);\nINSERT INTO dbo.probe_out2 (total) OUTPUT INSERTED.id INTO @new VALUES (19.99);\nSELECT id FROM @new;",
+        "expect": {
+          "rows": [[1]]
+        },
+        "why": "The remedy for the probe above, run end to end against the same fixture: the identical insert into the identical triggered table succeeds once OUTPUT captures into a table variable, and the new key is read back. Asserting the key rather than plain success proves the table variable was actually populated and not merely accepted by the parser."
+      },
+      {
+        "sql": "SELECT ISNULL(N'a' || CAST(NULL AS NVARCHAR(10)), N'(null)') AS pipes_result,\n       CONCAT(N'a', CAST(NULL AS NVARCHAR(10))) AS concat_result;",
+        "expect": {
+          "rows": [["(null)", "a"]]
+        },
+        "why": "Two claims in one statement. That the ANSI double pipe operator exists here at all is the overcorrection half of this skill, and a failure on this probe means the engine predates its July 2025 general availability rather than that the claim is wrong. That it disagrees with CONCAT about NULL is the silent half: || propagates the null while CONCAT treats a null argument as an empty string, so the same name assembled two ways gives two answers."
+      }
     ]
   },
   "triggering": {
@@ -34,19 +126,24 @@
       "Use the t-sql-correctness skill before writing this query"
     ],
     "implicit": [
-      "write me a paginated query for Azure SQL",
+      "why does this WHERE clause skip rows that have a NULL in that column",
+      "why did my NOT IN query return no rows at all",
+      "why is this average different from the sum divided by the row count",
+      "why does this division return 0 instead of a fraction",
+      "write me a paginated query for Azure SQL Database",
       "how do I get the id of the row I just inserted",
       "port this PostgreSQL schema and these queries to Azure SQL Database",
-      "why does LIMIT 10 not work",
-      "is my WHERE clause case sensitive here"
+      "why does LIMIT 10 not work"
     ],
     "routing": [
       "translate this query for our SQL database",
-      "review this SQL before it goes in"
+      "review this SQL before it goes in",
+      "should I use ISNULL or COALESCE here"
     ],
     "negative": [
       "write an upsert that inserts or updates a row",
       "parse this JSON column with OPENJSON",
+      "pick the column types and collation for this new table",
       "why is this query slow",
       "write a PostgreSQL migration for my Postgres database"
     ]

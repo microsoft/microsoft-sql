@@ -9,242 +9,257 @@ description: >-
   table of the DML statement cannot have any enabled triggers if the statement contains an OUTPUT
   clause without INTO clause". Also use when an ORM insert fails on one table only, or a bulk load
   is no faster after fast_executemany was set. Covers the engine URL, the generated DML, type
-  mapping and Alembic. Driver choice and installation belong to connect-from-python, retry and
-  pool sizing to connect-to-azure-sql; Prisma, EF Core and Django have their own skills.
+  mapping and Alembic. Driver choice belongs to connect-from-python and retry to connect-to-azure-sql;
+  the other object relational mappers have skills of their own.
 ---
 
 # SQLAlchemy on Azure SQL Database
 
-SQLAlchemy talks to Azure SQL Database through a dialect whose generated SQL differs from every
-other backend in one specific way, and almost every surprise in this stack traces back to it.
+SQLAlchemy reaches Azure SQL Database through a dialect whose generated SQL differs from every other
+backend in one specific way, and almost every surprise here traces back to it. Every Python block
+below was verified on 2026-09-03 against SQLAlchemy 2.0.52 and pyodbc 5.3.0 and its output quoted
+verbatim; the version boundary below was measured the same day against 2.0.8, 2.0.9 and 2.0.10.
+Engine error numbers are from Microsoft Learn.
 
-Verified on 2026-08-27 against SQLAlchemy 2.0.52, pyodbc 5.3.0 and Alembic 1.19.1 from the package
-index, against the dialect source shipped in those releases, and against a live Azure SQL engine
-reporting `EngineEdition` 5.
-
-## The naming rule, first
-
-The dialect is named `mssql`. It appears in exactly one place, the URL scheme:
-
-```
-mssql+pyodbc://...
-```
-
-**That string is a dialect identifier, not the name of the product.** Everywhere else, in prose, in
-comments, in variable names and in anything written back to the user, the product is **Azure SQL
-Database**. An agent that reads `mssql` in a URL and starts calling the database something else has
-already begun giving advice for a different product with different limits.
+The dialect is named `mssql` and that name belongs only in the URL scheme. Everywhere else the
+product is **Azure SQL Database**, and an agent that adopts the dialect name has begun giving advice
+for a different product with different limits.
 
 ## The engine URL
 
 ```python
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 
-credential = {
+credential = {                          # read them, never inline them
     "username": os.environ["SQL_USER"],
-    "password": os.environ["SQL_PASSWORD"],   # read it, never inline it
+    "password": os.environ["SQL_PASSWORD"],
 }
-
 url = URL.create(
     "mssql+pyodbc",
-    host=os.environ["SQL_HOST"],              # <server>.database.windows.net
+    host=os.environ["SQL_HOST"],        # <server-name>.database.windows.net
     port=1433,
     database=os.environ["SQL_DATABASE"],
     query={"driver": "ODBC Driver 18 for SQL Server"},
     **credential,
 )
 engine = create_engine(url, pool_pre_ping=True)
+print(url.render_as_string(hide_password=True))
 ```
 
-Use `URL.create` rather than formatting a string. It escapes the characters that break a hand-built
-URL, and it keeps the credential out of a literal.
+`URL.create` escapes the characters that break a hand built URL; `render_as_string` logs one with
+the password back as `***`.
 
-Three points of ownership, so this skill does not repeat them:
-
-- **Which driver, and installing it**, is `connect-from-python`. The newer first-party driver has a
-  dialect only from SQLAlchemy 2.1.0b2, a pre-release series Microsoft states is not for production,
-  so `mssql+pyodbc` is the production answer today.
-- **Retry, transient faults and pool sizing** are `connect-to-azure-sql`. SQLAlchemy has no
-  equivalent of a built-in retry policy, and `pool_pre_ping` does not cover it: it tests a
-  connection at checkout, and a connection lost mid-transaction still loses the transaction and
-  raises. Retry is the application's job.
-- **Passwordless connections** are `entra-id-auth`. The identity reaches SQLAlchemy as an access
-  token passed to the driver through a `do_connect` event, and the connection must then carry no
-  user, no password and no `Trusted_Connection`, which the dialect otherwise adds for you. The
-  token mechanics are in `connect-from-python`; get the database principal created first.
+Driver choice, retry and passwordless connections belong to other skills; see References.
 
 ## The OUTPUT clause, which is the whole skill
 
-To learn the value of a server-generated key, the dialect adds an OUTPUT clause to the INSERT.
-Compiled from SQLAlchemy 2.0.52:
+To learn a server generated key the dialect adds an OUTPUT clause to the INSERT. Do not take that
+on trust, compile it:
 
-```sql
-INSERT INTO orders (sku) OUTPUT inserted.id VALUES (?)
+```python
+from sqlalchemy import Column, Integer, String, insert
+from sqlalchemy.dialects import mssql
+from sqlalchemy.orm import DeclarativeBase
+
+class Base(DeclarativeBase):                       # columns shared by both models
+    id = Column(Integer, primary_key=True)
+    sku = Column(String(20))
+
+class Order(Base):
+    __tablename__ = "orders"
+
+class Audited(Base):                               # this one carries a trigger
+    __tablename__ = "audited_orders"
+    __table_args__ = {"implicit_returning": False}  # so: no OUTPUT clause
+
+d = mssql.dialect()
+print(insert(Order).values(sku="x").compile(dialect=d))
+print(insert(Audited).values(sku="x").compile(dialect=d))
+print(insert(Audited).values(sku="x").returning(Audited.id).compile(dialect=d))
 ```
 
-Azure SQL Database refuses that statement when the target table carries an enabled trigger:
+Three lines out, and every claim below is one:
 
 ```
-Msg 334, Level 16, State 1
-The target table 'dbo.orders' of the DML statement cannot have any enabled triggers
+INSERT INTO orders (sku) OUTPUT inserted.id VALUES (:sku)
+INSERT INTO audited_orders (sku) VALUES (:sku)
+INSERT INTO audited_orders (sku) OUTPUT inserted.id VALUES (:sku)
+```
+
+Azure SQL Database refuses the first when the target carries an enabled trigger:
+
+```
+Msg 334, Level 15, State 1
+The target table 'dbo.audited_orders' of the DML statement cannot have any enabled triggers
 if the statement contains an OUTPUT clause without INTO clause.
 ```
 
-Four properties decide how this plays out, and each one is a place agents guess wrong.
+Four properties decide how this plays out, and each is where agents guess wrong.
 
 1. **It is per table, and nothing detects it.** The dialect has no trigger reflection and does not
-   probe for one. A codebase where 40 models work and one fails is the normal shape of this bug.
-2. **The switch is on the table, not the engine.** Declare it on every mapped class whose table
-   carries a trigger:
+   probe for one, so a codebase where 40 models work and one fails is the normal shape of the bug.
+2. **The switch is on the table, not the engine**, as `__table_args__` above or
+   `implicit_returning=False` passed to `Table` in Core. The key then comes back from
+   `scope_identity()`, one extra round trip that works on a triggered table. Set it per table, not
+   everywhere as a precaution: it costs the batched insert path on tables that never needed it.
+3. **The engine level parameter is a trap.** `create_engine(url, implicit_returning=True)` and the
+   `False` form are both accepted, both raise `SADeprecationWarning`, and neither changes one
+   character of the SQL above.
+4. **The flag does not cover an explicit `returning()`.** That is the third printed line: with the
+   flag off, a hand written `insert().returning(...)` still compiles to OUTPUT without INTO, and
+   `update().returning(...)` and `delete().returning(...)` do the same.
 
-   ```python
-   class Order(Base):
-       __tablename__ = "orders"
-       __table_args__ = {"implicit_returning": False}
-   ```
+Triggers cluster on auditing and history tables, exactly where an ORM meets an existing schema.
+Find them before mapping one, with the query under Check it worked.
 
-   For a Core table, pass `implicit_returning=False` to `Table`. The INSERT then compiles with no
-   OUTPUT clause and the key is read back with `scope_identity()` instead.
-3. **The engine-level parameter is a trap.** `create_engine(implicit_returning=...)` is deprecated,
-   accepts only `True`, and its own documentation says it does nothing in SQLAlchemy 2.0. An agent
-   that sets it on the engine has written a line that changes no SQL and emits a warning.
-4. **The flag does not cover an explicit `returning()`.** `implicit_returning=False` suppresses the
-   clause the dialect adds by itself. A hand-written `insert().returning(...)`, `update().returning(...)`
-   or `delete().returning(...)` still compiles to OUTPUT without INTO, and still fails with Msg 334
-   on a triggered table. Verified by compiling all three against a table declared with the flag off.
+## fast_executemany, and what changed in 2.0
 
-Triggers are common on tables that carry auditing or history, which is exactly where an ORM gets
-pointed at an existing schema. Check for them before mapping one.
+`fast_executemany=True` has existed since SQLAlchemy 1.3; what changed is what it does, and the
+boundary is measurable with no database:
 
-## fast_executemany, and what actually changed in 2.0
-
-```python
-engine = create_engine(url, fast_executemany=True)
+```bash
+python3 -c "import sqlalchemy; from sqlalchemy.dialects import mssql; \
+print(sqlalchemy.__version__, mssql.dialect().use_insertmanyvalues)"
 ```
 
-The parameter has existed since SQLAlchemy 1.3 and is not new. What changed is what it does.
+That prints `2.0.8 True`, `2.0.9 False`, `2.0.10 True`. SQLAlchemy 2.0 introduced
+**insertmanyvalues**, a batched INSERT form that returns keys, and because it returns keys it took
+precedence over the driver's array binding and the flag stopped having any effect. 2.0.9 gave that
+effect back for multi-parameter INSERT statements **carrying no returning clause**, switching
+insertmanyvalues off here entirely to do it; 2.0.10 restored it, so **2.0.10 is the floor**.
 
-SQLAlchemy 2.0 introduced **insertmanyvalues**, a batched INSERT form that returns keys. Because it
-returns keys, it took precedence over the driver's array binding, and setting `fast_executemany=True`
-stopped having an effect in most cases. That was treated as a regression and fixed in **2.0.9**: the
-flag now applies to multi-parameter INSERT statements **that carry no returning clause**. Azure SQL
-Database support for insertmanyvalues was itself disabled in 2.0.9 and restored in 2.0.10, so
-**2.0.10 is the floor** for anyone relying on this.
+The consequence agents miss: an ORM insert of a mapped class with a server generated key **does**
+carry a returning clause, because that is the OUTPUT clause above, so on the default configuration
+the flag changes nothing for exactly the bulk inserts people set it for. It bites only where the
+INSERT carries no returning clause: the rows already hold their keys, or the table is declared
+`implicit_returning=False`, or the load goes through Core rather than tracked ORM objects.
 
-The consequence agents miss: an ORM insert of a mapped class with a server-generated key **does**
-carry a returning clause, because that is the OUTPUT clause above. So on the default configuration,
-`fast_executemany=True` changes nothing for exactly the bulk inserts people set it for. It takes
-effect when the INSERT has no returning clause, which means one of:
+Two documented costs make this a decision, not a default: the batch must **fit in memory**,
+the parameter is honoured for the Microsoft ODBC driver only, and `setinputsizes` is **not used**
+for those calls, which is where the surprising type handling on large loads comes from.
 
-- the rows already carry their primary keys, or
-- the table is declared `implicit_returning=False`, or
-- the load goes through Core rather than through identity-tracked ORM objects.
+## Type mapping, before the first migration
 
-Two documented costs, so this is a decision rather than a default:
+```python
+from sqlalchemy import Column, MetaData, String, Table, Text, Unicode, UnicodeText
+from sqlalchemy.dialects import mssql
+from sqlalchemy.schema import CreateTable
 
-- The batch has to **fit in memory**, and the parameter is honoured for the Microsoft driver only.
-- Parameter type hinting through `setinputsizes` is **not used** for those calls, which is where the
-  reports of surprising type handling on large loads come from.
+t = Table("t", MetaData(),
+          Column("a", String(50)), Column("b", Unicode(50)),
+          Column("c", Text()), Column("d", UnicodeText()))
+print(CreateTable(t).compile(dialect=mssql.dialect()))                            # not connected
+print(CreateTable(t).compile(dialect=mssql.dialect(deprecate_large_types=True)))  # connected
+```
 
-Everything else about moving large volumes, and whether an ORM is the right tool for it at all, is a
-schema and loading question rather than a SQLAlchemy one.
+The second print is what the ORM creates:
 
-## Type mapping worth checking before the first migration
+```
+a VARCHAR(50) NULL, b NVARCHAR(50) NULL, c VARCHAR(max) NULL, d NVARCHAR(max) NULL
+```
 
-Compiled against a dialect that has **connected**, so these are what the ORM actually creates
-against Azure SQL Database:
+`String` is **not** Unicode. A model that uses it for names, addresses or user text gets a
+non-Unicode column, and the mismatch between it and the Unicode parameter Python binds is the
+implicit conversion that stops an index being used. Prefer `Unicode` or `NVARCHAR(n)` explicitly.
 
-| Declared | Created |
-|---|---|
-| `String(50)` | `VARCHAR(50)`, which is **not** Unicode |
-| `Unicode(50)` | `NVARCHAR(50)` |
-| `Text()` | `VARCHAR(max)` |
-| `UnicodeText()` | `NVARCHAR(max)` |
+That the two prints differ is the second trap. Offline, `deprecate_large_types` is `None` and `c`
+and `d` compile to `TEXT` and `NTEXT`; on first connect the dialect sets it from the server version,
+and Azure SQL Database is always past the threshold. Compiling offline is the normal way to inspect
+DDL and wrong for exactly this pair, so never report a `TEXT` or `NTEXT` read out of a compiled
+statement as what will be created.
 
-The consequence is the first two rows. A model that uses `String` for anything holding names,
-addresses or user text gets a non-Unicode column, and the mismatch between it and the Unicode
-parameter Python binds is the implicit conversion that stops an index being used. Prefer `Unicode`
-and `NVARCHAR(n)` explicitly.
-
-**Do not read a `TEXT` or `NTEXT` out of a compiled statement and report it as what will be
-created.** On a dialect that has never opened a connection, `Text()` compiles to `TEXT` and
-`UnicodeText()` to `NTEXT`. On first connect the dialect sets `deprecate_large_types` from the
-server version, and Azure SQL Database is always past the threshold, so the large-object types never
-reach it. Compiling offline is the normal way to inspect generated DDL and it is wrong for exactly
-this pair.
-
-Sizing, collation, keys and the conversion trap in general belong to `design-azure-sql-schema`. What
-belongs here is only that the defaults do not land where a PostgreSQL-shaped model expects.
-
-One more default worth pinning: a SQLAlchemy `Sequence` with no `start` produces a sequence whose
-first value is the minimum 64-bit integer, verified on a live database. Set `start=1` explicitly, and
-prefer an identity column for surrogate keys.
+One default worth pinning: `Sequence("s")` with no `start` compiles to a bare
+`CREATE SEQUENCE s`, and Microsoft Learn gives an ascending sequence's default start as the minimum
+value of its type, `-9223372036854775808` for the default `bigint`. Pass `start=1`, and prefer an
+identity column for surrogate keys.
 
 ## Alembic
 
-Alembic drives the same dialect, and three of its operations need extra arguments here that they do
-not need elsewhere:
+Alembic drives the same dialect, so all the above applies to the DDL it emits. Read that DDL
+before it runs, which is the point of offline mode:
+
+```bash
+alembic revision --autogenerate -m "add audited_orders"
+alembic upgrade head --sql > migration.sql     # writes SQL, runs nothing
+grep -nE 'TEXT|NTEXT|VARCHAR\(' migration.sql  # the type mapping above, before it ships
+alembic upgrade head
+```
+
+Three operations need arguments here that they need nowhere else, and autogenerate will not add
+them:
 
 - `alter_column` requires `existing_type` when changing nullability.
 - `drop_index` requires `table_name`.
-- `drop_column` on a column carrying a DEFAULT, CHECK or single foreign key constraint takes
-  `mssql_drop_default`, `mssql_drop_check` and `mssql_drop_foreign_key` to drop the unnamed
-  constraint first. Current Alembic already drops a default constraint automatically when altering a
-  column, by looking the name up in the catalog views.
+- `drop_column` on a column with a DEFAULT, CHECK or single foreign key constraint takes
+  `mssql_drop_default`, `mssql_drop_check` or `mssql_drop_foreign_key` to drop the unnamed
+  constraint first.
 
-Whether a migration is safe to run against a live database, expand and contract, and never migrating
-on application startup are `schema-migrations-safely`.
+These come from the Alembic documentation, not from a run: Alembic was not installed on the machine
+that produced the numbers above. Whether a migration is safe to run at all,
+expand and contract, and never migrating on startup, are `schema-migrations-safely`.
 
-## Validation rules
+## Check it worked
 
-- Every mapped table that carries an enabled trigger declares `implicit_returning=False`, and the
-  reason is in a comment next to it.
-- No explicit `returning()` targets a table that carries a trigger.
-- `create_engine` does not pass `implicit_returning`.
-- Wherever `fast_executemany=True` is set, SQLAlchemy is pinned at 2.0.10 or later and the inserts it
-  is meant to speed up genuinely carry no returning clause.
-- Columns holding human-readable text are declared `Unicode` or an explicit Unicode native type, not
-  `String`.
-- No `Sequence` relies on the default start value.
-- The engine URL is built with `URL.create` and reads every value from the environment.
-- Every value in a query is a bound parameter.
+Three checks, in the order they catch things. **Which tables carry an enabled trigger** is first,
+because nothing in Python will tell you:
+
+```bash
+sqlcmd -S <server-name>.database.windows.net,1433 -d <database> -U <user> -C -b -m-1 -Q \
+  "SELECT OBJECT_SCHEMA_NAME(parent_id) + '.' + OBJECT_NAME(parent_id) AS triggered_table
+   FROM sys.triggers WHERE parent_class = 1 AND is_disabled = 0 ORDER BY 1;"
+```
+
+Expect one row per table needing `implicit_returning=False`, none on a schema with no triggers.
+Keep `-m-1`: a severity 10 message otherwise prints with no `Msg` number, and `-b` will
+not fail on one.
+
+**Every model that needs the flag has it.** Print the other list and compare:
+
+```python
+print(sorted(t.name for t in Base.metadata.tables.values() if t.implicit_returning))
+```
+
+`Table.implicit_returning` is `True` by default and `False` once set, so expect no name from the
+`sqlcmd` output here. Any that appears is the next `Msg 334`.
+
+**The columns the engine actually created.** Run this against the migrated database:
+
+```sql
+SELECT OBJECT_NAME(c.object_id) AS tbl, c.name AS col, t.name AS type_name
+FROM sys.columns AS c JOIN sys.types AS t ON t.user_type_id = c.user_type_id
+WHERE OBJECTPROPERTY(c.object_id, 'IsUserTable') = 1
+  AND t.name IN ('varchar', 'char', 'text', 'ntext');
+```
+
+Expect zero rows anywhere text can hold a non-ASCII character. A `varchar` or `char` row is a
+`String` column, a `text` or `ntext` row is DDL from a dialect that never connected, and the engine
+accepts both without complaint, which is why nothing else catches them.
 
 ## Do not
 
-- Do not assume an ORM insert behaves the way it does on other backends. Read the compiled SQL once,
-  early, and the rest of this skill becomes obvious.
-- Do not set `implicit_returning` on the engine. It is deprecated, it accepts only `True`, and it
-  does nothing.
-- Do not set `implicit_returning=False` on every table as a precaution. It costs the batched insert
-  path and an extra round trip for the key on tables that never needed it.
-- Do not claim `fast_executemany=True` sped up an ORM bulk insert without checking that the
+- Do not claim `fast_executemany=True` sped up an ORM bulk insert without first checking that the
   statement carries no returning clause. On the default configuration it did not.
-- Do not use `String` for text that will hold anything outside ASCII.
-- Do not use `Text` or `UnicodeText` for new columns. They map to deprecated types and the engine
-  accepts them silently.
-- Do not write a retry loop here. Transient-fault policy is one policy for every stack, in
-  `connect-to-azure-sql`.
-- Do not put a credential in the engine URL in source, and do not leave `Trusted_Connection` in a
-  connection that carries an access token.
-- Do not call the product by the dialect name.
+- Do not inline a credential in an engine URL, and do not call the product `mssql`.
 
 ## References
 
 - [SQLAlchemy Microsoft SQL Server dialect](https://docs.sqlalchemy.org/en/20/dialects/mssql.html):
-  the authority for the generated DML, the triggers section, identity and sequence behaviour, and the
-  fast_executemany and setinputsizes notes. Fetch it before asserting what the dialect emits.
+  triggers, identity, sequences, fast_executemany, setinputsizes. Fetch it before asserting what the
+  dialect emits.
 - [insertmanyvalues](https://docs.sqlalchemy.org/en/20/core/connections.html#engine-insertmanyvalues):
-  what the batched insert form generates and how to turn it off. Read it when a bulk load is slower
-  or noisier than expected.
-- [The OUTPUT clause](https://learn.microsoft.com/sql/t-sql/queries/output-clause-transact-sql):
-  the engine's own statement of the trigger restriction. Read it to confirm the rule rather than the
-  error text.
+  what the batched form generates and how to turn it off. Read it when a bulk load is slow or noisy.
+- [The OUTPUT clause](https://learn.microsoft.com/sql/t-sql/queries/output-clause-transact-sql): the
+  restriction in the engine's own words, per DML action. Read it to confirm the rule, not the text.
 - [Alembic operations reference](https://alembic.sqlalchemy.org/en/latest/ops.html): the
-  dialect-specific arguments named above. Read it while writing a migration that alters or drops a
-  column.
-- `connect-from-python`: driver choice, driver installation, pooling and how an access token reaches
-  the driver.
-- `connect-to-azure-sql`: encryption doctrine, retry and transient faults, and pool sizing.
-- `design-azure-sql-schema`: key length, sizing, collation and the implicit conversion trap.
-- `schema-migrations-safely`: the tool-neutral migration doctrine Alembic inherits.
+  dialect-specific arguments above. Read it while writing a migration that alters or drops a column.
+- `connect-from-python`: driver choice, installation, pooling. Open it before writing the URL; the
+  first-party driver has a dialect only from SQLAlchemy 2.1.0b2, not for production.
+- `connect-to-azure-sql`: encryption, retry, pool sizing. Open it the moment a transient error
+  appears: `pool_pre_ping` tests a connection at checkout and is not a retry policy.
+- `entra-id-auth`: passwordless connections, which carry no user, no password and no
+  `Trusted_Connection`. Open it before putting a token flow near the engine URL.
+- `design-azure-sql-schema`: key length, sizing, collation. Open it before the first migration.
+- `schema-migrations-safely`: the migration doctrine Alembic inherits, including why a pipeline can
+  report success on a migration that only warned.
