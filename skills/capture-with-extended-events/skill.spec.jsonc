@@ -1,10 +1,9 @@
 // skills/capture-with-extended-events/skill.spec.jsonc
 {
-  "$schema": "../../catalog/skill.spec.schema.json",
   "id": "capture-with-extended-events",
   "domain": "performance-and-diagnostics",
   "value": ["not-in-training-data", "multi-step-with-silent-failures"],
-  "correction": "Agents port an Extended Events script from SQL Server onto Azure SQL Database almost unchanged, scoping the session ON SERVER, pointing an event_file target at a local path, and omitting ACTION() clauses, and several of the resulting failures are not errors: the session is created, starts, and reports itself healthy while capturing nothing useful, or capturing nothing at all.",
+  "correction": "Agents port an Extended Events script from SQL Server onto Azure SQL Database almost unchanged: scoping the session ON SERVER, pointing an event_file target at a local path, omitting ACTION() clauses, and reaching for a system_health session this platform does not have. Several of the resulting failures are not errors. The session is created, starts, and reports itself healthy while capturing nothing useful, or nothing at all.",
   "posture": ["inspect", "read"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db"],
@@ -12,21 +11,77 @@
   "validation": {
     "target": "cloud",
     "setup": [
-      "a dedicated database the agent can create sessions and tables in",
-      "an administrative connection able to run CREATE EVENT SESSION and query the sys.dm_xe_database_* views"
+      "a dedicated database the agent can create event sessions and tables in",
+      "a connection holding CONTROL on that database, or CREATE ANY DATABASE EVENT SESSION, ALTER ANY DATABASE EVENT SESSION and VIEW DATABASE PERFORMANCE STATE"
     ],
     "assert": [
-      "CREATE EVENT SESSION ... ON SERVER fails with error 25737 on Azure SQL Database",
-      "CREATE EVENT SESSION ... ON DATABASE succeeds and is listed in sys.database_event_sessions before it is started",
-      "sys.dm_xe_database_sessions lists a session only after ALTER EVENT SESSION ... STATE = START",
-      "an event added without an ACTION() clause captures no username, client_app_name or sql_text",
+      "CREATE EVENT SESSION probe_on_server ON SERVER ADD EVENT sqlserver.sql_statement_completed ADD TARGET package0.ring_buffer fails with error 25737 on Azure SQL Database",
+      "sys.dm_xe_database_sessions lists a session only after ALTER EVENT SESSION probe_db_scope ON DATABASE STATE = START, so the catalog view and the DMV answer different questions",
+      "an event added without an ACTION() clause attaches no rows to sys.database_event_session_actions and captures no username, client_app_name or sql_text",
       "an event_file target pointed at a local filesystem path is rejected at CREATE time with error 40538",
-      "an event_file target pointed at an https blob URL is accepted at CREATE time and fails only at START with error 25602 when no working credential exists",
+      "an event_file target pointed at an https blob URL is accepted at CREATE and fails only at START, with error 25739 when no credential exists and 25602 when the target cannot initialise",
+      "a database scoped credential is usable by an event_file target only when its name is exactly the blob container URL with no trailing slash",
       "the duration field is documented in microseconds for sql_statement_completed and rpc_completed and in milliseconds for wait_info and wait_completed",
-      "a blocked_process_report session captures zero events across a sustained real lock wait because Azure SQL Database exposes no blocked process threshold to set",
-      "a database_xml_deadlock_report session captures zero events across a real, confirmed deadlock, while a lock_deadlock session on the same deadlock captures one event",
-      "system_health is running server-scoped in master, is visible via sys.dm_xe_sessions and sys.server_event_sessions only from a connection to master, and its ring buffer contains xml_deadlock_report for a real deadlock",
-      "sys.dm_xe_sessions fails with error 208 from a connection to a user database, and sys.database_event_sessions returning zero rows there is not evidence about system_health"
+      "sp_configure 'blocked process threshold' fails with error 40510 on Azure SQL Database, so a blocked_process_report session has no threshold to cross and the supported source for that report is the Blocks resource log category",
+      "the database-scoped session and memory limits are 100 started sessions and 128 MB per single database, and exceeding the memory limit raises error 25746 or 25747",
+      "Azure SQL Database has no built-in system_health event session, so there is no baseline capture to fall back on and no master connection that reveals one"
+    ],
+    "probes": [
+      {
+        "sql": "CREATE EVENT SESSION probe_on_server ON SERVER\n  ADD EVENT sqlserver.sql_statement_completed\n  ADD TARGET package0.ring_buffer;",
+        "expect": {
+          "error": 25737
+        },
+        "why": "Nearly every Extended Events example in the wild is written for SQL Server and scopes the session ON SERVER, so this is the first thing a ported script does. Learn's error table gives 25737, severity 16, as 'Database scoped extended event sessions are not available in server scope or system databases in Azure DB', and the container measured the same on 2026-08-29. This probe is the assert entry that once carried an ellipsis where the statement body belongs, written out."
+      },
+      {
+        "sql": "CREATE EVENT SESSION probe_event_file_local ON DATABASE\n  ADD EVENT sqlserver.sql_statement_completed\n  ADD TARGET package0.event_file (SET filename = N'/tmp/probe-capture.xel');",
+        "expect": {
+          "error": 40538
+        },
+        "why": "An event_file target pointed at a local path is rejected at CREATE, not merely left unwritten. Learn's error table gives 40538 as 'A valid URL beginning with https:// is required as value for any filepath specified' and the container measured that number on 2026-08-29. Probing at CREATE is the point, because the blob URL form is accepted at CREATE and fails only at START. Learn lists 25741 for the same condition, so a 25741 here means the product moved rather than the probe being wrong."
+      },
+      {
+        "sql": "CREATE EVENT SESSION probe_db_scope ON DATABASE\n  ADD EVENT sqlserver.sql_statement_completed\n  ADD TARGET package0.ring_buffer (SET max_memory = 4096);\nSELECT\n  (SELECT COUNT(*) FROM sys.database_event_sessions WHERE name = 'probe_db_scope') AS defined,\n  (SELECT COUNT(*) FROM sys.dm_xe_database_sessions WHERE name = 'probe_db_scope') AS started;",
+        "expect": {
+          "rows": [
+            [
+              1,
+              0
+            ]
+          ]
+        },
+        "why": "One probe for the two claims that get read backwards. Learn states it directly: catalog views describe session definitions and return nothing about active sessions, while the DMVs return only started sessions. An agent reading the wrong one concludes the opposite of the truth about whether its capture is live. Measured on the container 2026-08-29."
+      },
+      {
+        "sql": "CREATE EVENT SESSION probe_actions ON DATABASE\n  ADD EVENT sqlserver.sql_statement_completed (\n    ACTION (sqlserver.sql_text, sqlserver.username, sqlserver.client_app_name)\n  )\n  ADD TARGET package0.ring_buffer (SET max_memory = 4096);\nSELECT COUNT(*) AS attached_actions\nFROM sys.database_event_session_actions AS a\nJOIN sys.database_event_sessions AS s ON s.event_session_id = a.event_session_id\nWHERE s.name = 'probe_actions';",
+        "expect": {
+          "rows": [
+            [
+              3
+            ]
+          ]
+        },
+        "why": "The ACTION() claim made executable. A session with no ACTION() clause fires, counts events and reports itself healthy while carrying no caller, application or statement text, and the event count is identical either way. Counting attached actions in the catalog view is the only cheap signal. Learn documents sys.database_event_session_actions as one row per action per event, joined to sys.database_event_sessions on event_session_id."
+      },
+      {
+        "sql": "CREATE EVENT SESSION probe_deadlock_capture ON DATABASE\n  ADD EVENT sqlserver.database_xml_deadlock_report\n  ADD TARGET package0.ring_buffer\n  WITH (STARTUP_STATE = ON, MAX_MEMORY = 4 MB);\nALTER EVENT SESSION probe_deadlock_capture ON DATABASE STATE = START;\nSELECT COUNT(*) AS started FROM sys.dm_xe_database_sessions WHERE name = 'probe_deadlock_capture';",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "The one disagreement in this skill that only a live cloud run can settle. Learn documents exactly this session as the way to collect deadlock graphs on Azure SQL Database, while the container measured the event creating, starting and capturing zero across two confirmed deadlocks on 2026-08-29. This asserts the half that is settleable without causing a deadlock: the event is accepted rather than refused with error 25743, and the session reaches a started state. A failure here means Learn's own documented recipe does not run."
+      },
+      {
+        "sql": "EXEC sys.sp_configure N'blocked process threshold', 5;",
+        "expect": {
+          "error": 40510
+        },
+        "why": "Why a blocked_process_report session creates, starts, reports healthy and captures nothing across a real 28 second lock wait: there is no threshold to cross, not a threshold set too high. Learn documents the blocked process threshold option for SQL Server only and gives 40510 as 'Statement %s is not supported in this version of SQL Server'; the container measured it naming CONFIG on 2026-08-29. Without this probe the empty ring buffer reads as a tuning problem."
+      }
     ]
   },
   "triggering": {
@@ -38,7 +93,7 @@
     "implicit": [
       "I created an event session and started it but the ring buffer is empty",
       "My deadlock event session never fires even though I know the app is deadlocking",
-      "Extended Events works on my on-prem SQL Server script but errors out on Azure SQL Database"
+      "Where do I find system_health on my Azure SQL database"
     ],
     "negative": [
       "Read the estimated execution plan for this query",

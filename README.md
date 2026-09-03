@@ -241,11 +241,11 @@ Stores and searches vectors natively in Azure SQL Database: the vector type, VEC
 
 **[capture-with-extended-events](skills/capture-with-extended-events/SKILL.md)**
 
-Creates, reads and cleans up a database-scoped Extended Events session on Azure SQL Database, and names the specific ways such a session reports success while capturing nothing.
+Creates, starts, reads back and drops a database-scoped Extended Events session on Azure SQL Database, and names the ways such a session reports success while capturing nothing.
 
 **[diagnose-blocking-and-deadlocks](skills/diagnose-blocking-and-deadlocks/SKILL.md)**
 
-Finds who is blocking whom on Azure SQL Database right now, and reads a completed deadlock graph out of the system_health session once one has happened.
+Finds who is blocking whom on Azure SQL Database right now, and reads a completed deadlock graph out of the database-scoped Extended Events session that captured it.
 
 **[diagnose-resource-pressure](skills/diagnose-resource-pressure/SKILL.md)**
 
@@ -361,7 +361,7 @@ Writes integration tests that run IN CODE against a real Azure SQL Database cont
 
 **[azure-sql](skills/azure-sql/SKILL.md)**
 
-Orients an agent working with Azure SQL Database in 2026: what the service is and is not, what is generally available against what is still preview, which tool does which job, and which skill owns the task in front of it.
+Orients an agent starting work on Azure SQL Database and hands the task to the catalog skill that owns it.
 
 **[skill-feedback](skills/skill-feedback/SKILL.md)**
 

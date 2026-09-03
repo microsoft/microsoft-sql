@@ -1,282 +1,294 @@
 ---
 name: capture-with-extended-events
 description: >-
-  Creates, reads and cleans up a database-scoped Extended Events session on Azure SQL Database, and
-  names the specific ways such a session reports success while capturing nothing. Use when someone
-  asks to capture query text, blocking, deadlocks or resource waits with Extended Events, XEvents or
-  an XE session on Azure SQL Database, or pastes a session that ran without error and produced an
-  empty ring buffer. Covers session scope, the ring buffer target read back as XML, the event_file
-  target's requirement for Azure Blob Storage, the system_health session and why a user database
-  connection cannot see it, and which diagnostic events actually fire in this scope. Does not
-  diagnose slow queries, blocking or resource pressure once the data exists, which belong to
-  diagnose-slow-query, diagnose-blocking-and-deadlocks and diagnose-resource-pressure, and does not
-  read an execution plan, which belongs to read-execution-plan.
+  Creates, starts, reads back and drops a database-scoped Extended Events session on Azure SQL
+  Database, and names the ways such a session reports success while capturing nothing. Use when
+  someone asks to capture query text, blocking or deadlocks with Extended Events, XEvents or an XE
+  session on Azure SQL Database, or pastes a session that ran without error and left an empty ring
+  buffer. Covers ON DATABASE scope and the error ON SERVER raises, the ring buffer shredded from
+  XML into a rowset, the event_file target's requirement for a blob URL and a credential named
+  after the container, the events and actions the service refuses, the per-database session and
+  memory limits, and the fact that there is no built-in system_health session to fall back on.
+  Does not diagnose slow queries, blocking or resource pressure once the data exists, which belong
+  to diagnose-slow-query, diagnose-blocking-and-deadlocks and diagnose-resource-pressure, and does
+  not read an execution plan, which belongs to read-execution-plan.
 ---
 
 # Capture with Extended Events on Azure SQL Database
 
-Creates a database-scoped Extended Events session, starts it, reads its target back, and drops it
-again. This is the mechanism only: what to do with the captured data belongs to the diagnostic
-skills that use it.
+Builds a database-scoped event session, starts it, reads its target back as a rowset, and drops it.
+What the captured data *means* belongs to the diagnostic skills that consume it.
 
-Measured on 2026-08-29 against a live engine reporting `EngineEdition` 5 and Edition `SQL Azure`.
-Every claim below with a specific error number, message or event outcome was produced by actually
-running it, not inferred from documentation. Two things could not be checked there and are marked
-as such below: writing an `event_file` target all the way through to Azure Blob Storage, and
-session persistence across an engine restart.
+Checked 2026-09-03 against Microsoft Learn's Azure SQL Database Extended Events pages and its
+Database Engine error tables, and on 2026-08-29 against a local Azure SQL Database container
+reporting `EngineEdition` 5. **Where the two disagree this file follows Learn**, because the
+container is a different engine build and the subject here is the cloud service. Every
+disagreement is named at the point it matters.
 
-## The facts that shape this, before the steps
+## Four things the service changes, and the error number for each
 
-- **Extended Events on Azure SQL Database is database-scoped only, for a connection to a user
-  database.** There is no `ON SERVER` scope available from there, and the server-scope DMVs and
-  catalog views this event data normally lives in are not exposed from a user database connection
-  at all.
-- **A server-scoped `system_health` session exists and is running, and it already captures
-  deadlocks.** It is not built by you, and it is not visible from a user database. Reaching it
-  needs a connection to `master`, which is the single most important thing in this file: do not
-  conclude nothing is watching just because a user database connection cannot see it.
-- **A session can also be created, started and reported healthy while its target stays empty
-  forever, for reasons that have nothing to do with `master` versus a user database.** Two such
-  cases are measured and reproduced below, alongside `system_health`'s deadlock capture, and it
-  matters that a reader can tell the two kinds of empty apart.
-- **The catalog view and the DMV answer different questions, in either scope.** A `*_event_sessions`
-  catalog view lists every session **definition** that exists, whether or not it is running. A
-  `dm_xe_*_sessions` DMV lists only sessions that are currently **started**. Reading the wrong one
-  produces the opposite of the right conclusion, and this applies the same way to
-  `sys.server_event_sessions` versus `sys.dm_xe_sessions` in `master` as it does to
-  `sys.database_event_sessions` versus `sys.dm_xe_database_sessions` in a user database.
+| | |
+|---|---|
+| **Scope** | Sessions are database-scoped only. `ON SERVER` fails with `Msg 25737`, and so does `ON DATABASE` against a system database |
+| **Names** | Catalog views and DMVs take a `database_` prefix, never `server_`: `sys.database_event_sessions`, `sys.dm_xe_database_sessions` |
+| **Durable target** | `event_file` writes to an Azure Storage blob and nowhere else. A local path fails at `CREATE` with `Msg 40538` |
+| **No baseline** | **There is no built-in `system_health` session in Azure SQL Database.** Nothing is capturing anything until you build a session |
+
+That last row changes behaviour. On SQL Server an agent leans on `system_health` for deadlocks and
+skips building anything; here Learn states there is no such session, so there is no fallback and no
+`master` connection that reveals one. There *is* an internal `dl` session, and Learn's instruction
+is not to read it: `sys.fn_xe_file_target_read_file` over a large `dl` file can raise an
+out-of-memory error in `master` and disrupt login processing.
 
 ## Steps
 
-1. **Before building anything, check whether `system_health` in `master` already has it.** Connect
-   to `master` specifically, with a login that can reach it, and read its ring buffer:
+### 1. Write the session, with the `ACTION()` clauses attribution needs
 
-   ```sql
-   SELECT CAST(t.target_data AS xml) AS target_xml
-   FROM sys.dm_xe_session_targets AS t
-   JOIN sys.dm_xe_sessions AS s
-     ON s.address = t.event_session_address
-   WHERE s.name = 'system_health'
-     AND t.target_name = 'ring_buffer';
-   ```
+An event carries only its own native fields. Who ran the statement, from what application, and the
+statement text are *actions*, and an event added without them captures none of the three.
 
-   Confirmed on this engine: `system_health` is present in `sys.dm_xe_sessions` (three sessions:
-   `hkenginexesession`, `system_health`, `sp_server_diagnostics session`) and in
-   `sys.server_event_sessions` (`system_health`, `AlwaysOn_health`) when queried from `master`, and
-   `sys.server_event_session_events` lists roughly twenty events wired into it, including
-   `xml_deadlock_report`. Reading its ring buffer from `master` after a real, confirmed deadlock
-   (SQL error 1205 raised) returned that deadlock's `xml_deadlock_report` event, captured with no
-   session built for the purpose at all. This step is the highest-value one in this file precisely
-   because it needs nothing created, started or cleaned up.
+```sql
+CREATE EVENT SESSION capture_statements ON DATABASE
+ADD EVENT sqlserver.sql_statement_completed (
+    ACTION (sqlserver.sql_text, sqlserver.username, sqlserver.client_app_name)
+    WHERE duration > 500000
+)
+ADD TARGET package0.ring_buffer (SET max_memory = 4096)
+WITH (MAX_MEMORY = 4 MB, MAX_DISPATCH_LATENCY = 5 SECONDS, STARTUP_STATE = OFF);
+```
 
-   The catch, also confirmed: none of the queries above work from a connection to a user database.
-   `sys.dm_xe_sessions` there fails outright with `Msg 208, Invalid object name 'sys.dm_xe_sessions'`,
-   and `sys.database_event_sessions` correctly returns zero rows, because no *database-scoped*
-   session was ever created there, which is a true but unrelated fact about that database rather
-   than evidence about `system_health`. **The variable that decides whether you can see
-   `system_health` is which database you are connected to, not a permission you are missing and not
-   an absence of anything running.** In the cloud, `master` is administrative and most application
-   identities are never connected to it at all, which is worth confirming for the identity you are
-   using before promising this path will work for it.
+Two details in that statement earn their place:
 
-2. **If step 1 does not cover it, create your own session with `ON DATABASE`, never `ON SERVER`.**
-   `ON SERVER` fails immediately with:
+- **`duration > 500000` is half a second, not eight minutes.** `sql_statement_completed` and
+  `rpc_completed` report `duration` in microseconds; `wait_info` and `wait_completed` report it in
+  milliseconds. A threshold copied between them is wrong by a factor of 1000 and the session gives
+  no sign of it. Confirm the unit for the event you are actually using before you write a
+  predicate, with the query in step 5.
+- **`STARTUP_STATE`** decides whether the session comes back after a failover: Learn's guidance is
+  `ON` for a continuous session, `OFF` for ad hoc troubleshooting. A ring buffer is cleared whenever
+  the session stops, so `ON` restarts the session and still loses the events.
 
-   ```
-   Msg 25737, Level 16, State 1
-   Database scoped extended event sessions are not available in server scope or system databases in Azure DB.
-   ```
+### 2. Create and start it on a connection to the user database
 
-   This is a hard error, not a silent failure, so it is the easy one. It still surfaces constantly
-   because most Extended Events examples in the wild are written for SQL Server and use `ON SERVER`
-   by default.
+Creating a session does not start it. Run both, on one connection, to the user database and never
+to `master`:
 
-3. **Add `ACTION()` clauses for anything you intend to filter or attribute by.** An event added with
-   no actions only carries the fields that are native to that specific event. Add
-   `sqlserver.sql_text`, `sqlserver.username` and `sqlserver.client_app_name` explicitly when you
-   need to know which query and which caller:
+```bash
+cat > capture-session.sql <<'SQL'
+ALTER EVENT SESSION capture_statements ON DATABASE STATE = START;
+SQL
 
-   ```sql
-   CREATE EVENT SESSION capture_statements ON DATABASE
-   ADD EVENT sqlserver.sql_statement_completed(
-       ACTION (sqlserver.sql_text, sqlserver.username, sqlserver.client_app_name)
-       WHERE duration > 500000
-   )
-   ADD TARGET package0.ring_buffer(SET max_memory = 4096)
-   WITH (MAX_DISPATCH_LATENCY = 5 SECONDS);
-   ```
+sqlcmd -S <server-name>.database.windows.net -d <database-name> -G -N -b -i capture-session.sql
+```
 
-   Measured side by side: the same event without an `ACTION()` clause still fires and still counts
-   events, but the captured XML carries no `username`, `client_app_name` or `sql_text` action at
-   all, only whatever the event happens to expose natively. A session that "works" and tells you
-   nothing about who ran what is usually this, not a bug.
+`-G` selects Microsoft Entra authentication (`-U <login> -P` instead, for a SQL authentication
+login), `-N` requests an encrypted connection, and `-b` makes sqlcmd exit non-zero on error, so a
+failed `START` fails the script instead of scrolling past.
 
-4. **Get the duration unit right for the specific event, because it is not the same across events.**
-   `sql_statement_completed`, `rpc_completed` and `lock_acquired` report `duration` in
-   **microseconds**. `wait_info` and `wait_completed` report it in **milliseconds**. A predicate
-   written for one and reused on the other is off by a factor of 1000 and fails silently: the
-   session runs, matches nothing or matches everything, and gives no indication the threshold was
-   wrong. Confirmed both from `sys.dm_xe_object_columns` and empirically: a session filtering
-   `sql_statement_completed` on `duration > 500000` correctly captured a one-second `WAITFOR` (whose
-   measured duration came back as `1000292`, consistent with microseconds) and correctly ignored a
-   sub-millisecond statement.
+Creating the session needs `CREATE ANY DATABASE EVENT SESSION` in the database and starting it
+needs `ALTER ANY DATABASE EVENT SESSION`. These are the database-scoped permissions, not the
+`ALTER ANY EVENT SESSION` server permission an example written for SQL Server will ask for. Both
+are included in `CONTROL` on the database, held by `dbo`, by `db_owner` and by the server
+administrator.
 
-5. **Start it, generate the activity, then read the target back as XML.** Creating a session does
-   not start it. Start it explicitly, and read the ring buffer by casting `target_data` to `xml`
-   through the database-scoped DMVs:
+### 3. Read the ring buffer back as a rowset
 
-   ```sql
-   ALTER EVENT SESSION capture_statements ON DATABASE STATE = START;
+`target_data` arrives as XML. Shred it rather than eyeballing it:
 
-   -- run the workload here
+```bash
+sqlcmd -S <server-name>.database.windows.net -d <database-name> -G -N -b -Q "
+WITH RingBuffer AS (
+    SELECT CAST(xst.target_data AS xml) AS TargetData
+    FROM sys.dm_xe_database_session_targets AS xst
+    JOIN sys.dm_xe_database_sessions AS xs ON xst.event_session_address = xs.address
+    WHERE xs.name = N'capture_statements' AND xst.target_name = N'ring_buffer'
+),
+EventNode AS (
+    SELECT CAST(n.NodeData.query('.') AS xml) AS EventInfo
+    FROM RingBuffer AS rb CROSS APPLY rb.TargetData.nodes('/RingBufferTarget/event') AS n(NodeData)
+)
+SELECT EventInfo.value('(event/@timestamp)[1]', 'datetimeoffset')                         AS event_time,
+       EventInfo.value('(event/data[@name=\"duration\"]/value)[1]', 'bigint')             AS duration,
+       EventInfo.value('(event/action[@name=\"username\"]/value)[1]', 'sysname')          AS username,
+       EventInfo.value('(event/action[@name=\"client_app_name\"]/value)[1]', 'nvarchar(128)') AS app_name,
+       EventInfo.value('(event/action[@name=\"sql_text\"]/value)[1]', 'nvarchar(max)')    AS sql_text
+FROM EventNode
+ORDER BY event_time DESC;"
+```
 
-   SELECT CAST(t.target_data AS xml) AS target_xml
-   FROM sys.dm_xe_database_session_targets AS t
-   JOIN sys.dm_xe_database_sessions AS s
-     ON s.address = t.event_session_address
-   WHERE s.name = 'capture_statements'
-     AND t.target_name = 'ring_buffer';
-   ```
+The three `action` columns come back `NULL` for a session built without the `ACTION()` clause in
+step 1. Event counts are identical either way, so this is the only place the difference shows.
 
-   The ring buffer is a fixed-size, in-memory, wrap-around target: it holds recent events only, and
-   it does not survive a session stop. For anything that has to persist, use `event_file` instead,
-   and read step 6 before you reach for it.
+### 4. Stop and drop when the capture is done
 
-6. **Before choosing `event_file`, know it only writes to Azure Blob Storage.** A local filesystem
-   path is rejected at creation, not merely unwritten:
+```sql
+ALTER EVENT SESSION capture_statements ON DATABASE STATE = STOP;
+DROP EVENT SESSION capture_statements ON DATABASE;
+```
 
-   ```
-   Msg 40538, Level 16, State 3
-   A valid URL beginning with 'https://' is required as value for any filepath specified.
-   ```
+Stopping empties a ring buffer, so read it first. A stopped session still appears in
+`sys.database_event_sessions` and disappears from `sys.dm_xe_database_sessions`; only `DROP` removes
+the definition. Sessions are database-scoped, so dropping the database takes them with it.
 
-   An `https://` blob URL is accepted at `CREATE` time with no error at all, credential or not. The
-   failure shows up only when you `START` the session, and only if the credential is missing or
-   wrong:
+### 5. The three metadata queries worth keeping
 
-   ```
-   Msg 25602, Level 16, State 1
-   The target, "...package0.event_file", encountered a configuration error during initialization.
-   Object cannot be added to the event session. The operating system returned error 86:
-   'The specified network password is not correct.' while creating the file '...'.
-   ```
+```sql
+-- the duration unit for one event, read rather than assumed
+SELECT o.name AS event_name, c.name AS column_name, c.description
+FROM sys.dm_xe_objects AS o
+JOIN sys.dm_xe_object_columns AS c ON c.object_name = o.name AND c.object_package_guid = o.package_guid
+WHERE o.name IN (N'sql_statement_completed', N'wait_info') AND c.name = N'duration';
 
-   That message names a Windows network error, not a storage or permission error, because the
-   engine is reporting the file system layer underneath the blob mount. It means the database has
-   no working access to that blob container, not that the file itself is broken. Getting `START`
-   past this needs a `DATABASE SCOPED CREDENTIAL` holding a SAS token scoped to the container (which
-   itself needs a master key in the database first, or fails with
-   `Msg 15581, Please create a master key in the database...`), or granting the server's managed
-   identity `Storage Blob Data Contributor` on the storage account. **Neither path was tested end to
-   end here**, because it needs a real Azure Storage account and this session ran entirely against
-   the local container. Treat the credential and role assignment steps as documented, not measured,
-   and verify the actual write against your own storage account before relying on it.
-   [references/event-file-and-read-back.md](references/event-file-and-read-back.md) has the full
-   credential syntax and how to read the `.xel` files back once they exist.
+-- whether an event, action or target exists on this platform at all
+SELECT o.object_type, o.name, o.description
+FROM sys.dm_xe_objects AS o
+WHERE o.object_type IN ('action', 'event', 'target') AND o.name LIKE '%deadlock%';
 
-7. **Stop and drop the session when you are done with it.** `ALTER EVENT SESSION ... STATE = STOP`
-   then `DROP EVENT SESSION ... ON DATABASE`. A stopped session still appears in
-   `sys.database_event_sessions` and disappears from `sys.dm_xe_database_sessions`; only `DROP`
-   removes the definition. A database-scoped session lives and dies with its database: dropping the
-   database drops the session, and there is nothing further to clean up on the server. This step
-   does not apply to `system_health`: it is server-scoped, not yours to stop, and not yours to drop.
+-- memory this database is spending on started sessions, against the 128 MB cap
+SELECT name AS session_name, total_buffer_size + total_target_memory AS total_session_memory
+FROM sys.dm_xe_database_sessions;
+```
 
-## Events that create and start cleanly and still capture nothing, and the one that is not what it looks like
+Session memory is capped at 128 MB per single database and 512 MB across an elastic pool, and
+*started* sessions at 100 per database or pool. Exceeding the memory cap raises `Msg 25746` or
+`Msg 25747`, which name `sys.dm_xe_database_sessions` and tell you to stop or shrink a session.
 
-Three cases, each reproduced with a real, confirmed condition on the local engine, and each one a
-session that gave no error at any point:
+## Check it worked
 
-- **`blocked_process_report`** created and started without error. A genuine lock wait was then held
-  for roughly 28 seconds by one session while a second session blocked behind it, confirmed by both
-  sessions completing in sequence rather than erroring. The session's ring buffer captured **zero**
-  events. Azure SQL Database exposes no way to set the blocked process threshold this event depends
-  on: `sp_configure 'blocked process threshold'` fails outright with
-  `Msg 40510, Statement 'CONFIG' is not supported in this version of SQL Server`, and no equivalent
-  key exists in `sys.database_scoped_configurations`. Do not build a diagnosis around this event on
-  Azure SQL Database; it is not that the threshold is high, it is that there is no threshold to
-  cross.
-- **`database_xml_deadlock_report`**, a *database-scoped* event, created and started without error
-  as a database-scoped session, and is listed by the engine itself as visible in this scope. A real
-  deadlock was produced twice, independently, each time confirmed by the actual SQL Server error the
-  loser received: `Msg 1205, ... has been chosen as the deadlock victim`. Both times the session's
-  ring buffer captured **zero** events. This is a real, reproduced gap in this specific event, not a
-  claim that Azure SQL Database cannot see deadlocks at all: see the next point.
-- **`xml_deadlock_report`**, a *different, server-scoped* event with a similar name, is the one
-  wired into `system_health` in `master`, and it does fire: step 1 above captured it for the same
-  kind of deadlock, from `master`, with no session built by hand at all. `database_xml_deadlock_report`
-  is not a database-scoped alias for it; the two are separate events with separate implementations,
-  one of which fires here and one of which does not, and the near-identical names are exactly why
-  they get conflated. `lock_deadlock`, the lower-level *database-scoped* event, was also tested
-  directly against the same kind of deadlock and **did** capture one event, with the resource type,
-  lock mode, transaction id and deadlock id all present in the XML. If a database-scoped session is
-  the only option available to you and `system_health` cannot be reached, prefer `lock_deadlock` over
-  `database_xml_deadlock_report` for a deadlock capture.
+Run this immediately after step 2. It is four assertions with stated expected values, and each one
+distinguishes a specific silent failure from success.
 
-Also confirmed: `sys.dm_xe_database_objects`, which sounds like the database-scoped counterpart to
-`sys.dm_xe_objects`, does not exist at all, from either `master` or a user database:
-`Msg 208, Invalid object name 'sys.dm_xe_database_objects'`. Metadata about available events, actions
-and targets comes from the ordinary `sys.dm_xe_objects` in whichever scope you are connected to, not
-from a database-prefixed variant of it.
+```sql
+SET NOCOUNT ON;
+DECLARE @name sysname = N'capture_statements', @fail int = 0, @n int;
 
-Read the source values in
-[references/event-catalog-quirks.md](references/event-catalog-quirks.md) if a reviewer wants the
-exact captured XML rather than the summary above.
+-- 1. the definition exists. Zero here means CREATE never ran, or ran in another database
+SELECT @n = COUNT(*) FROM sys.database_event_sessions WHERE name = @name;
+IF @n <> 1 BEGIN PRINT 'FAIL 1: no session definition. CREATE did not run in this database'; SET @fail = 1; END
+
+-- 2. it is STARTED. The catalog view above says nothing about this, and this is the usual answer
+--    to "the session exists and the ring buffer is empty"
+SELECT @n = COUNT(*) FROM sys.dm_xe_database_sessions WHERE name = @name;
+IF @n <> 1 BEGIN PRINT 'FAIL 2: defined but never started. Run ALTER EVENT SESSION capture_statements ON DATABASE STATE = START'; SET @fail = 1; END
+
+-- 3. the actions are attached. Expect 3: sql_text, username, client_app_name
+SELECT @n = COUNT(*)
+FROM sys.database_event_session_actions AS a
+JOIN sys.database_event_sessions AS s ON s.event_session_id = a.event_session_id
+WHERE s.name = @name;
+IF @n <> 3 BEGIN PRINT CONCAT('FAIL 3: ', @n, ' actions attached, expected 3. Captured rows will have no caller'); SET @fail = 1; END
+
+-- 4. the target is processing events. Zero AFTER a workload that should match the predicate means
+--    the predicate, the unit, or the event choice is wrong, not the session
+SELECT @n = ISNULL(SUM(execution_count), 0) FROM sys.dm_xe_database_session_targets AS t
+JOIN sys.dm_xe_database_sessions AS s ON s.address = t.event_session_address WHERE s.name = @name;
+IF @n = 0 BEGIN PRINT 'WARN 4: target has processed nothing yet. Expected after a matching workload'; END
+
+IF @fail = 1 THROW 50001, 'event session is not capturing', 1;
+PRINT 'event session: DEFINED, STARTED, ACTIONS ATTACHED';
+```
+
+Assertions 1 and 2 are the pair that gets read backwards. The catalog view lists every session
+*definition* whether or not it runs; the DMV lists only *started* sessions. Read one for the other
+and you get the opposite of the truth about whether a capture is live.
+
+## Sessions that create, start and capture nothing
+
+Three cases, and none of them raise an error at any point.
+
+- **No `ACTION()` clause.** Events fire and are counted, and every attribution column is `NULL`.
+  Assertion 3 above is what catches it.
+- **`blocked_process_report`.** Its threshold is set with
+  `sp_configure 'blocked process threshold'`, an option Learn documents for SQL Server only. Here
+  that statement fails with
+  `Msg 40510, Statement 'CONFIG' is not supported in this version of SQL Server`, and
+  `sys.database_scoped_configurations` has no equivalent key. Measured on the container: this event
+  created, started and captured zero across a 28 second real lock wait. **The supported route to
+  blocked process reports here is not an event session at all**: enable the `Blocks` diagnostic
+  settings category and read `blocked_process_filtered_s` out of the streamed resource logs.
+- **An event or action the platform does not carry.** These are rejected at `CREATE` rather than
+  silently: `Msg 25742` for a target, `Msg 25743` for an event, `Msg 25744` for an action. Check
+  with the second query in step 5 first.
+
+**On deadlocks, Learn and the container disagree, and this file follows Learn.** Learn's documented
+way to capture deadlock graphs on Azure SQL Database is a database-scoped session on
+`sqlserver.database_xml_deadlock_report`. On the container that event created, started and captured
+zero events across two confirmed deadlocks (`Msg 1205` each time), while `sqlserver.lock_deadlock`
+captured one. That gap has not been reproduced on the cloud service and is not evidence about it,
+so build the session Learn documents and verify it with assertion 4 above against a deadlock you
+cause deliberately. Keep `lock_deadlock` as the fallback only if that verification comes back empty.
+
+When a session runs clean and its target stays empty, open
+[references/sessions-that-capture-nothing.md](references/sessions-that-capture-nothing.md) for the
+captured XML of each case above, the container measurements behind them, and the
+`sys.dm_xe_object_columns` duration text for a specific event.
+
+## The `event_file` target, in one paragraph
+
+A local filesystem path is rejected at `CREATE`, not left unwritten:
+`Msg 40538, A valid URL beginning with 'https://' is required as value for any filepath specified`.
+An `https://` blob URL is accepted at `CREATE` with no credential check at all; the credential is
+evaluated only at `START`, which fails with `Msg 25739` when it is missing outright, or `Msg 25602`
+when the target cannot initialise. The most common cause of the latter is documented and specific:
+**the database scoped credential's name must be the blob container URL itself, with no trailing
+slash.** Open
+[references/event-file-to-blob-storage.md](references/event-file-to-blob-storage.md) before you
+choose `event_file` over the ring buffer, because it carries the credential and managed identity
+syntax and the table that maps each operating system error number at `START` to its cause.
 
 ## Validation rules
 
-- `master` was checked for an existing `system_health` capture before a new session was built for
-  something `system_health` already covers, and the identity used to check it was confirmed able to
-  connect to `master` in the first place.
-- The session was created `ON DATABASE`, never `ON SERVER`, when a new one was needed.
-- Every event that will be filtered or attributed by identity carries the `ACTION()` clauses that
-  attribution needs; a session without them was not mistaken for a working one.
-- Any `duration` predicate names the event it was written for, because the unit is not the same
-  across events.
-- The session was confirmed running in the DMV for its scope (`sys.dm_xe_sessions` in `master`,
-  `sys.dm_xe_database_sessions` for a database-scoped session), not merely present in the matching
-  catalog view, before its target was trusted to be empty for a real reason.
-- If the target is `event_file`, the destination is an `https://` blob URL, and the credential or
-  managed identity access was verified by an actual successful `START`, not assumed from the
-  `CREATE` succeeding.
-- A deadlock capture used `xml_deadlock_report` from `system_health` when `master` was reachable,
-  and `lock_deadlock` otherwise, rather than `database_xml_deadlock_report` alone.
-- `blocked_process_report` was not relied on as the sole evidence of blocking on Azure SQL Database.
-- Any session built by hand was stopped and dropped when the capture was done. `system_health` was
-  left alone.
+- The session is created `ON DATABASE`, on a connection to the user database, never `ON SERVER` and
+  never against `master`.
+- Every event that will be attributed or filtered by caller carries the `ACTION()` clauses that
+  attribution needs, and assertion 3 in "Check it worked" confirms the count.
+- The session is confirmed present in `sys.dm_xe_database_sessions`, not merely in
+  `sys.database_event_sessions`, before an empty target is believed.
+- Any `duration` predicate names the event it was written for, and its unit came from
+  `sys.dm_xe_object_columns`.
+- `STARTUP_STATE` is a deliberate choice, and a ring buffer is read before the session is stopped.
+- An `event_file` target points at an `https://` blob URL, and access was proved by a successful
+  `START`, never by the `CREATE` succeeding.
+- Started sessions and their memory were checked against the 100 session and 128 MB per database
+  limits before another was added, and every session built by hand is dropped when it is done.
 
 ## Do not
 
-- Do not conclude that nothing is capturing an event just because a user database connection cannot
-  see `system_health`. Check from `master` first.
-- Do not treat `sys.database_event_sessions` returning zero rows in a user database as evidence
-  about `system_health` or anything else server-scoped. It only answers whether that one database
-  has database-scoped sessions of its own.
-- Do not write `CREATE EVENT SESSION ... ON SERVER` for Azure SQL Database. It always fails, and the
-  fix is `ON DATABASE`, not a permissions escalation.
-- Do not conclude a database-scoped session is idle from an empty `sys.dm_xe_database_sessions`
-  result without first checking `sys.database_event_sessions` for whether it was ever started.
-- Do not reuse a `duration` threshold across events without checking its unit for that specific
-  event in `sys.dm_xe_object_columns`.
-- Do not point `event_file` at a local path; it is rejected at creation, and no amount of retrying
-  the same path will change that.
-- Do not treat a successful `CREATE EVENT SESSION` with an `event_file` blob target as evidence the
-  credential works. It is not evaluated until `START`.
-- Do not confuse `database_xml_deadlock_report` with `xml_deadlock_report`. They are different
-  events with similar names, one database-scoped and empty in testing, the other server-scoped and
-  the one `system_health` actually uses.
-- Do not build a blocking diagnosis on `blocked_process_report` alone on Azure SQL Database without
-  first confirming, on the target database, that the event actually fires.
-- Do not restate what a query and its wait or blocking chain mean once captured; that belongs to
+- Do not look for a `system_health` session on Azure SQL Database. There is not one, and the time
+  spent hunting is time nothing is being captured.
+- Do not read the internal `dl` event session. A large read from it can raise an out-of-memory
+  error in `master` and affect login processing.
+- Do not scope a session `ON SERVER` for Azure SQL Database. The fix is `ON DATABASE`, not a
+  permissions escalation.
+- Do not grant `ALTER ANY EVENT SESSION` and expect it to work. The database-scoped permissions are
+  the `ANY DATABASE EVENT SESSION` family.
+- Do not reuse a `duration` threshold across events. Microseconds and milliseconds both appear, and
+  the wrong one fails silently in whichever direction is less noticeable.
+- Do not point `event_file` at a local path. It is refused at `CREATE` and no retry changes that.
+- Do not treat a successful `CREATE` with a blob target as evidence the credential works, and do not
+  name that credential after the session or the storage account. Its name must be the container URL,
+  and a trailing slash on it is its own failure.
+- Do not build a blocking diagnosis on `blocked_process_report` on Azure SQL Database. Use the
+  `Blocks` diagnostic settings category, which is the supported source for that report.
+- Do not restate what the captured queries, waits or blocking chains mean. That belongs to
   diagnose-slow-query, diagnose-blocking-and-deadlocks and diagnose-resource-pressure.
 
 ## References
 
-- [references/event-catalog-quirks.md](references/event-catalog-quirks.md): the captured XML for
-  each measured case above, the `system_health` and `master` versus user-database evidence in full,
-  the exact `sys.dm_xe_object_columns` duration units for the events named in this file, and the
-  full ACTION-vs-no-ACTION comparison. Read this when a claim above needs its source.
-- [references/event-file-and-read-back.md](references/event-file-and-read-back.md): the database
-  scoped credential syntax for a blob `event_file` target, the managed identity alternative, and how
-  to read `.xel` files back with `sys.fn_xe_file_target_read_file`, including that a wrong or
-  missing filename returns zero rows rather than an error. Read this before choosing `event_file`
-  over the ring buffer.
+- [references/sessions-that-capture-nothing.md](references/sessions-that-capture-nothing.md) when a
+  session runs clean and its target stays empty: the container measurements behind each case, the
+  captured XML, the duration column text for the events named here, and the `ACTION()` comparison
+  run side by side.
+- [references/event-file-to-blob-storage.md](references/event-file-to-blob-storage.md) before
+  choosing `event_file` over the ring buffer, and again if `START` fails: the credential and managed
+  identity syntax, the SAS token permissions, the operating system error numbers at `START` and what
+  each one means, and reading `.xel` files back.
+- [Extended Events in Azure SQL](https://learn.microsoft.com/azure/azure-sql/database/xevent-db-diff-from-svr):
+  scope, permissions, storage authorization and the resource limits quoted above. Read it before
+  trusting any Extended Events example not written for this platform.
+- [Collect deadlock graphs in Azure SQL Database](https://learn.microsoft.com/azure/azure-sql/database/analyze-prevent-deadlocks):
+  the documented deadlock session, both targets, and the query that shreds a graph out of a ring
+  buffer. Read it when the capture you need is deadlocks.
+- `diagnose-slow-query`, `diagnose-blocking-and-deadlocks`, `diagnose-resource-pressure`: what the
+  captured data means, once this skill has produced it.
+- `read-execution-plan`: the plan for a statement this session identified.

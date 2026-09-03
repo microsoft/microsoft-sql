@@ -1,19 +1,13 @@
-# Where to look it up, and how to tell whether something is real yet
+# Microsoft Learn pages for Azure SQL Database, by subject
+
+Each entry says what the page settles, so the fetch is targeted. Links checked 2026-09-03.
 
 ## Contents
 
-- [How to use this file](#how-to-use-this-file)
 - [Deciding whether a capability exists here](#deciding-whether-a-capability-exists-here)
 - [The pinned pages, by subject](#the-pinned-pages-by-subject)
 - [Questions to ask the running system instead](#questions-to-ask-the-running-system-instead)
 - [Reading a first-party page without inheriting its mistakes](#reading-a-first-party-page-without-inheriting-its-mistakes)
-
-## How to use this file
-
-Open it whenever the honest answer is "I would be guessing". Each entry says what the page settles,
-so the fetch is targeted rather than a general reading of the documentation.
-
-All links were checked on 2026-08-28 and returned a page.
 
 ## Deciding whether a capability exists here
 
@@ -98,7 +92,8 @@ the actual question.
 | Question | Ask |
 |---|---|
 | What compatibility level is this database on | `SELECT name, compatibility_level FROM sys.databases;` |
-| What engine version and edition am I connected to | `SELECT @@VERSION;` and `SELECT SERVERPROPERTY('EngineEdition');` |
+| What engine version am I connected to | `SELECT @@VERSION;` |
+| Which product am I connected to | `SELECT SERVERPROPERTY('EngineEdition');` 5 is Azure SQL Database and nothing else is in scope, not 2 or 3 for SQL Server, not 8 for Azure SQL Managed Instance, not 12 for SQL database in Microsoft Fabric, per Learn's SERVERPROPERTY reference |
 | Which service objectives exist in this region for this tier | `az sql db list-editions -l <region> -e <tier> --query "[].supportedServiceLevelObjectives[].name" -o tsv` |
 | What is this database actually running right now | `az sql db show -g <rg> -s <server> -n <database> --query "{current:currentServiceObjectiveName,requested:requestedServiceObjectiveName}"` |
 | Is a long-running change still in flight | `az sql db op list -g <rg> -s <server> -d <database> -o table` |

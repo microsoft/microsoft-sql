@@ -1,4 +1,4 @@
-# Measured behaviour, 2026-08-28
+# Vector restrictions and query plans, measured 2026-08-28
 
 ## Contents
 
@@ -20,8 +20,9 @@
 Every statement was executed twice: once against an Azure SQL Database provisioned for the run
 (General Purpose serverless, two vCores, compatibility level 170, Microsoft Entra authentication
 only) and once against the local Azure SQL Database container. Both engines reported
-`SERVERPROPERTY('EngineEdition') = 5`. **Every result below was identical on both**, which is the
-reason each row is stated as an engine behaviour rather than as a service behaviour.
+`SERVERPROPERTY('EngineEdition') = 5`. **Every error number below was identical on both**, which is
+the reason each row is stated as an engine behaviour rather than as a service behaviour. The one
+reading that cannot be stated at all is `PREVIEW_FEATURES`, item 8 under Claims that did not hold.
 
 Nothing here was taken from documentation. Where the documentation and the engine disagreed, the
 disagreement is recorded under [Claims that did not hold](#claims-that-did-not-hold).
@@ -83,7 +84,7 @@ failure inside a test.
 | `JSON_ARRAY_TO_VECTOR`, `VECTOR_TO_JSON_ARRAY` | `Msg 195`, not recognised. These names do not exist |
 | Column, insert and `VECTOR_DISTANCE` at compatibility level 150 | All succeeded |
 | Approximate search over an existing index at compatibility level 150 | Succeeded |
-| `vector(3, float16)` without `PREVIEW_FEATURES` on | The `CREATE TABLE` succeeded on the cloud database tested |
+| `vector(3, float16)` on the cloud database | The `CREATE TABLE` succeeded |
 
 ## Table definition: refused
 
@@ -219,12 +220,22 @@ VECTOR_DISTANCE(...)`.
    engines, 145 ms on the container against 276 ms in the cloud, with approximate search returning
    the same rows from both. That evidence is recorded there and is not copied here.
 8. **Widely repeated claim that `PREVIEW_FEATURES = ON` is a prerequisite for creating a vector
-   index.** It is not. Re-run against the container on 2026-08-28: `PREVIEW_FEATURES` read `0`
-   before and after, 150 rows carrying a `vector(4)` value, and
+   index.** It is not, and **the setting's value on the container is not deterministic, so this
+   file asserts no value for it.**
+
+   Measured 2026-09-03 on a single container: six freshly created databases returned `0`, `1`,
+   `0`, `1`, `1`, `1`, while `model` and `master` both returned `0`. The variation does not track
+   engine uptime cleanly. Two earlier revisions of this file each recorded a value, first `0` and
+   then `1`, and **each was one sample of something that varies.** A probe built on either would
+   have gone red about half the time on a claim that was never the point.
+
+   Microsoft Learn documents `OFF` as the default, scopes the requirement to the boxed engine, and
+   calls the setting not needed for Azure SQL Database.
+
+   The claim that survives is the one that matters and it is unaffected: nobody runs `ALTER
+   DATABASE SCOPED CONFIGURATION`. With 150 rows carrying a `vector(4)` value,
    `CREATE VECTOR INDEX ... WITH (METRIC = 'cosine', TYPE = 'diskann')` completed in 74 ms, listed
-   in `sys.vector_indexes`, and served a `TOP (3) WITH APPROXIMATE` search. The configuration is
-   documented as a gate for `vector(n, float16)` and nothing else, and even there the database
-   measured accepted the column with the configuration off.
+   in `sys.vector_indexes`, and served a `TOP (3) WITH APPROXIMATE` search.
 
 ## Reproducing this
 

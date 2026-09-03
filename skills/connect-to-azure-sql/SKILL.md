@@ -16,93 +16,133 @@ description: >-
 
 # Connect to Azure SQL Database
 
-Opening one connection is easy. The two things that go wrong are that **the first connection is
-expected to fail and the code has no retry**, and that **a certificate error gets fixed by turning
-verification off**.
+Opening one connection is easy. Two things go wrong: **the first connection is expected to fail and
+the code has no retry**, and **a certificate error gets fixed by turning verification off**.
 
-Verified against Microsoft Learn and Azure CLI 2.89.1 on 2026-08-27.
+Flags and defaults below were verified 2026-09-03 against `sqlcmd` 1.10.0 and User Secrets Manager
+8.0.27 on this machine; cloud behaviour is from Microsoft Learn.
 
-## What this skill owns, and what it does not
+## Connect once from the command line before writing any code
 
-**Owns**, because it is true in every language: retry and transient-fault handling, encryption and
-certificate defaults, what a connection string must and must not carry, how to pick a driver, and
-how to size a pool before it becomes an incident.
+Settle the server, database, credential and certificate before an application is in the picture, so
+every later failure is a failure of the code. Cloud, SQL authentication, password out of the
+command line:
 
-**Does not own.** Send these elsewhere rather than answering them here:
+```bash
+sqlcmd -S <server>.database.windows.net,1433 -d <database> -U <user> -P "$SQL_PASSWORD" \
+  -N mandatory -l 30 -Q "SELECT DB_NAME() AS db, encrypt_option FROM sys.dm_exec_connections WHERE session_id = @@SPID"
+```
 
-| Question | Skill |
-|---|---|
-| Installing the driver, per-language syntax, pool configuration in .NET | `connect-from-dotnet` |
-| The same for Python, including ODBC driver installation | `connect-from-python` |
-| The same for TypeScript and Node.js | `connect-from-typescript-and-node` |
-| Turning a specific error number into a cause | `diagnose-connection-errors`, except 40613, which is this skill's own correction and stays here |
-| A database already under resource pressure | `diagnose-resource-pressure` |
-| Creating the server, database and firewall rule | `provision-azure-sql-db` |
-| Getting an application identity working | `entra-id-auth` |
+Cloud, Microsoft Entra ID, with no password anywhere:
 
-## What of this carries over to the local container
+```bash
+az login
+sqlcmd -S <server>.database.windows.net,1433 -d <database> -G -N mandatory -l 30 \
+  -Q "SELECT SUSER_NAME() AS login"
+```
 
-Four skills point here for doctrine and all four declare the Azure SQL Database container a
-supported target. **This skill does not**, and that is deliberate rather than an oversight, because
-about half of what follows describes properties of the cloud service and not of the engine.
+Local Azure SQL Database container. **`-C` is the entire difference**, there because the container
+presents a self-signed certificate.
 
-| Carries over unchanged | Does not |
-|---|---|
-| The driver choice per language | Transient-fault retry, because a local engine has no throttling or failover to retry through |
-| Encryption on, certificate validation on, with the container's self-signed certificate the one exception described below | Error 40613 and serverless resume, which are cloud behaviours with no local equivalent |
-| Pool sizing as a discipline | The specific worker-limit arithmetic, which comes from the service tier |
+```bash
+sqlcmd -S 127.0.0.1,1433 -d <database> -U sa -P "$MSSQL_SA_PASSWORD" \
+  -N mandatory -C -l 30 -Q "SELECT DB_NAME() AS db"
+```
 
-So a reader working locally should take the driver and encryption sections and skip the rest, and
-should not conclude from a clean local run that the retry story has been exercised. It has not been.
+Each switch is a connection string keyword under another name, so a working command line converts
+straight into a working string:
+
+| Switch | Connection string keyword | Note |
+|---|---|---|
+| `-N mandatory` | `Encrypt=Mandatory` | `-N strict` is TDS 8.0, where trust cannot be bypassed |
+| `-C` | `TrustServerCertificate=true` | Container only |
+| `-F <name>` | `HostNameInCertificate` | The fix for a name mismatch |
+| `-J <file>` | certificate pinning, PEM, DER or CER | Validates one certificate, not none |
+| `-l 30` | `Connect Timeout` | Covers the retries inside it |
+| `-G` | `Authentication=Active Directory Default` | No `-U`; add `-U` for interactive |
+
+`-N` is validated before any connection is attempted, so a typo is caught for free. Measured
+2026-09-03 on 1.10.0: any other value exits 1 with `Argument value has to be one of [m[andatory]
+yes 1 t[rue] disable o[ptional] no 0 f[alse] s[trict]]`.
+
+## Container and cloud: the same string with one exception
+
+| | Local container | Azure SQL Database |
+|---|---|---|
+| Server | `127.0.0.1,<mapped port>` | `<server>.database.windows.net,1433` |
+| Encryption | on | on |
+| Certificate | self-signed, so `-C` / `TrustServerCertificate=true`, or pin it with `-J` | validated, never `-C` |
+| Authentication | SQL login. Microsoft Entra ID only if the container was started with an application registration certificate, a client id and a tenant id: below | SQL login or Entra ID |
+| Retry for `40613` | no equivalent; nothing throttles or fails over locally | mandatory, below |
+| Pool ceiling | no service tier, so no worker number to size against | size against workers |
+
+A clean local run is therefore no evidence the retry story works.
+
+### Microsoft Entra ID on the container is configured, not default
+
+The image reads the certificate path, the application (client) id and the tenant id from three
+`MSSQL_AAD_` environment variables set when the container is created. Learn documents that trio for
+SQL Server on Linux containers and does not document this image, so here it is measured, not cited:
+
+```bash
+docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' <container> | grep -c '^MSSQL_AAD_'
+```
+
+`3` or more means Entra ID was configured. Measured 2026-09-03 on a container created without it:
+`0`, exit 1. **That state refuses the login, not the mode**, so `-G` or
+`Authentication=Active Directory Default` returns `18456`, `Login failed for user ''` (measured
+2026-08-28 in `connect-from-dotnet`), naming neither Entra ID nor the missing configuration, and no
+connection string edit fixes it. Open `entra-id-auth` once the three are set and the identity needs
+a database user, or when an `18456` names a token-identified principal rather than an empty one.
+
+## What this skill does not own
+
+Driver installation, per-language syntax and pool configuration are `connect-from-dotnet`,
+`connect-from-python`, `connect-from-typescript-and-node`. An error number needing a cause is
+`diagnose-connection-errors`, except 40613, which stays here. Resource pressure is
+`diagnose-resource-pressure`, and creating the server and its firewall rule is
+`provision-azure-sql-db`.
 
 ## Retry is part of the first version, not the hardening pass
 
-Azure SQL Database is a multi-tenant service that reconfigures under you. Microsoft's own wording
-is that most reconfiguration events complete in under 60 seconds and that applications
-**should be built to expect these transient errors** rather than surface them to users.
+Azure SQL Database reconfigures under you. Microsoft's wording: most reconfiguration events
+complete in under 60 seconds, and applications **should be built to expect these transient errors**
+rather than surface them to users.
 
-**The case that makes this non-negotiable is not an edge case.** On a General Purpose serverless
-database, which is what the free offer runs on, Microsoft documents this:
+On General Purpose serverless, which is what the free offer runs on, Microsoft documents this:
 
 > If a serverless database is paused, the first connection attempt resumes the database and returns
 > an error stating that the database is unavailable with error code 40613. Once the database
 > resumes, retry the connection. Databases generally resume in less than one minute.
 
-The default auto-pause delay is 60 minutes. So a developer who creates a free database, writes an
-application, and comes back after lunch gets error 40613 on the first run. Code without retry
-reports that as a failure, and the failure looks like a wrong password or a dead server. **An agent
-that leaves retry for later has written code that fails the first time it is run.**
+The default auto-pause delay is 60 minutes, so a developer back from lunch gets 40613 on the first
+run and reads it as a wrong password or a dead server. **Code that leaves retry for later fails the
+first time it is run.**
 
 ### The retry policy
 
-The documented shape, from the transient-errors guidance:
-
-- Wait **5 seconds** before the first retry. Shorter than that risks overwhelming the service.
-- Grow the delay **exponentially**, to a maximum of **60 seconds**.
-- Cap the number of attempts, so a broken configuration eventually reports itself.
-- **A transient error during a query is not retried on the same connection.** Establish a fresh
-  connection, then retry the command, and make sure the transaction either completed or rolled
-  back before retrying an update.
+- Wait **5 seconds** before the first retry. Shorter risks overwhelming the service.
+- Grow the delay **exponentially**, to a maximum of **60 seconds**, and cap the attempts so a broken
+  configuration eventually reports itself.
+- **A transient error during a query is not retried on the same connection.** Open a fresh
+  connection, then retry the command, and confirm the transaction committed or rolled back first.
 
 ### Transient, so retry
 
 | Number | What it is |
 |---|---|
-| `40613` | Database not currently available. Resume of a paused database, reconfiguration, or a dedicated administrator connection already in use |
+| `40613` | Database not available: resume of a paused database, reconfiguration, or the dedicated administrator connection already in use |
 | `40197` | The service hit an error processing the request. Carries an embedded code worth logging |
-| `40501` | The service is currently busy. Engine throttling |
+| `40501` | The service is busy. Engine throttling |
 | `40540`, `40143` | Reconfiguration and failover paths |
 | `10928`, `10929` | A resource limit was reached. Resource ID 1 is workers, Resource ID 2 is sessions |
 | `49918`, `49919`, `49920` | Not enough resources, or too many control-plane operations in flight |
 | `233`, `64`, `20`, `10053`, `10054`, `10060` | Transport-level failures during or just after connect |
 
-`4060` also appears in the transient list, but it usually means the database name is wrong or the
-login has no user in that database. Retrying it forever hides a real bug; retry it a fixed small
-number of times, then report it.
+`4060` is on the transient list too, but usually means the database name is wrong or the login has
+no user there. Retry it a small fixed number of times, then report it.
 
 ### Not transient, so do not retry
-
-Retrying these burns the user's time and hides the fix.
 
 | Number | Cause | Fix |
 |---|---|---|
@@ -111,59 +151,52 @@ Retrying these burns the user's time and hides the fix.
 | `47073` | Public network access is disabled on the server | Connect through the private endpoint |
 | `47072` | Login failed with invalid TLS version | The client negotiated below the server's minimum |
 
-There is also a case that **looks** transient and is not: a free-offer database whose monthly
-allowance is exhausted under the auto-pause behaviour is inaccessible **until the start of the next
-calendar month**. Retry will never succeed. If connections to a free database fail persistently,
-check the remaining allowance before adding more retries.
+One case **looks** transient and is not: a free-offer database whose monthly allowance is exhausted
+is inaccessible **until the start of the next calendar month**, so retry never succeeds.
 
 ### Do not stack retry on retry without doing the arithmetic
 
-Drivers have their own connection resiliency, and it multiplies with application-level retry. The
-documented .NET example is exact: application logic that retries 4 times, combined with a driver
-configured for 3 connection retries, produces **12** attempts, which is almost never what the
-author intended.
+Driver connection resiliency multiplies with application-level retry. The documented .NET example:
+application logic retrying 4 times over a driver configured for 3 connection retries is **12**
+attempts.
 
-Two arithmetic rules that hold whatever the language:
+The .NET defaults an unconfigured string already has: `ConnectRetryCount` **1**,
+`ConnectRetryInterval` **10** seconds, `Connection Timeout` **15** seconds, `Command Timeout` **30**
+seconds. Learn states two inequalities that hold whatever the language:
 
-- The **connect timeout must be at least the retry count multiplied by the retry interval**, or the
-  outer timeout cancels the last retry before it happens. With 3 retries at 10 seconds, a 29 second
-  timeout never reaches the third.
-- For reconnection during command execution, the **command timeout** governs instead, and its
-  default is usually shorter than people assume.
+- New connection: `Connection Timeout >= ConnectRetryCount * ConnectRetryInterval`, or the outer
+  timeout cancels the last retry. At 3 retries of 10 seconds, a timeout of 29 never reaches the
+  third.
+- Reconnect during command execution: `Command Timeout > (ConnectRetryCount - 1) *
+  ConnectRetryInterval`, plus time for the command itself.
 
-Pick one layer to own retry. Configure the other deliberately, or turn it off.
+Pick one layer to own retry and turn the other off deliberately. **Two Learn pages disagree about
+what `ConnectRetryCount` covers**: the transient-errors article puts the initial `Open()` inside it,
+the SqlClient overview calls it idle resiliency only. Assume the narrower reading and write your own
+retry around the first connect.
 
 ## Encryption is not a knob to turn off
 
 Microsoft's recommendation for every connection to Azure SQL Database, in every driver:
-
-- `Encrypt = On`
-- `TrustServerCertificate = Off`
-- optionally `HostNameInCertificate = <full hostname of the service>` when the client connects
-  through a different name, such as a DNS alias
-
-Together those make the driver verify the server's identity. Setting `TrustServerCertificate=true`
-keeps the traffic encrypted but **stops the client checking who it is talking to**, which is the
-part that matters on a public endpoint.
+`Encrypt = On`, `TrustServerCertificate = Off`, plus `HostNameInCertificate = <full hostname>` when
+the client connects through another name such as a DNS alias. Together they make the driver verify
+the server's identity. `TrustServerCertificate=true` keeps the traffic encrypted but **stops the
+client checking who it is talking to**, the part that matters on a public endpoint. Encryption and identity are
+separate settings, and login credentials are encrypted whatever `Encrypt` says.
 
 **The rule for an agent: a certificate error is a name problem, not a trust problem.** Fix the
-hostname, or set the hostname-in-certificate option. Never resolve it by disabling verification, and
-never set `Encrypt=false`.
+hostname or set the hostname-in-certificate option. Never disable verification, never set
+`Encrypt=false`; the one exception is the container's self-signed certificate above.
 
-The one legitimate exception is a local Azure SQL Database container, which presents a self-signed
-certificate; that case belongs to `azuresql-db-container`, not here.
+Two facts that change under the model's feet:
 
-Two facts that change under the model's feet, so check rather than recall:
-
-- **The default flipped.** `Microsoft.Data.SqlClient` changed `Encrypt` from `false` to `true` in
-  version 4.0, as a declared breaking change. Other drivers made equivalent moves at their own
-  version boundaries. A connection that worked before an upgrade and fails after it is usually this.
-- **TLS 1.0 and 1.1 are retired and no longer available.** The lowest minimum a server can be set to
-  is TLS 1.2. The default is to allow TLS 1.2 and above, and enforcing a specific minimum cannot be
-  reverted. Enforcing 1.3 will break clients whose driver or operating system does not support it.
-
-Some drivers additionally offer a strict mode (TDS 8.0, `Encrypt=Strict` in SqlClient) in which
-certificate trust cannot be bypassed at all.
+- **The defaults flipped.** `Microsoft.Data.SqlClient` 4.0 changed `Encrypt` from `false` to `true`
+  and ODBC Driver 18 made the same change, both declared breaking. Code that worked before an
+  upgrade and fails after it is usually this, surfacing as
+  `SSL Provider: The certificate chain was issued by an authority that is not trusted`.
+- **TLS 1.0 and 1.1 are retired.** The lowest minimum a server accepts is TLS 1.2, enforcing a
+  specific minimum cannot be reverted, and enforcing 1.3 breaks clients whose driver or operating
+  system does not support it.
 
 ## Choosing a driver
 
@@ -181,141 +214,125 @@ non-Microsoft drivers may not use TLS by default.
 | PHP | the Microsoft PHP drivers |
 | Ruby | the Ruby driver for SQL Server |
 
-For the three stacks with their own skill, stop here and hand off: `connect-from-dotnet`,
-`connect-from-python`, `connect-from-typescript-and-node` own installation, syntax and pooling.
-
 ## What the connection string carries
 
-**Must have:**
-
-- the fully qualified server name and port `1433`
-- the **user database**, never `master`. A string left on `master` connects and then fails on the
-  first real query
-- encryption on and certificate trust off
-- a connect timeout with room for the retries configured inside it
+**Must have:** the fully qualified server name and port `1433`, the **user database** and never
+`master`, encryption on with certificate trust off, and a connect timeout with room for the retries
+inside it.
 
 **Must not have:**
 
-- a password literal. The secret comes from a secret store or the environment at run time
-- `TrustServerCertificate=true`, outside a local container
-- `Encrypt=false`
+- a password literal. The secret comes from a secret store or the environment at run time: User
+  Secrets locally, a vault in production, never a checked-in file.
+
+  ```bash
+  dotnet user-secrets init --project ./src/Api
+  dotnet user-secrets set "ConnectionStrings:Default" \
+    "Server=tcp:<server>.database.windows.net,1433;Initial Catalog=<database>;Authentication=Active Directory Default;Encrypt=Mandatory;Connect Timeout=60" \
+    --project ./src/Api
+  ```
+
+- `TrustServerCertificate=true` outside the local container, or `Encrypt=false` anywhere
 - `Authentication=Active Directory Password`. That mode is **deprecated** in the Microsoft SQL
-  drivers, is incompatible with mandatory Microsoft Entra multifactor authentication, and is marked
-  obsolete in `Microsoft.Data.SqlClient` 7.0. Use managed identity for Azure-hosted workloads, a
-  service principal off Azure, and interactive when a human is present
+  drivers, incompatible with mandatory Microsoft Entra multifactor authentication, and obsolete in
+  `Microsoft.Data.SqlClient` 7.0. Use managed identity for Azure-hosted workloads, a service
+  principal off Azure, and interactive when a human is present
 
-### Gotcha: the generated connection string is not a finished one
-
-`az sql db show-connection-string` is a useful starting point, and on 2.89.1 three things about its
-output need correcting by hand:
+### Gotcha: the generated connection string is not finished
 
 ```bash
 az sql db show-connection-string -c ado.net -s <server> -n <database>
 ```
 
-1. **The ODBC template names a driver five major versions out of date.** It emits
-   `Driver={ODBC Driver 13 for SQL Server}`. The current driver is **ODBC Driver 18**, and version
-   13 packages are the legacy `msodbcsql-*` line.
-2. **`--auth-type ADPassword` emits the deprecated mode.** It produces
-   `Authentication="Active Directory Password"`. Do not accept that output.
-3. **`--client` accepts only `ado.net`, `jdbc`, `odbc`, `php`, `php_pdo` and `sqlcmd`.** There is no
-   Node.js, Python or Go template. Asking the CLI for one and paraphrasing the answer is how a wrong
-   string gets invented.
-
-None of the templates include retry settings. Add them.
+On 2.89.1 the output needs correcting by hand. The ODBC template emits
+`Driver={ODBC Driver 13 for SQL Server}`, five major versions out of date. `--auth-type ADPassword`
+emits the deprecated `Authentication="Active Directory Password"`. `--client` accepts only
+`ado.net`, `jdbc`, `odbc`, `php`, `php_pdo` and `sqlcmd`, so asking it for a Node.js, Python or Go
+template and paraphrasing the answer invents a string. And no template carries retry settings.
 
 ## Size the pool against workers, not sessions
 
-The number an agent reaches for is the session limit, which is **30,000 on every vCore size** and
-therefore never the binding constraint. The limit that actually throttles a workload is
-**concurrent workers**:
+The number an agent reaches for is the session limit, **30,000 on every vCore size**, never the
+binding constraint. What throttles a workload is **concurrent workers**:
 
-| Compute | Concurrent workers |
+| Compute, standard-series | Concurrent workers |
 |---|---|
-| General Purpose provisioned, standard-series | **100 per vCore** (200 at 2 vCores, 1000 at 10) |
-| General Purpose serverless, standard-series | **75 per max vCore** (75 at 1, 300 at 4) |
+| General Purpose provisioned | **100 per vCore** (200 at 2 vCores, 1000 at 10) |
+| General Purpose serverless | **75 per max vCore** (75 at 1, 300 at 4) |
 
-And workers are not requests. The default `MAXDOP` for a new database in Azure SQL Database is
-**8**, the limit applies **per task**, and each task uses one worker. A single parallel request can
-therefore consume several workers, so the worker ceiling arrives far sooner than a count of
-application connections suggests.
+And workers are not requests. Default `MAXDOP` for a new database is **8**, the limit is **per
+task**, and each task takes a worker, so one parallel request consumes several and the ceiling
+arrives sooner than a count of connections suggests.
 
-Practical consequences:
+Set an explicit maximum pool size: unlimited turns a traffic spike into `10928`. Sum the
+pools across **every** instance, background workers and scheduled jobs included, and keep the total
+under the worker limit with headroom. In serverless and short-lived compute create **one pool per
+process** and reuse it; one per request or per invocation exhausts outbound ports and causes
+connection storms. A database already failing with `10928` is `diagnose-resource-pressure`.
 
-- Set an explicit maximum pool size. A default of unlimited turns a traffic spike into `10928`.
-- Sum the pools across **every** instance that talks to the database, including background workers
-  and scheduled jobs, and keep the total under the worker limit with headroom.
-- In serverless and short-lived compute, create **one pool per process** and reuse it. A pool per
-  request or per invocation is the classic source of exhausted outbound ports and connection storms.
+## The network path, when it works from one place but not another
 
-Per-language pool configuration lives in the three language skills. A database already failing with
-`10928` or `10929` is `diagnose-resource-pressure`, not this skill.
+The connection policy decides the route and its default differs by where the client is. **Outside
+Azure** it is `Proxy`: everything goes through the gateway and the client needs outbound `1433`
+only. **Inside Azure** it is `Redirect`: after the gateway handshake the session moves to the node
+hosting the database, so the client needs outbound `1433` **plus 11000 to 11999** to the region's
+Azure SQL Database addresses. That asymmetry is why an application works from a laptop and times out
+from a virtual machine behind a restrictive network security group. `Redirect` is recommended; the cost is the wider
+outbound range.
 
-## The network path, when it works from one place and not another
+```bash
+az sql server conn-policy show -g <resource-group> -n <server>
+az sql server conn-policy update -g <resource-group> -n <server> --connection-type Redirect
+```
 
-The server's connection policy decides the route, and the default differs by where the client is:
+`--connection-type` accepts `Default`, `Proxy` and `Redirect`.
 
-- **From outside Azure** the default is `Proxy`: everything goes through the gateway, and the client
-  needs outbound `1433` only.
-- **From inside Azure** the default is `Redirect`: after the initial gateway handshake the session
-  moves to the node hosting the database, and the client needs outbound `1433` **plus the range
-  11000 to 11999** to the region's Azure SQL addresses.
+## Check it worked
 
-That asymmetry is why an application can work from a laptop and time out from a virtual machine
-behind a restrictive network security group. `Redirect` is the recommended policy for latency and
-throughput; the cost is the wider outbound range. The current setting is readable with
-`az sql server conn-policy show`, and `az sql server conn-policy update --connection-type` accepts
-`Default`, `Proxy` and `Redirect`.
+Three checks, run against the target the application will use, with `-C` added only for the
+container.
+
+**1. The connection is encrypted and landed in the user database.** The first command above asks
+the engine itself, so it settles encryption without trusting the client. Expected: `db` is the user
+database and not `master`, `encrypt_option` is `TRUE`, and the command succeeding with no `-C` is
+itself the proof that the certificate validated.
+
+**2. A string left on `master` cannot be corrected at run time**, which is why the database belongs
+in the connection string:
+
+```sql
+USE master;
+```
+
+Expected: `Msg 40508, USE statement is not supported to switch between databases.`
+
+**3. No secret reached the repository.**
+
+```bash
+git grep -nEi "(password|pwd)=[^;\"']" -- . ":!*.md"
+```
+
+Expected: no output, exit 1. Any hit is a secret in source, whatever else works.
+
+A fourth check on serverless or free: leave the database idle past the auto-pause delay, run the
+application cold, and confirm the code survives `40613`.
 
 ## Read the source when
 
-- **A specific error number needs a cause**: the common connection errors guidance on Microsoft
-  Learn, and `diagnose-connection-errors`.
-- **The retry numbers matter to a design**: the transient errors article, which carries the delay
-  guidance and the driver-level retry arithmetic.
-- **A resource limit is close**: the vCore resource limits reference, which is the only current
-  source for worker counts per compute size.
-- **A TLS decision is being made**: the connectivity settings article, which carries the minimum
-  version rules and their irreversibility.
-
-## Validation rules
-
-- Retry exists in the first version of the code, not in a follow-up task.
-- The retry policy waits at least 5 seconds before the first attempt and backs off to no more than
-  60 seconds.
-- A transient failure during a command opens a fresh connection before retrying.
-- Non-transient errors are reported, not retried.
-- Driver-level and application-level retry are not both enabled by accident, and the connect timeout
-  covers the retries inside it.
-- Encryption is on, certificate trust is off, and the connection string names the user database.
-- No secret appears in the connection string, in source, or in the transcript.
-- The pool has an explicit ceiling, justified against the worker limit for the compute size.
+Fetch the Microsoft Learn article rather than recalling it when an error number needs a cause (then
+`diagnose-connection-errors`), when the retry delays matter to a design (the transient errors
+article), when a resource limit is close (the vCore resource limits reference, the only current
+source for worker counts), or when a TLS minimum is being set (the connectivity settings article).
 
 ## Do not
 
-- Do not present retry as an optional later step. On this service it is part of connecting.
-- Do not treat `40613` on a first connect as an outage. It is the documented resume path, and the
-  answer is to retry, not to escalate.
-- Do not retry a login failure, a firewall rejection, or an exhausted free allowance. None of them
-  gets better with time.
-- Do not set `TrustServerCertificate=true` or `Encrypt=false` to clear a certificate error, and do
-  not suggest it as a temporary measure. It is the one change that survives to production.
-- Do not use `Authentication=Active Directory Password`, and do not copy it out of generated output.
-- Do not size a pool against the 30,000 session limit.
-- Do not create a connection pool per request, per invocation, or per module import.
-- Do not paste a generated ODBC connection string without correcting the driver name.
-- Do not answer driver installation or per-language syntax here. Hand off to the language skill.
+- Do not present retry as an optional later step. `40613` on a first connect is the documented
+  resume path, not an outage.
+- Do not set `TrustServerCertificate=true` or `Encrypt=false` to clear a certificate error against
+  the cloud, not even temporarily. That change survives to production.
+- Do not carry the container's `-C` into the cloud string. It is the one line that must not travel.
+- Do not use `Authentication=Active Directory Password`, or copy it out of generated output, and do
+  not paste a generated ODBC connection string without correcting the driver name.
+- Do not size a pool against the 30,000 session limit, or create one per request or per invocation.
 - Do not apply any of this to Azure SQL Managed Instance or SQL database in Fabric. Different
   connectivity model, different limits.
-
-## Checklist before reporting success
-
-- [ ] Retry wraps the connect path, with backoff and a cap
-- [ ] The transient list is a list, not an exception-type catch-all that also swallows `18456`
-- [ ] A command retry establishes a new connection first
-- [ ] Connect timeout is at least retry count multiplied by retry interval
-- [ ] Encryption on, certificate trust off, hostname correct
-- [ ] The connection string names the user database and carries no password
-- [ ] The driver is the Microsoft driver for that language, at a current major version
-- [ ] Maximum pool size is set, and the total across instances fits under the worker limit
-- [ ] If the target is serverless or free, the first-connect 40613 path was actually exercised
