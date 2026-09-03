@@ -270,6 +270,16 @@ emit('.claude-plugin/marketplace.json', j({
 // differently and only one carries a logo. Generating them from one source is
 // the difference between a display name and a maintenance problem.
 //
+// WHERE A LOGO CAN GO, checked against each tool's own schema:
+//
+//   Cursor        `logo`, documented, and VERIFIED RENDERING on 2026-09-02
+//   Codex         interface.logo and interface.composerIcon, documented
+//   Claude Code   NO image field of any kind in its plugin manifest schema
+//   plugin.json   NO image field. The portable schema is closed
+//
+// So the mark reaches two of four storefronts, and no manifest change reaches
+// the other two.
+//
 //   Codex   documents interface.displayName, and skills as a string path
 //
 //   Cursor  MEASURED 2026-09-02, and the bet lost. Cursor does not document
@@ -288,7 +298,17 @@ emit('.claude-plugin/marketplace.json', j({
 emit('.codex-plugin/plugin.json', j({
   ...base,
   skills: './skills/',
-  interface: { displayName: STORE_NAME, shortDescription: SUMMARY, category: 'Databases' },
+  interface: {
+    displayName: STORE_NAME,
+    shortDescription: SUMMARY,
+    category: 'Databases',
+    // Codex documents composerIcon, logo, logoDark and screenshots. We ship one
+    // SVG for both light and dark: it is a flat Azure mark with its own
+    // background, so it does not need a second variant, and inventing one we
+    // never look at is how a second file goes stale.
+    logo: 'assets/plugin-logo.svg',
+    composerIcon: 'assets/plugin-logo.svg',
+  },
 }));
 emit('.cursor-plugin/plugin.json', j({ displayName: STORE_NAME, ...base, skills: 'skills/', logo: 'assets/plugin-logo.svg' }));
 

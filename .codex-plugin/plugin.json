@@ -23,6 +23,8 @@
   "interface": {
     "displayName": "Azure SQL",
     "shortDescription": "Curated by the Azure SQL Database product team. Skills that correct what coding agents get wrong about the engine, from connection strings to vector search, measured against a live database rather than quoted from documentation.",
-    "category": "Databases"
+    "category": "Databases",
+    "logo": "assets/plugin-logo.svg",
+    "composerIcon": "assets/plugin-logo.svg"
   }
 }
