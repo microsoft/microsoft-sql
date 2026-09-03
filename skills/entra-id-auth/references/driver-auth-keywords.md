@@ -49,7 +49,12 @@ The only family that writes the values **with spaces**.
 dependencies, and any of these modes needs the `Microsoft.Data.SqlClient.Extensions.Azure` package
 added. Connection strings do not change. `SqlAuthenticationMethod.ActiveDirectoryPassword` became
 `[Obsolete]` in the same release. An application that authenticated fine before the upgrade and
-fails after it is usually missing that package reference.
+fails after it is usually missing that package reference, and says so at run time with
+`Cannot find an authentication provider for 'ActiveDirectoryDefault'.`
+
+```bash
+dotnet list package --include-transitive | grep Microsoft.Data.SqlClient
+```
 
 ## ODBC Driver 18 for SQL Server, including pyodbc
 

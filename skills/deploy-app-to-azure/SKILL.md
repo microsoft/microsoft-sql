@@ -19,157 +19,165 @@ description: >-
 **This owns the deployment sequence, and the infrastructure handed to you at the start of it.** It
 does not create the database, it does not own the identity, and it is not the pipeline.
 
-Verified on 2026-08-27 against the Azure Developer CLI 1.31.2, by listing the template gallery and
-reading the infrastructure of every Microsoft-published template it returns for Azure SQL Database.
+Verified 2026-09-03 against the Azure Developer CLI 1.32.0, Azure CLI 2.90.0, sqlcmd 1.10.0 and
+.NET 8.0.421, by listing the template gallery and reading the shipped Bicep of every
+Microsoft-published template it returns for Azure SQL Database.
 
 ## The correction: a first-party template's infrastructure is not a reviewed baseline
 
-An agent treats a Microsoft sample's `infra` directory as settled and spends its attention on the
-application code. Asked to reach Azure SQL Database without a password, it recommends the
-first-party template as the way to get there.
+An agent treats a Microsoft sample's `infra` directory as settled, spends its attention on the
+application code, and asked to reach Azure SQL Database without a password recommends the
+first-party template as the way to get there. **That inference is wrong in two separate ways at
+once**, and every claim below is settled by a command rather than by reading.
 
-**That inference is the failure, and it is wrong in two separate ways at once.**
+### Ask the gallery what exists, do not extrapolate from the family
+
+```bash
+azd version
+azd template list --output json | grep -o '"Azure-Samples/todo-[a-z-]*"' | sort -u
+```
+
+Measured 2026-09-03: 315 templates, nine `todo-<language>-<database>` entries, and exactly two
+whose name ends in `sql`. `Azure-Samples/todo-csharp-sql` is the Azure SQL Database one.
+`todo-csharp-cosmos-sql` is Cosmos DB for NoSQL. **`todo-nodejs-sql` and `todo-python-sql` do not
+exist**, and an `azd init --template` naming one fails at initialization.
 
 ### The only first-party web application template for Azure SQL Database uses a password
 
-The gallery returns 317 templates. The blueprint family is nine of them, named
-`todo-<language>-<database>`, and **exactly one is Azure SQL Database**:
-`Azure-Samples/todo-csharp-sql`. There is no `todo-nodejs-sql` and no `todo-python-sql`, and
-`todo-csharp-cosmos-sql` is Cosmos DB despite the name.
+Read its infrastructure without cloning it:
 
-What that one template's `infra/app/db-avm.bicep` actually does:
+```bash
+curl -s https://raw.githubusercontent.com/Azure-Samples/todo-csharp-sql/main/infra/app/db-avm.bicep \
+  | grep -n -i "administratorLogin\|create user\|db_owner\|external provider"
+```
+
+Measured 2026-09-03: `administratorLogin`, `create user ${APPUSERNAME} with password`,
+`alter role db_owner add member`, and zero hits for `external provider`.
 
 | It does | Not |
 |---|---|
 | Provisions the logical server with an `administratorLogin` and a password | Microsoft Entra-only authentication |
-| Creates the application's database user with `create user ... with password`, from a deployment script | `CREATE USER ... FROM EXTERNAL PROVIDER` |
+| Creates the application's database user with a password, from a deployment script | `CREATE USER ... FROM EXTERNAL PROVIDER` |
 | Adds that user to `db_owner` | Any narrower role |
-| Stores the resulting connection string, user name and password included, in a vault | A passwordless connection string |
-
-The string `FROM EXTERNAL PROVIDER` does not appear anywhere under its `infra` directory.
+| Stores the connection string, user name and password included, in a vault | A passwordless connection string |
 
 **The template does create a managed identity, and that is what makes the misreading survive a
-glance.** The identity is real, it is system-assigned to the API, and it is used to read the vault.
-What the vault holds is a connection string with a password in it. "It uses managed identity" is
-true of the vault and false of the database.
-
-So recommending it as the passwordless starting point is wrong, and converting it is an
-infrastructure change rather than an application change: the server's authentication mode, the
-deployment script, the role, and the connection string all move together.
+glance.** It is system-assigned to the API and it reads the vault. What the vault holds is a
+connection string with a password in it. "It uses managed identity" is true of the vault and false
+of the database. Converting the template is an infrastructure change, not an application one: the
+server's authentication mode, the deployment script, the role and the connection string all move
+together.
 
 ### The firewall rule that survives choosing correctly
 
-Every Microsoft-published template here that builds the logical server from the Azure Verified
-Module ships the same rule, whatever it does about identity:
+```bash
+for r in todo-csharp-sql:app/db-avm.bicep \
+         functions-quickstart-dotnet-azd-sql:app/db.bicep \
+         functions-quickstart-python-azd-sql:app/db.bicep \
+         functions-quickstart-typescript-azd-sql:app/db.bicep; do
+  printf '%-42s ' "${r%%:*}"
+  curl -s "https://raw.githubusercontent.com/Azure-Samples/${r%%:*}/main/infra/${r##*:}" \
+    | grep -c "startIpAddress: '0.0.0.1'"
+done
+```
 
-| Template | Database authentication | Firewall rule shipped |
-|---|---|---|
-| `todo-csharp-sql` | Password, `db_owner` | `Azure Services`, `0.0.0.1` to `255.255.255.254` |
-| `functions-quickstart-dotnet-azd-sql` | Entra-only, managed identity | The same rule |
-| `functions-quickstart-python-azd-sql` | Entra-only, managed identity | The same rule |
-| `functions-quickstart-typescript-azd-sql` | Entra-only, managed identity | The same rule |
+**Four of four**, measured 2026-09-03: `1` on every line. All four build the logical server from
+the Azure Verified Module and all four ship a rule named `Azure Services` running `0.0.0.1` to
+`255.255.255.254`, **every address a client can present**. Three are Entra-only with a managed
+identity and are otherwise the ones to copy, so picking the better template fixes the password and
+leaves the firewall open.
 
-**That range is every address a client can present.** The rule the name points at is a different
-one: the documented Allow Azure services special case is a rule whose start and end address are
-both `0.0.0.0`. A rule from `0.0.0.1` to `255.255.255.254` is not a narrower version of it, and it
-is not Azure-internal traffic.
+**The name points at a different rule.** The Azure CLI's own help for `--start-ip-address` says to
+use `0.0.0.0` to represent all Azure-internal IP addresses, and Microsoft Learn records the Allow
+Azure services special case as a rule whose start and end address are both `0.0.0.0`. A rule from
+`0.0.0.1` to `255.255.255.254` is not a narrower version of it.
 
-**Four of four.** Picking the better template fixes the password and leaves the firewall open, which
-is why this is not a note about one bad sample.
-
-Verified 2026-08-29 by cloning all four repositories. In `todo-csharp-sql` the rule is in
-`infra/app/db-avm.bicep` and is unconditional. In the three Functions quickstarts it is in
-`infra/app/db.bicep` behind `!vnetEnabled`, so enabling the VNet option removes it. The range does
-not appear in the Azure Verified Module's own documented examples, so it travels with the samples
-rather than with the module.
-
-**Say this to the user, then let them decide.** The templates are Microsoft-published and are not
-ours to change, so treat the rule as inherited, name it out loud, and offer to narrow it. Do not
-silently edit a template's infrastructure on someone's behalf, and do not silently leave the range
-unmentioned either.
-
-To narrow it after deploying, replace the range with the addresses that actually need in:
+**Say this to the user, then let them decide.** These are Microsoft-published samples and are not
+ours to edit on someone's behalf. Name the rule out loud and offer to narrow it:
 
 ```bash
+az sql server firewall-rule list -g <group> -s <server> -o table
 az sql server firewall-rule delete -g <group> -s <server> -n "Azure Services"
 
-# the documented Allow Azure services special case, if Azure-internal traffic is what you meant
-az sql server firewall-rule create -g <group> -s <server> \
-  -n AllowAzureServices --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0
+# the documented Allow Azure services case, if Azure-internal traffic is what was meant
+az sql server firewall-rule create -g <group> -s <server> -n AllowAzureServices \
+  --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0
 
 # and the developer machine, if it connects directly
-az sql server firewall-rule create -g <group> -s <server> \
-  -n dev-box --start-ip-address <your ip> --end-ip-address <your ip>
+az sql server firewall-rule create -g <group> -s <server> -n dev-box \
+  --start-ip-address <your-ip> --end-ip-address <your-ip>
 ```
 
-**One thing breaks if you narrow it first.** The post-provision hook runs from a machine that then
-needs a rule of its own, and without one it fails as a timeout rather than a permission error. The
-three Functions quickstarts already ship `infra/scripts/addclientip.ps1` for exactly this. So narrow
-the rule after the first successful `azd up`, not before.
+**Narrow it after the first successful deployment, not before.** The post-provision hook runs from
+a machine that then needs a rule of its own, and without one it fails as a timeout rather than as a
+permission error. The three Functions quickstarts ship `infra/scripts/addclientip.ps1` for exactly
+this. `provision-azure-sql-db` owns authoring firewall rules; this skill owns catching an inherited
+one.
 
-`provision-azure-sql-db` owns authoring firewall rules; this skill owns catching an inherited one.
-
-### So read the infrastructure before running it
-
-Two greps settle both questions in seconds, and the answer to the first is `0` for the template most
-likely to be suggested:
+### On any other template, run the same two greps before running anything
 
 ```bash
-grep -ri "external provider" ./infra | wc -l     # 0 means the database user is password-based
-grep -rn "IpAddress" ./infra                     # read the range, not the rule's name
-azd provision --preview                          # what would be created, before it is
+grep -ri "external provider" ./infra | wc -l   # 0 means the database user is password-based
+grep -rn "IpAddress" ./infra                   # read the range, not the rule's name
+azd provision --preview                        # what would be created, before it is
 ```
 
-The per-template detail, including which templates are Microsoft-published rather than community
-ones, is in [references/azd-and-azure-sql.md](references/azd-and-azure-sql.md).
+Open [references/azd-and-azure-sql.md](references/azd-and-azure-sql.md) **before** choosing a
+template or writing the hook: it carries the per-template evidence, which templates are
+Microsoft-published rather than community ones, and the hook wiring end to end.
 
-**What to copy instead.** The three serverless quickstarts above are the pattern worth taking: an
+**What to copy instead.** The three serverless quickstarts are the pattern worth taking: an
 Entra-only server, the deploying user as administrator, a user-assigned managed identity for the
 application, and the grant run from a `postprovision` hook against the user database. Their roles
-are `db_datareader`, `db_datawriter` and `db_ddladmin`, narrower than `db_owner` and still wider
-than most applications need; `least-privilege-database-roles` owns where to land.
+are `db_datareader`, `db_datawriter` and `db_ddladmin`, still wider than most applications need;
+`least-privilege-database-roles` owns where to land.
 
 ## The seam in the middle, which the good templates exist to close
 
-Once the infrastructure is honest, one gap remains and nothing reports it.
-
 **The deployment tool provisions Azure resources and deploys code. A database user is neither.** The
-application's identity exists in Azure and means nothing to the database until somebody runs
+application's identity means nothing to the database until somebody runs
 `CREATE USER ... FROM EXTERNAL PROVIDER` and grants it roles, inside the database, from a connection
-authenticated with Microsoft Entra ID. The run goes green and the application fails at its first
-query with a login failure that reads as a bad credential.
+authenticated with Microsoft Entra ID. Until then the run goes green and the application fails at
+its first query with a login failure that reads as a bad credential.
 
-`entra-id-auth` owns that statement, its clauses and its error codes. This skill owns **where it
-goes in the sequence and how it gets run**.
+`entra-id-auth` owns that statement, its clauses and its error codes. **Open it when you are about
+to write the grant.** This skill owns where the grant goes in the sequence and how it gets run.
 
 ## The four commands, and what each one actually does
 
-They are conflated constantly. They are not interchangeable.
-
 | Command | What it does | What it does not do |
 |---|---|---|
-| `init` | Sets up the project files: `azure.yaml`, an `infra` directory, an environment under `.azure`. Either from a template, or from existing code | Create anything in Azure |
-| `provision` | Creates the Azure resources from the infrastructure files. Writes the template's outputs into the environment | Deploy any code. Create anything inside the database |
+| `init` | Sets up `azure.yaml`, an `infra` directory, an environment under `.azure`, from a template or from existing code | Create anything in Azure |
+| `provision` | Creates the Azure resources and writes the template's outputs into the environment | Deploy code. Create anything inside the database |
 | `deploy` | Pushes built application code to resources that already exist | Create resources. A deploy before a provision has nothing to deploy to |
-| `up` | Runs the packaging, provisioning and deployment steps in one command | Anything the individual steps do not do. It is a convenience, not extra behaviour |
+| `up` | Runs packaging, provisioning and deployment in one command | Anything the individual steps do not do. It is a convenience, not extra behaviour |
 
-**Do not depend on the internal ordering of `up`.** The command's own help text, the commands
-overview page and the hooks reference each state a different order for its sub-steps. What is stable
-and documented is that provisioning happens before deployment, and that the `postprovision` hook
-runs after resources are created. Pin the order explicitly if the project needs it:
+Keeping the two halves apart is how you debug them. Build the artifact yourself and hand it over:
+
+```bash
+dotnet publish ./src/api -c Release -o ./artifacts/api
+azd deploy api --from-package ./artifacts/api
+```
+
+**Do not depend on the internal ordering of `up`.** `azd up --help` calls it package, provision and
+deploy; the hooks reference on Microsoft Learn calls it restore, provision and deploy. What is
+stable is that provisioning happens before deployment and that `postprovision` runs after resources
+are created. Pin the order explicitly if the project needs it, in the shape the command's own help
+gives:
 
 ```yaml
 # azure.yaml
 workflows:
   up:
     - azd: provision
+    - azd: package --all
     - azd: deploy --all
 ```
 
 ## Step 1: know where the infrastructure is coming from
 
-`azure.yaml` at the project root is the only required file. It names the project and maps each
-service to a host and a source directory:
+`azure.yaml` at the project root is the only required file, mapping each service to a host and a
+source directory:
 
 ```yaml
 name: my-project
@@ -180,19 +188,17 @@ services:
     host: appservice
 ```
 
-Provisioning reads Bicep from `./infra` and uses `main.bicep` as the entry point. Both defaults are
-overridable under an `infra` key, `path` and `module`.
+Provisioning reads Bicep from `./infra` with `main.bicep` as the entry point, both overridable
+under an `infra` key, `path` and `module`.
 
 **That Bicep has to come from somewhere, and there are only two real sources**: a template, read
-first on the terms above, or hand-written from Azure Verified Modules.
-
-There is no third option, and this is where an agent invents one:
+first on the terms above, or hand-written from Azure Verified Modules. There is no third option,
+and this is where an agent invents one:
 
 > **The compose feature cannot create an Azure SQL Database.** Its database resource types are
-> Cosmos DB, Azure Cosmos DB for MongoDB, Azure Database for PostgreSQL, Azure Cache for Redis
-> and Azure Database for MySQL. There is no Azure SQL Database entry. `azd add` will not produce
-> one, and `azd infra generate` only writes out what compose already knows, so it cannot produce
-> one either.
+> Azure Cosmos DB, Azure Cosmos DB for MongoDB, Azure Cosmos DB for PostgreSQL, Azure Cache for
+> Redis and Azure Database for MySQL. There is no Azure SQL Database entry, so `azd add` will not
+> produce one, and `azd infra generate` only writes out what compose already knows.
 
 Creating the server, the database and the firewall rule with the Azure CLI instead belongs to
 `provision-azure-sql-db`.
@@ -201,7 +207,7 @@ Creating the server, the database and the firewall rule with the Azure CLI inste
 
 The database user has to exist after the identity and the database do, and before the application
 serves its first request. There is exactly one place that is true, and it is the `postprovision`
-hook.
+hook, registered at the project root rather than inside a service:
 
 ```yaml
 # azure.yaml
@@ -211,25 +217,39 @@ hooks:
       shell: sh
       run: ./infra/scripts/configure-database.sh
       continueOnError: false
+      interactive: false
     windows:
       shell: pwsh
       run: ./infra/scripts/configure-database.ps1
       continueOnError: false
+      interactive: false
 ```
 
-Four things make this work, and each one fails quietly if it is missing.
+Inside the script, read what provisioning wrote and authenticate as the identity that provisioned:
 
-1. **The infrastructure outputs the identity's name and object id.** A hook is a shell script; it
-   can only see what provisioning wrote into the environment.
-2. **The hook reads those outputs** from the environment rather than guessing names.
-3. **`continueOnError` stays false.** The default is false. Setting it true turns the one step that
-   silently matters into a step that silently does not happen.
-4. **Whoever runs the hook is administrator of the logical server and authenticated with Microsoft
-   Entra ID.** A password-authenticated administrator cannot create a user from an external
-   provider.
+```bash
+eval "$(azd env get-values | sed 's/^/export /')"
+sqlcmd -S "$AZURE_SQL_SERVER_NAME" -d "$AZURE_SQL_DATABASE_NAME" \
+  --authentication-method ActiveDirectoryAzureDeveloperCli \
+  -i ./infra/scripts/grant-app-identity.sql
+```
 
-The full wiring is in [references/azd-and-azure-sql.md](references/azd-and-azure-sql.md). The
-statement itself belongs to `entra-id-auth`. Route to it rather than writing the T-SQL from memory.
+Develop that hook on its own, without reprovisioning:
+
+```bash
+azd hooks run postprovision
+```
+
+Four things make this work, and each fails quietly if it is missing.
+
+1. **The infrastructure outputs the identity's name and principal id**, because a hook is a shell
+   script and can only see what provisioning wrote into the environment.
+2. **The hook reads those outputs** rather than guessing resource names.
+3. **`continueOnError` stays false.** Setting it true turns the one step that silently matters into
+   a step that silently does not happen.
+4. **Whoever runs the hook is administrator of the logical server, authenticated with Microsoft
+   Entra ID.** `-G` alone falls back to `ActiveDirectoryDefault`, which can pick a different
+   signed-in identity than the one that just provisioned; naming the method is what pins it.
 
 ## Step 3: get the connection string to the application
 
@@ -241,150 +261,135 @@ up locally, which is why this reads as success.
 | Environment value | `.azure/<environment>/.env` in the project | Provisioning inputs, hooks, and the local command session |
 | Application setting | The deployed application's configuration in Azure | The running application |
 
-The infrastructure has to write it as an application setting. In Bicep that means passing it into
+The infrastructure has to write it as an application setting, which in Bicep means passing it into
 the hosting module:
 
 ```bicep
 appSettings: {
-  AZURE_SQL_CONNECTION_STRING: 'Server=${sqlServer.outputs.fullyQualifiedDomainName}; Database=${databaseName}; Authentication=Active Directory Default; User Id=${apiIdentity.outputs.clientId}'
+  AZURE_SQL_CONNECTION_STRING: 'Server=${sqlServer.outputs.fullyQualifiedDomainName}; Authentication=Active Directory Default; Database=${databaseName}; User Id=${apiIdentity.outputs.clientId}'
 }
 ```
 
-Two details carry weight. There is no password and no user name, which is the whole point. And for a
-user-assigned managed identity the client id has to be named, because the default credential
-otherwise has no way to choose between the identities attached to the host.
+That is the shape Microsoft Learn gives for a function app reaching Azure SQL Database with a
+managed identity. There is no password and no user name, which is the whole point. For a
+user-assigned identity the **client** id has to be named, because the default credential otherwise
+cannot choose between the identities attached to the host; for a system-assigned one, `User Id` is
+omitted instead. The client id is not the principal id the grant uses.
 
-The keyword spellings per driver belong to `entra-id-auth` and `connect-to-azure-sql`. Do not guess
-them here.
+**Open `connect-to-azure-sql` when the driver is not `Microsoft.Data.SqlClient`**: the keyword
+spellings differ per driver and are not guessable.
 
 ## Step 4: know what teardown does and does not remove
 
 ```bash
-azd down            # prompts for confirmation
-azd down --purge    # also purges resources that are soft-deleted by default
+azd down                    # prompts for confirmation
+azd down --purge            # also permanently deletes resources that are soft-deleted by default
+azd down --force --purge    # no confirmation at all
 ```
 
-It deletes the Azure resources for the environment. It does not delete local project files, and it
-does not delete the environment's stored values, so `.azure/<environment>/.env` survives holding
-outputs that now name resources that no longer exist.
+It deletes the Azure resources for the environment, not local project files and not the
+environment's stored values, so `.azure/<environment>/.env` survives holding outputs that now name
+resources that no longer exist. **The database goes with everything else** and its data is not
+backed up by this command. **A database the project did not create is not deleted**, and the
+database user created for the application identity survives inside it, pointing at a principal that
+no longer exists.
 
-- **The database goes with everything else.** The data in it is not backed up by this command.
-- **A database the project did not create is not deleted**, and the database user created for the
-  application identity survives inside it, pointing at a principal that no longer exists.
+## Check it worked
+
+A green run is not the check. Four things, in this order, and the last one is the only one that
+settles it.
+
+```bash
+azd env get-values | grep -i sql   # provisioning wrote the server and database names
+azd show                           # the resources azd believes it owns
+az sql server ad-admin list -g <group> -s <server> -o table
+az sql server firewall-rule list -g <group> -s <server> -o table
+az webapp config appsettings list -g <group> -n <app-name> \
+  --query "[?name=='AZURE_SQL_CONNECTION_STRING'].name" -o tsv
+```
+
+Expect a server and database name in the environment, a named Entra administrator, no rule wider
+than you chose, and the setting present on the deployed application. An empty result from the last
+command is the Step 3 failure: the value exists locally and never reached Azure.
+
+Then confirm the database user exists, connected to the **user database** and not `master`:
+
+```sql
+SELECT p.name, p.authentication_type_desc, r.name AS role_name
+FROM sys.database_principals AS p
+LEFT JOIN sys.database_role_members AS m ON m.member_principal_id = p.principal_id
+LEFT JOIN sys.database_principals AS r ON r.principal_id = m.role_principal_id
+WHERE p.name = '<identity-name>';
+```
+
+Expect at least one row, `authentication_type_desc` reading `EXTERNAL`, and named roles that are not
+`db_owner`. **Zero rows is the seam**: the grant did not run, or it ran against `master`. Finish by
+calling an application endpoint that reads the database, because only the application proves its own
+identity works.
+
+## Under an agent, prompts are failures
+
+`azd` documents `--no-prompt` on every command as automatically enabled when it detects a CI/CD or
+AI-agent environment, failing if any required value cannot be resolved (`AZD_NON_INTERACTIVE=false`
+opts out). So under an agent, any value that would have been prompted for is a hard failure. Set
+them before running anything:
+
+```bash
+azd env new <environment-name>
+azd env set AZURE_SUBSCRIPTION_ID <subscription-id>
+azd env set AZURE_LOCATION <region>
+```
+
+Hooks are the other half, and the two Learn pages disagree: the hooks reference says hooks run in
+interactive mode by default, the schema reference says `interactive` defaults to false. Set it
+explicitly on any hook that runs unattended rather than relying on either.
 
 ## Where this stops
 
 | The request | The owner |
 |---|---|
 | Create the server, database and firewall rule with the Azure CLI | `provision-azure-sql-db` |
-| The database user, the grant, the driver keyword spellings, the error codes | `entra-id-auth` |
-| Retry, pooling, encryption and connection doctrine | `connect-to-azure-sql` |
+| The database user, the grant, the driver keywords, the error codes | `entra-id-auth` |
+| Retry, pooling and encryption doctrine | `connect-to-azure-sql` |
 | A pipeline that deploys on push or on merge | `github-actions-for-sql` |
 | Getting the schema into the database | `schema-migrations-safely` |
 | What roles to leave the application identity holding | `least-privilege-database-roles` |
 | Sequencing a whole new project, before any of this | `build-app-on-azure-sql` |
-| An error number that needs a cause | `diagnose-connection-errors` |
 
-**The boundary with the pipeline is a real one, not a filing decision.** Running the deployment from
-a laptop makes the developer the administrator of the logical server, so the developer can run the
-grant. Running it from a pipeline makes the pipeline's identity the administrator instead, and a
-developer then cannot. `azd pipeline config` is the handoff point.
-
-## Agent-specific behaviour worth knowing
-
-The tool disables interactive prompts automatically when it detects a continuous integration or
-agent environment, and says so:
-
-```
-ERROR: prompt required
-This command cannot continue (interactive prompts disabled)
-```
-
-Under an agent, any value that would have been prompted for is a hard failure instead of a question.
-Set the subscription and location in the environment before running anything:
-
-```bash
-azd env set AZURE_SUBSCRIPTION_ID <subscription-id>
-azd env set AZURE_LOCATION <region>
-```
-
-## Validation rules
-
-- The infrastructure's source is named, and if it is a template, what that template does about
-  database authentication was read rather than assumed.
-- No template was described as passwordless because it creates a managed identity. What the identity
-  authenticates to was checked.
-- Every firewall rule in the infrastructure was read by range, not by name, and any rule spanning the
-  public address space was narrowed deliberately, with a rule added for whatever runs the hook.
-- The role the application's database user holds is named, and it is not `db_owner` by inheritance.
-- The plan distinguishes provisioning from deployment, and the database-side grant sits between
-  them, not after both.
-- A `postprovision` hook exists, `continueOnError` is not set true on it, and the infrastructure
-  outputs every value that hook reads.
-- The identity running the grant is administrator of the logical server and authenticated with
-  Microsoft Entra ID.
-- The connection string reaches the application as an application setting written by the
-  infrastructure, carries no password, names the user database rather than `master`, and keeps
-  encryption on with certificate trust off.
-- The plan says which identity ends up administrator of the logical server, and whether that is the
-  developer or a pipeline.
-- Before a teardown, the plan names what survives it.
+**The boundary with the pipeline is a real one, not a filing decision.** Deploying from a laptop
+makes the developer administrator of the logical server, so the developer can run the grant.
+Deploying from a pipeline makes the pipeline's identity administrator instead, and a developer then
+cannot. `azd pipeline config` is the handoff point.
 
 ## Do not
 
-- Do not treat a first-party template's `infra` directory as reviewed. Read it. That is the entire
-  correction this skill carries.
-- Do not recommend the blueprint sample as the passwordless path to Azure SQL Database. It
-  authenticates the database with a password and grants `db_owner`.
-- Do not conclude a template is passwordless because a managed identity appears in it. Check what
-  that identity authenticates to.
+- Do not treat a first-party template's `infra` directory as reviewed, and do not call one
+  passwordless because a managed identity appears in it. Check what that identity authenticates to.
 - Do not accept a firewall rule because its name says Azure services. Read the range, and expect the
   wide one even in the templates that get identity right.
-- Do not extrapolate template names from the family. `todo-nodejs-sql` and `todo-python-sql` do not
-  exist, and `todo-csharp-cosmos-sql` is not Azure SQL Database.
-- Do not report a deployment as working because the tool reported success. Confirm the application
-  actually reached the database.
-- Do not put the grant in a hook that runs after deployment. The application can serve a request
-  before it runs.
-- Do not set `continueOnError` to true on the hook that runs the grant.
-- Do not reach for the compose feature to create an Azure SQL Database. It has no resource type for
-  one.
+- Do not extrapolate template names from the family, and do not report a deployment as working
+  because the tool reported success.
+- Do not put the grant in a hook that runs after deployment, and do not set `continueOnError` true
+  on it. The application can serve a request before it runs.
 - Do not set a connection string as an environment value and expect the deployed application to read
-  it.
-- Do not leave `TrustServerCertificate` on in a connection string copied out of a sample.
-- Do not assume a database name, a server name or a resource name in a hook. Read it from the
-  environment values that provisioning wrote.
+  it, and do not leave `TrustServerCertificate` on in one copied out of a sample.
+- Do not assume a database, server or resource name in a hook. Read it from the environment values
+  that provisioning wrote.
 - Do not restate the `CREATE USER` statement, the role grants or the driver keyword spellings here.
   `entra-id-auth` owns them, and two skills stating the same syntax is how they start disagreeing.
-- Do not answer the pipeline version of this question here.
 
 ## References
 
-- [references/azd-and-azure-sql.md](references/azd-and-azure-sql.md): which templates exist for
-  Azure SQL Database and which are Microsoft-published, what each one really does about identity and
-  about the firewall, the naming traps in the sample family, and the full post-provision hook wiring
-  from infrastructure output to grant. Read it before choosing a template or writing the hook.
-
-## Read the source when
-
-- **A template is about to be chosen**: the community gallery at `azure.github.io/awesome-azd`, and
-  the template listing command, which is the only current statement of what exists. Then read the
-  chosen template's own `infra` directory, because the gallery says nothing about what is in it.
-- **A firewall rule needs justifying**: the network access controls article on Microsoft Learn,
-  which states the address the Allow Azure services rule actually uses.
-- **A hook is being written**: the hooks reference on Microsoft Learn, which carries the full list of
-  hook names and their configuration options.
-- **An environment value is not arriving where it was expected**: the environment variables article
-  on Microsoft Learn.
-
-## Checklist before reporting success
-
-- [ ] Infrastructure exists and its source is named: a template, or written by hand
-- [ ] If a template, its database authentication was read, and it is not password-based by default
-- [ ] Every firewall rule was read by range, and narrowed if it spanned the public address space
-- [ ] The role held by the application's database user is named, and it is not `db_owner`
-- [ ] The database user for the application identity was created, and the roles it holds are named
-- [ ] That step ran between provisioning and deployment, from a hook that cannot be skipped silently
-- [ ] The connection string is an application setting written by the infrastructure, with no secret
-- [ ] The application was observed reaching the database, not just deployed
-- [ ] The administrator of the logical server is known and stated
+- [references/azd-and-azure-sql.md](references/azd-and-azure-sql.md): open it before choosing a
+  template, before writing the post-provision hook, or when a claim above disagrees with what you
+  are seeing. It carries the per-template evidence, which templates are Microsoft-published, the
+  naming traps, and the hook wiring from infrastructure output to grant.
+- `azd template list` and the community gallery at `azure.github.io/awesome-azd` are the only
+  current statement of what templates exist. List them rather than recalling them.
+- [Hooks reference](https://learn.microsoft.com/azure/developer/azure-developer-cli/azd-extensibility)
+  and [azure.yaml schema](https://learn.microsoft.com/azure/developer/azure-developer-cli/azd-schema),
+  when a hook name or option is in question;
+  [environment variables](https://learn.microsoft.com/azure/developer/azure-developer-cli/manage-environment-variables)
+  when a value is not arriving where it was expected;
+  [network access controls](https://learn.microsoft.com/azure/azure-sql/database/network-access-controls-overview)
+  when a firewall rule needs justifying.

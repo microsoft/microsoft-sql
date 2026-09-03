@@ -30,6 +30,96 @@
       "the trigger's identity holds more than db_datareader and db_datawriter: it can read change tracking on the table and create the state schema and tables",
       "the output binding upserts on the primary key rather than inserting, so a repeated write updates the existing row instead of failing",
       "the connection setting names an app setting, and the deployed value carries an identity rather than a password"
+    ],
+    "probes": [
+      {
+        "sql": "CREATE TABLE dbo.probe_ct_two_step (Id int NOT NULL PRIMARY KEY, title nvarchar(50) NOT NULL);\nALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);\nGO\nSELECT (SELECT COUNT(*) FROM sys.change_tracking_databases WHERE database_id = DB_ID()) AS database_tracked,\n       (SELECT COUNT(*) FROM sys.change_tracking_tables WHERE object_id = OBJECT_ID('dbo.probe_ct_two_step')) AS table_tracked;",
+        "expect": {
+          "rows": [
+            [
+              1,
+              0
+            ]
+          ]
+        },
+        "why": "The skill's first claim made executable: enabling change tracking at the database level does NOT enable it on any table. One row in sys.change_tracking_databases and zero in sys.change_tracking_tables is the exact state a developer is in when they run the ALTER DATABASE from Microsoft Learn, stop there, and then cannot work out why the SQL trigger listener never starts. Re-running the ALTER DATABASE is a no-op, so this probe does not care what order it runs in."
+      },
+      {
+        "sql": "ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);\nGO\nCREATE TABLE dbo.probe_ct_enabled (Id int NOT NULL PRIMARY KEY, title nvarchar(50) NOT NULL);\nALTER TABLE dbo.probe_ct_enabled ENABLE CHANGE_TRACKING;\nGO\nSELECT (SELECT COUNT(*) FROM sys.change_tracking_tables WHERE object_id = OBJECT_ID('dbo.probe_ct_enabled')) AS table_tracked,\n       CAST(CASE WHEN CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID('dbo.probe_ct_enabled')) IS NOT NULL THEN 1 ELSE 0 END AS int) AS listener_reads_a_version;",
+        "expect": {
+          "rows": [
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        "why": "The other half of the same claim, and the one that proves the fix works: once BOTH statements have run, the table appears in sys.change_tracking_tables and CHANGE_TRACKING_MIN_VALID_VERSION returns a version rather than null. That function is what the SQL trigger listener calls at startup, and Microsoft Learn documents it as returning null when change tracking is off for the database, the object id is invalid, or permission to the table is insufficient. A non-null version here is the listener's own precondition, measured directly instead of inferred from a host log."
+      },
+      {
+        "sql": "ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);\nGO\nCREATE TABLE dbo.probe_ct_no_pk (Id int NOT NULL, title nvarchar(50) NOT NULL);\nGO\nALTER TABLE dbo.probe_ct_no_pk ENABLE CHANGE_TRACKING;",
+        "expect": {
+          "error": 22119
+        },
+        "why": "The primary key prerequisite, which the skill states and which is otherwise only visible as a listener that quietly never starts. Msg 22119, 'Cannot enable change tracking on table. Change tracking requires a primary key constraint on the table to be enabled', is listed in the Microsoft Learn error table for 22000 to 22999. The number is the assertion because message text is a moving target across builds; if a future build renumbers it, this probe is what says the product moved rather than the skill being wrong."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_out_upsert (Id int NOT NULL PRIMARY KEY, title nvarchar(50) NOT NULL);\nINSERT INTO dbo.probe_out_upsert (Id, title) VALUES (1, N'first');\nMERGE dbo.probe_out_upsert AS t\nUSING (SELECT * FROM OPENJSON(N'[{\"Id\":1,\"title\":\"second\"}]') WITH (Id int, title nvarchar(50))) AS s\nON t.Id = s.Id\nWHEN MATCHED THEN UPDATE SET t.title = s.title\nWHEN NOT MATCHED THEN INSERT (Id, title) VALUES (s.Id, s.title);\nSELECT COUNT(*) AS row_count, MAX(title) AS title FROM dbo.probe_out_upsert;",
+        "expect": {
+          "rows": [
+            [
+              1,
+              "second"
+            ]
+          ]
+        },
+        "why": "The output binding's upsert, written the way the binding writes it. Microsoft Learn states the output bindings use the T-SQL MERGE statement, and that the unsupported NTEXT, TEXT and IMAGE column types fail because they are incompatible with OPENJSON, which names both halves of the generated statement. Writing a row whose primary key already exists therefore updates it: one row back holding the second title, not a duplicate key error. An agent that reports this as a create has reported an overwrite."
+      },
+      {
+        "sql": "ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);\nGO\nCREATE TABLE dbo.probe_perm_todo (Id int NOT NULL PRIMARY KEY, title nvarchar(50) NOT NULL);\nALTER TABLE dbo.probe_perm_todo ENABLE CHANGE_TRACKING;\nCREATE USER probe_binding_identity WITHOUT LOGIN;\nALTER ROLE db_datareader ADD MEMBER probe_binding_identity;\nALTER ROLE db_datawriter ADD MEMBER probe_binding_identity;\nGO\nEXECUTE AS USER = 'probe_binding_identity';\nGO\nSELECT HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'CREATE TABLE') AS can_create_table,\n       HAS_PERMS_BY_NAME('dbo.probe_perm_todo', 'OBJECT', 'SELECT') AS can_select,\n       HAS_PERMS_BY_NAME('dbo.probe_perm_todo', 'OBJECT', 'VIEW CHANGE TRACKING') AS can_view_change_tracking;\nGO\nREVERT;",
+        "expect": {
+          "rows": [
+            [
+              0,
+              1,
+              0
+            ]
+          ]
+        },
+        "why": "Microsoft's claim that db_datareader and db_datawriter are enough for the input and output bindings and are NOT enough for the trigger, turned into a measurement instead of a quotation. The middle column is the control and must be 1, because db_datareader grants SELECT, which proves the impersonation took effect rather than the probe silently running as the administrator. The two zeroes either side are the trigger's missing prerequisites: CREATE TABLE for its az_func state tables, and VIEW CHANGE TRACKING on the monitored table. EXECUTE AS, SELECT, REVERT is the shape Learn's own HAS_PERMS_BY_NAME example uses, and REVERT returns no result set, so the SELECT is the last one."
+      },
+      {
+        "where": "host",
+        "cmd": "func --version",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Azure Functions Core Tools is the tool this skill's step 0 tells the reader to run, so a red here means the body opens with a command that is not there. Measured 2026-09-03 on the authoring host: exit 0, 4.12.0. Core Tools is a client tool a developer installs and is never shipped in the engine image, so this is a host probe."
+      },
+      {
+        "where": "host",
+        "cmd": "func templates list | grep -q 'SQL Trigger'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Half of the tooling correction this skill carries: the SQL Trigger template IS advertised by Core Tools. Measured 2026-09-03, func templates list prints SQL Input Binding, SQL Output Binding and SQL Trigger across five worker languages. This probe and the next are only meaningful as a pair, because the finding is the gap between them."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && printf '{\"version\":\"2.0\"}' > \"$d/host.json\" && printf '{\"IsEncrypted\":false,\"Values\":{\"FUNCTIONS_WORKER_RUNTIME\":\"dotnet-isolated\"}}' > \"$d/local.settings.json\" && cd \"$d\" && func new --template \"SQL Trigger\" --name ProbeTrigger </dev/null 2>&1 | grep -q \"Unknown template 'SQLTrigger'\"",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The other half, and the reason this skill tells the reader to write the attribute by hand. Measured 2026-09-03 on Core Tools 4.12.0: the template name loses its spaces and func new then rejects it with Unknown template 'SQLTrigger' (Parameter 'templateName'), while HTTP trigger succeeds in the same command. The probe builds its own minimal project because func new prompts for a worker runtime when local.settings.json does not declare one, and a prompting probe hangs a runner rather than failing it; the redirect from /dev/null is the second guard. A red here means Core Tools fixed it and step 0 should be rewritten."
+      },
+      {
+        "where": "host",
+        "cmd": "dotnet --version",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The .NET SDK is the second command in step 0, the one that adds Microsoft.Azure.Functions.Worker.Extensions.Sql. Measured 2026-09-03 on the authoring host: exit 0, 8.0.421. That SDK is also why the skill warns about NETSDK1045, because Core Tools 4.12.0 scaffolds net10.0 and this SDK cannot build it."
+      }
     ]
   },
   "triggering": {

@@ -34,6 +34,37 @@
       "the deployment step is given a target file whose type matches what the step is asked to do, and the action input naming the operation is supplied wherever it is required",
       "the runner has the deployment tool available, because the hosted image does not carry it",
       "the environment gate is stated to hold only the jobs that name it, and any job outside it that can reach the same secrets is called out"
+    ],
+    "probes": [
+      {
+        "where": "host",
+        "cmd": "sqlpackage /Action:Publish /help:True | grep -q '^/TargetConnectionString:<string>$' && sqlpackage /Action:Publish /help:True | grep -q '^/SourceFile:<string>$'",
+        "expect": { "succeeds": true },
+        "why": "azure/sql-action does not have its own deployment engine: for Publish, Script and DeployReport it composes exactly '/Action:<action> /TargetConnectionString:\"<connection string>\" /SourceFile:\"<path>\"' and shells out, read from src/AzureSqlAction.ts at tag v2.4. The skill tells a reader to run that same line locally before trusting the pipeline, so both parameters have to be real. Measured 2026-09-03 on SqlPackage 170.4.83.3, both present in the Publish help. If a build renames either one, the local reproduction in the body stops working and so does the action."
+      },
+      {
+        "where": "host",
+        "cmd": "sqlpackage /Action:DeployReport /help:True | grep -q '^/OutputPath:<string>$'",
+        "expect": { "succeeds": true },
+        "why": "The check-it-worked section reruns DeployReport against the deployed database and counts operations in the XML, and the file only exists if the path parameter is right. Measured 2026-09-03 on 170.4.83.3: DeployReport takes /OutputPath. Microsoft Learn's SQL projects automation page uses the same parameter for this action."
+      },
+      {
+        "where": "host",
+        "cmd": "sqlpackage /Action:DeployReport /help:True | grep -q '^/DeployReportPath' && exit 1 || exit 0",
+        "expect": { "succeeds": true },
+        "why": "The negative half of the pair above, and the trap the skill names: /DeployReportPath is a Publish parameter and DeployReport does not accept it, so a report requested with the wrong flag is simply not written and the check silently measures nothing. Measured 2026-09-03 on 170.4.83.3: absent from the DeployReport help, present in the Publish help. This probe goes red the day the two actions converge, which would make the skill's warning wrong."
+      },
+      {
+        "where": "host",
+        "cmd": "sqlcmd '-?' | grep -q -- '--authentication-method'",
+        "expect": { "succeeds": true },
+        "why": "Before deploying anything the action opens a sqlcmd connection to master purely to read the runner's address out of the failure, and for an identity-based connection string it builds that call with --authentication-method=ActiveDirectoryDefault, read from src/SqlUtils.ts at v2.4. The skill prints that command line for a reader to run locally. Measured 2026-09-03 against sqlcmd 1.10.0 on this host; the action ships go-sqlcmd 1.6.0 into the runner tool cache, so a flag that disappeared between those versions would break the reproduction rather than the pipeline."
+      },
+      {
+        "sql": "SELECT 'Validating connection from GitHub SQL Action' AS probe_text;",
+        "expect": { "rows": [["Validating connection from GitHub SQL Action"]] },
+        "why": "The literal statement the action sends as its firewall probe, quoted from src/SqlUtils.ts at v2.4 and reproduced in the skill body. It proves the statement a reader is told to paste is accepted by the engine and returns that exact text, so a failure of the real probe step is an authentication or network failure and never a bad statement. That distinction is the whole point of the section: the action reports every one of those failures as 'Failed to add firewall rule. Unable to detect client IP Address'."
+      }
     ]
   },
   "triggering": {

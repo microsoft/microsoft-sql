@@ -2,11 +2,22 @@
   "$schema": "../../catalog/skill.spec.schema.json",
   "id": "langchain-and-llamaindex-on-azure-sql",
   "domain": "ai-vector-and-rag",
-  "value": ["not-in-training-data", "corrects-a-wrong-assumption", "changes-too-fast-to-memorize"],
+  "value": [
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "changes-too-fast-to-memorize"
+  ],
   "correction": "Agents wire LangChain or LlamaIndex to Azure SQL Database by pointing a SQLAlchemy URL at it and taking the framework defaults, believing the framework knows the dialect and that its stated read-only, table-scoping and no-DML guardrails are enforced. Measured on 2026-08-28 by installing the packages, reading the shipped prompts and running every statement against an Azure SQL Database engine (langchain 1.3.18, langchain-community 0.4.2, langchain-classic 1.0.8, langchain-sqlserver 1.0.1, llama-index-core 0.14.24), four things are wrong at once. First, SQLDatabase.dialect is the literal string mssql and the agent prompt SQL_PREFIX, together with the hub prompt langchain-ai/sql-agent-system-prompt that the toolkit's own docstring recommends, still says to always limit the query to at most top_k results with no T-SQL branch; the per-dialect prompt that says TOP exists only on the legacy chain path, and LlamaIndex has no per-dialect prompt at all. The resulting failure misdirects: SELECT ... FROM t LIMIT 10 returns Msg 102 Incorrect syntax near '10' rather than near LIMIT, because T-SQL parses LIMIT as a table alias, and the sql_db_query_checker tool the agent is told to call before every query lists eight common mistakes of which dialect pagination is not one, so the repair loop edits the number and retries. Second, langchain-sqlserver creates its table with PRIMARY KEY NONCLUSTERED, leaving a heap that refuses CREATE VECTOR INDEX with Msg 42254, and the package contains no VECTOR_SEARCH and no WITH APPROXIMATE anywhere, so every retrieval is an exact full scan for the life of the table. Third, LlamaIndex ships no Azure SQL Database vector store at all, so an agent installs a neighbouring package for a different database. Fourth, include_tables scopes only what the model is told about and a query against an excluded table still returned a row, the no-DML instruction is a sentence in a prompt while db.run committed an INSERT and a CREATE and DROP pair, and sample_rows_in_table_info defaults to 3 so the schema tool puts three real rows of live data into the prompt. Being wrong costs retry loops the model cannot diagnose from the error it is given, a retrieval path that cannot be indexed without rebuilding the table, a numeric metadata filter that throws Msg 8115 arithmetic overflow at read time because the framework casts to NUMERIC(10, 2), and a tool surface that hands whatever the login can do to any text that reaches the model.",
-  "posture": ["read", "write", "execute"],
+  "posture": [
+    "read",
+    "write",
+    "execute"
+  ],
   "maturity": "draft",
-  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "applies_to": [
+    "azure-sql-db",
+    "azure-sql-db-container"
+  ],
   "related": [
     "vector-search-azure-sql",
     "rag-on-azure-sql",
@@ -36,6 +47,75 @@
       "the declared embedding_length equals the dimension requested from the embedding model and is 1998 or fewer",
       "no metadata key that anything filters on numerically holds a value larger than NUMERIC(10, 2) can carry",
       "the framework versions are pinned and recorded, and the prompt and vector store behaviour were re-checked at the last upgrade"
+    ],
+    "probes": [
+      {
+        "sql": "CREATE TABLE dbo.probe_ll_alias (customer_id int NOT NULL PRIMARY KEY, full_name nvarchar(50) NOT NULL);\nINSERT INTO dbo.probe_ll_alias (customer_id, full_name) VALUES (1, N'Ada Example'), (2, N'Bo Example');\nGO\nSELECT COUNT(LIMIT.customer_id) AS rows_seen FROM dbo.probe_ll_alias LIMIT;",
+        "expect": {
+          "rows": [
+            [
+              2
+            ]
+          ]
+        },
+        "why": "The reason the repair loop never removes the keyword. LIMIT is not reserved in T-SQL, so the parser accepts it as a table alias and this statement succeeds over both rows. That is why the failure in the next probe names the integer that follows LIMIT and never names LIMIT itself, and why a model handed 'Incorrect syntax near 10' edits the number instead. Measured 2026-08-28."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_ll_limit (customer_id int NOT NULL PRIMARY KEY, full_name nvarchar(50) NOT NULL);\nINSERT INTO dbo.probe_ll_limit (customer_id, full_name) VALUES (1, N'Ada Example'), (2, N'Bo Example');\nGO\nSELECT customer_id, full_name FROM dbo.probe_ll_limit LIMIT 10;",
+        "expect": {
+          "error": 102
+        },
+        "why": "The query the default agent prompt asks for, refused by the engine. SQL_PREFIX in langchain_community, the hub prompt langchain-ai/sql-agent-system-prompt and the system prompt written out in LangChain's own SQL agent guide all say to always limit the query to at most top_k results, with no T-SQL branch. Msg 102 is the engine's incorrect-syntax error, measured 2026-08-28 and reported by the tool as Incorrect syntax near '10'."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_ll_offset (customer_id int NOT NULL PRIMARY KEY);\nINSERT INTO dbo.probe_ll_offset (customer_id) VALUES (1), (2);\nGO\nSELECT customer_id FROM dbo.probe_ll_offset OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY;",
+        "expect": {
+          "error": 102
+        },
+        "why": "The second thing a model tries after LIMIT fails, and it fails too, which is why the replacement prompt in this skill states that the ORDER BY is mandatory rather than just naming OFFSET and FETCH. Msg 102 measured 2026-08-28; the same statement with ORDER BY customer_id in front of OFFSET returns rows."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_ll_lcv (\n    id uniqueidentifier NOT NULL,\n    custom_id varchar(1000) NULL,\n    content_metadata json NULL,\n    content nvarchar(max) NOT NULL,\n    embeddings vector(8) NOT NULL,\n    PRIMARY KEY NONCLUSTERED (id));\nINSERT INTO dbo.probe_ll_lcv (id, content, embeddings) VALUES\n (NEWID(), N'alpha', '[1,2,3,4,5,6,7,8]'), (NEWID(), N'beta', '[2,3,4,5,6,7,8,9]'),\n (NEWID(), N'gamma', '[3,4,5,6,7,8,9,1]'), (NEWID(), N'delta', '[4,5,6,7,8,9,1,2]');\nGO\nSET QUOTED_IDENTIFIER ON;\nCREATE VECTOR INDEX vi_probe_ll_lcv ON dbo.probe_ll_lcv (embeddings) WITH (METRIC = 'cosine', TYPE = 'diskann');",
+        "expect": {
+          "error": 42254
+        },
+        "why": "The table langchain-sqlserver 1.0.1 creates, reproduced as DDL exactly as it was read back off the engine on 2026-08-28, including the PRIMARY KEY NONCLUSTERED that leaves it a heap. Msg 42254, clustered index is required to create a vector index, is what the package's own table earns, and it is the whole reason this skill says to add the clustered index before the table holds volume. If this ever succeeds, the package changed its DDL and section 2 needs re-reading."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_ll_lcv_cl (\n    id uniqueidentifier NOT NULL,\n    custom_id varchar(1000) NULL,\n    content nvarchar(max) NOT NULL,\n    embeddings vector(8) NOT NULL,\n    PRIMARY KEY NONCLUSTERED (id));\nINSERT INTO dbo.probe_ll_lcv_cl (id, content, embeddings) VALUES\n (NEWID(), N'alpha', '[1,2,3,4,5,6,7,8]'), (NEWID(), N'beta', '[2,3,4,5,6,7,8,9]'),\n (NEWID(), N'gamma', '[3,4,5,6,7,8,9,1]'), (NEWID(), N'delta', '[4,5,6,7,8,9,1,2]');\nGO\nCREATE CLUSTERED INDEX ix_probe_ll_lcv_cl ON dbo.probe_ll_lcv_cl (id);\nGO\nSET QUOTED_IDENTIFIER ON;\nCREATE VECTOR INDEX vi_probe_ll_lcv_cl ON dbo.probe_ll_lcv_cl (embeddings) WITH (METRIC = 'cosine', TYPE = 'diskann');",
+        "expect": {
+          "error": 42266
+        },
+        "why": "The same table with one CREATE CLUSTERED INDEX added, and the refusal moves on to the ordinary row-count gate. That change of error number is the evidence that the clustered index is the fix for Msg 42254 and not a coincidence: 42266 is the 100 non-null vectors minimum that vector-search-azure-sql owns, reached here with four rows. Measured 2026-08-28."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_ll_meta (id int NOT NULL PRIMARY KEY, content_metadata nvarchar(max) NOT NULL);\nINSERT INTO dbo.probe_ll_meta (id, content_metadata) VALUES (1, N'{\"ts\": 1756000000}'), (2, N'{\"ts\": 1756900000}');\nGO\nSELECT id FROM dbo.probe_ll_meta\nWHERE CAST(JSON_VALUE(content_metadata, '$.ts') AS NUMERIC(10, 2)) > 1756500000;",
+        "expect": {
+          "error": 8115
+        },
+        "why": "The WHERE clause langchain-sqlserver 1.0.1 emits for a numeric metadata filter, with the NUMERIC(10, 2) cast it hardcodes, reproduced against the same values. NUMERIC(10, 2) tops out below 100 million, so any epoch timestamp overflows. Microsoft Learn lists Msg 8115 as arithmetic overflow error converting to a data type; the package's own filter earns it, measured 2026-08-28. The cast lands on the stored column, so a single oversized value poisons every numeric filter on that key, and it throws at read time and never at write time."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_ll_readonly (customer_id int NOT NULL PRIMARY KEY, city nvarchar(40) NOT NULL);\nINSERT INTO dbo.probe_ll_readonly (customer_id, city) VALUES (1, N'Springfield');\nCREATE USER probe_ll_reader WITHOUT LOGIN;\nGRANT SELECT ON dbo.probe_ll_readonly TO probe_ll_reader;\nGO\nEXECUTE AS USER = 'probe_ll_reader';\nUPDATE dbo.probe_ll_readonly SET city = N'Owned' WHERE customer_id = 1;",
+        "expect": {
+          "error": 229
+        },
+        "why": "The only guardrail in section 3 that is enforced by anything. The DO NOT make any DML statements line in SQL_PREFIX is prompt text and db.run committed an INSERT and a CREATE and DROP pair straight through it, so the write has to be stopped by the grant instead. Msg 229, the UPDATE permission was denied on the object, is what the agent's login must earn, measured 2026-08-28 through the query tool. Microsoft Learn documents CREATE USER WITHOUT LOGIN and EXECUTE AS USER on Azure SQL Database, which is how the probe takes the agent's identity without needing a second connection."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_ll_scan (id int NOT NULL PRIMARY KEY CLUSTERED, content nvarchar(50) NOT NULL, embeddings vector(3) NOT NULL);\nINSERT INTO dbo.probe_ll_scan (id, content, embeddings) VALUES (1, N'a', '[1,2,3]'), (2, N'b', '[1,2,4]'), (3, N'c', '[9,9,9]');\nGO\nSELECT id FROM (\n  SELECT TOP 2 lcv.id, VECTOR_DISTANCE('cosine', cast ('[1,2,3]' as vector(3)), embeddings) AS distance\n  FROM dbo.probe_ll_scan AS lcv ORDER BY distance ASC) AS nearest\nORDER BY id;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ],
+            [
+              2
+            ]
+          ]
+        },
+        "why": "The query langchain-sqlserver 1.0.1 actually emits for similarity_search_with_score, captured off the connection on 2026-08-28 and reduced to three dimensions. It confirms two things at once: SQLAlchemy compiles the row cap as TOP and not LIMIT even though the agent prompt does not, and the shape is ORDER BY VECTOR_DISTANCE, which vector-search-azure-sql measures as a full scan that never reaches a vector index. Correct rows are exactly why nobody notices."
+      }
     ]
   },
   "triggering": {

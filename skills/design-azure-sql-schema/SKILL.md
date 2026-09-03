@@ -10,21 +10,19 @@ description: >-
   length or a database collation, or when someone reports a warning about maximum key length, an
   insert failing long after its migration succeeded, a lookup that suddenly scans, identity values
   that jumped, or a duplicate key on NULL. This is the engine rule underneath the mappers:
-  ef-core-azure-sql, prisma-azure-sql and sqlalchemy-azure-sql own how each one expresses it,
-  t-sql-correctness owns query syntax, and vector-search-azure-sql owns vector search.
+  ef-core-azure-sql and sqlalchemy-azure-sql own how each one expresses it, t-sql-correctness owns
+  query syntax, and vector-search-azure-sql owns vector search.
 ---
 
 # Design a schema Azure SQL Database will not make you rebuild
 
-This is the set of schema decisions that Azure SQL Database punishes **later**, not at `CREATE
-TABLE`. General modelling, normalisation and naming are not here, because they are the same
-everywhere and the agent already does them.
+These are the schema decisions Azure SQL Database punishes **later**, not at `CREATE TABLE`.
+Normalisation and naming are not here: they are the same everywhere.
 
 Everything below was measured on 2026-08-28 against a live engine where
-`SERVERPROPERTY('EngineEdition')` returns `5` and `Edition` is `SQL Azure`. The statements, the
-plans and the byte counts are in [references/verified-behaviour.md](references/verified-behaviour.md).
-
-## The shape of every failure on this page
+`SERVERPROPERTY('EngineEdition')` returns `5` and `Edition` is `SQL Azure`.
+Open [the measured statements](references/key-bytes-collation-and-identity-gaps.md) when a number
+below disagrees with your engine, and before changing one.
 
 | | |
 |---|---|
@@ -32,15 +30,13 @@ plans and the byte counts are in [references/verified-behaviour.md](references/v
 | The migration | succeeds |
 | The failure | arrives on a row, a plan or a failover, weeks later, in production |
 
-That is why these five items are worth a skill and normalisation is not. **A syntax error costs
-minutes. Each item here costs a table rebuild, a collation rebuild, or a duplicated key.**
+**A syntax error costs minutes. Each item here costs a table rebuild, a collation rebuild or a
+duplicated key.**
 
 ## 1. The index key budget is in bytes, and Unicode spends two per character
 
-The limits are **1700 bytes for a nonclustered index key and 900 bytes for a clustered one**, and
-a composite key spends the **sum** of its columns.
-
-`NVARCHAR(n)` costs `2n` bytes, so:
+**1700 bytes for a nonclustered index key, 900 for a clustered one**, and a composite key spends
+the **sum**. `NVARCHAR(n)` costs `2n` bytes, so:
 
 | Position | Widest safe Unicode column | Widest safe UTF-8 column |
 |---|---|---|
@@ -48,12 +44,11 @@ a composite key spends the **sum** of its columns.
 | Clustered index or clustered primary key | `NVARCHAR(450)` | `VARCHAR(900)` |
 | Anything not in a key | unbounded | unbounded |
 
-`NVARCHAR(450)` is the width an indexed string is narrowed to by EF Core, and that choice is right:
-it is the only length safe in **every** index position, clustered included.
+`NVARCHAR(450)` is the only length safe in **every** index position, which is why EF Core narrows
+an indexed string to it.
 
-### What over-shooting actually does
-
-Creating a unique index on `NVARCHAR(1000)`, which is 2000 bytes:
+Over-shooting is a **warning**, message 1945 at severity 10. The index exists, the migration
+reports success, short values insert fine:
 
 ```text
 Warning! The maximum key length for a nonclustered index is 1700 bytes.
@@ -61,8 +56,7 @@ The index 'ux_acct_email' has maximum length of 2000 bytes.
 For some combination of large values, the insert/update operation will fail.
 ```
 
-That is **message 1945 at severity 10**. It is a warning. The index exists, the migration reports
-success, and every short value inserts fine. The failure waits for the first long row:
+The failure waits for the first long row, and this one is an error:
 
 ```text
 Msg 1946, Level 16, State 3
@@ -73,59 +67,43 @@ exceeds the maximum length of 1700 bytes for nonclustered indexes.
 **Consequence of being wrong: a write path that has worked for months starts rejecting exactly the
 rows that matter,** and the fix is an `ALTER COLUMN` plus an index rebuild on a live table.
 
-Two more rules that come out of the same budget:
+- **`INCLUDE` columns do not count against the budget.** A covering index can include
+  `NVARCHAR(MAX)`.
+- **A foreign key column must match the parent's length and collation exactly**, `Msg 1753` and
+  `Msg 1757`, so an oversized parent key propagates to every child.
+- `NVARCHAR(MAX)`, `json` and `vector` cannot be key columns at all: `Msg 1919`, `Msg 1978`.
 
-- **`INCLUDE` columns do not count against it.** A covering index can include `NVARCHAR(MAX)`.
-  Verified.
-- **A foreign key inherits the parent key's width, and the lengths must match exactly.** A
-  mismatch is refused at create time with `Msg 1753`, so an oversized parent key propagates.
-- `NVARCHAR(MAX)`, `json` and `vector` cannot be key columns at all (`Msg 1919`, `Msg 1978`).
+## 2. Collation is chosen at CREATE DATABASE, and it decides two things
 
-How each mapper reaches these lengths, and its own default, is `ef-core-azure-sql`,
-`prisma-azure-sql` and `sqlalchemy-azure-sql`.
+A new database with no collation stated gets `SQL_Latin1_General_CP1_CI_AS`.
 
-## 2. Collation is chosen at CREATE DATABASE, and it decides two different things
-
-A new database gets `SQL_Latin1_General_CP1_CI_AS` when none is stated. That single default
-decides both of the following, and neither is obvious from the name.
-
-### 2a. `CI` means identifiers are not unique the way the design assumes
+`CI` means identifiers are not unique the way the design assumes:
 
 ```sql
+CREATE TABLE dbo.tokens (t NVARCHAR(64) NOT NULL PRIMARY KEY);
 INSERT INTO dbo.tokens (t) VALUES (N'aB1x');
 INSERT INTO dbo.tokens (t) VALUES (N'Ab1X');
 -- Msg 2627, Violation of PRIMARY KEY constraint. The duplicate key value is (Ab1X).
 ```
 
-Under a case-sensitive collation both rows are accepted. **Consequence of being wrong: any column
-holding a case-significant token, an API key, a slug, a short link code or a base64 identifier
-collides at roughly the rate its alphabet implies**, and the collision surfaces as a user-visible
-insert failure, not as data corruption you can find later.
-
-The fix is per column, not per database:
+**Consequence of being wrong: any column holding a case-significant token, API key, slug or short
+link code collides at roughly the rate its alphabet implies**, as a user-visible insert failure.
+The fix is per column:
 
 ```sql
-code NVARCHAR(64) COLLATE Latin1_General_CS_AS NOT NULL
+ALTER TABLE dbo.tokens ALTER COLUMN t NVARCHAR(64) COLLATE Latin1_General_CS_AS NOT NULL;
 ```
 
-### 2b. The default is a *SQL* collation, which is where the seek is lost
-
-Covered in section 3, because it is the expensive half.
-
-### Where the decision is made
-
 **State the collation in `CREATE DATABASE`, or accept the default deliberately.** There is no
-server collation to inherit here, the database is the only place the decision is made, and
-`ALTER DATABASE ... COLLATE` afterwards re-collates nothing that already exists. Measured output
-for that statement is in
-[references/verified-behaviour.md](references/verified-behaviour.md).
+server collation to inherit, and `ALTER DATABASE ... COLLATE` afterwards re-collates nothing that
+already exists: it succeeds, changes only what is created next, and leaves you joining across a
+collation conflict, `Msg 468`. The second half of the default's cost is section 3.
 
 ## 3. The implicit conversion that costs the seek
 
-The common drivers bind a string parameter as Unicode by default, and one that does not is the
-exception worth checking rather than the rule. Under the **default**
-collation, comparing that parameter to a `VARCHAR` column converts the **column**, and a converted
-column cannot be sought. Measured over 20,000 rows with a unique index on `email`:
+The common drivers bind a string parameter as Unicode by default. Under the **default** collation,
+comparing that parameter to a `VARCHAR` column converts the **column**, and a converted column
+cannot be sought. Measured over 20,000 rows with a unique index on `email`:
 
 | Column | Collation | Parameter | Plan | Logical reads |
 |---|---|---|---|---|
@@ -134,8 +112,6 @@ column cannot be sought. Measured over 20,000 rows with a unique index on `email
 | `VARCHAR(850)` | `Latin1_General_100_CI_AS_SC_UTF8` | `NVARCHAR` | Index Seek | 2 |
 | `NVARCHAR(320)` | any | `NVARCHAR` | Index Seek | 2 |
 | `VARCHAR(320)` | the default | `VARCHAR` | Index Seek | 2 |
-
-The plan text for row one:
 
 ```text
 |--Index Scan(OBJECT:([dbo].[users_v].[ux_v]),
@@ -146,31 +122,19 @@ Row two seeks because a Windows collation lets the optimizer build a range with
 `GetRangeThroughConvert`. **A SQL collation cannot, and the default is a SQL collation.**
 
 **Consequence of being wrong: every lookup on that column reads the whole index instead of three
-pages, forever, with no error and no warning.** The cost scales with the table, so it is invisible
-in development and arrives as a gradual regression.
+pages, forever, with no error and no warning.** Two designs avoid it, and one has to be chosen up
+front:
 
-Two designs avoid it, and one of them has to be chosen up front:
+1. **`NVARCHAR` for anything a driver will bind a string to.** Correct, and it costs key bytes.
+2. **A UTF-8 collation on `VARCHAR`** when the data is ASCII-dominant and the key is tight.
+   `VARCHAR(1700)` then fits a nonclustered key, and the seek survives because UTF-8 collations are
+   Windows collations. The cost is that `VARCHAR(n)` counts **bytes**.
 
-1. **Use `NVARCHAR` for anything a driver will bind a string to.** This is the default advice and
-   it is correct. It costs index key bytes, per section 1.
-2. **Use a UTF-8 collation on `VARCHAR`** when the data is ASCII-dominant and the key is tight.
-   `VARCHAR(1700)` then fits a nonclustered key where `NVARCHAR(850)` was the ceiling, and the seek
-   survives because UTF-8 collations are Windows collations. The cost is that `VARCHAR(n)` counts
-   **bytes**, so non-ASCII text stores fewer characters than the number suggests.
-
-Do not mix. A table with `VARCHAR` under the default collation and an application that binds
-Unicode is the exact combination that produces row one.
+Do not mix. `VARCHAR` under the default collation plus an application binding Unicode is row one.
 
 ## 4. Identity gaps are routine here, and the remembered fix does not exist
 
-An agent asked about identity gaps recalls trace flag 272. Run it here:
-
-```text
-Msg 40518, DBCC command 'traceon' is not supported in this version of SQL Server.
-```
-
-Measured across a single engine restart, which is what a planned failover looks like to the
-database:
+Measured across one engine restart, which is what a planned failover looks like from inside:
 
 | Column | Last value before | First value after | Gap |
 |---|---|---|---|
@@ -180,48 +144,45 @@ database:
 | `SEQUENCE ... NO CACHE` | 2 | 3 | none |
 | `INT IDENTITY` with `IDENTITY_CACHE = OFF` | 3 | **4** | none |
 
-Azure SQL Database reconfigures on its own schedule, so this is not a crash scenario. It is normal
-operation.
-
 **Consequence of being wrong: any number a human reads or a regulator counts, an invoice number, a
-ticket number, an order reference, develops thousand-wide holes, and it is unrecoverable after the
-fact.** Nothing errors. Nothing is logged.
+ticket number, an order reference, develops thousand-wide holes, unrecoverably.** Nothing errors.
 
-The rules that follow:
+```sql
+-- The remembered remedy from a non-PaaS engine. Refused here.
+DBCC TRACEON (272, -1);   -- Msg 40518, DBCC command 'traceon' is not supported
 
-- **A surrogate key may be `IDENTITY`.** Gaps in a key nobody reads are free, and the cache is why
-  inserts are fast.
-- **A number a person reads is not a surrogate key.** Give it its own `SEQUENCE ... NO CACHE`, or
-  generate it in a transaction against a counter table, and pay the contention on purpose.
-- **The database-wide lever is** `ALTER DATABASE SCOPED CONFIGURATION SET IDENTITY_CACHE = OFF;`.
-  It removes the gap for every identity column and costs a log write per value. Verified: it
-  survives a restart, and after it the sequence went 3, 4.
-- **`SEQUENCE` with no `START WITH` starts at the minimum 64-bit integer**, not at 1. Verified: the
-  first value returned was `-9223372036854775808`. Always state `START WITH 1`.
+-- The lever that works. It survives a restart and costs a log write per value.
+ALTER DATABASE SCOPED CONFIGURATION SET IDENTITY_CACHE = OFF;
+
+-- A human-facing number gets its own sequence, and START WITH is not optional:
+-- omitted, the first value is -9223372036854775808.
+CREATE SEQUENCE dbo.invoice_no AS BIGINT START WITH 1 INCREMENT BY 1 NO CACHE;
+```
+
+A surrogate key may be `IDENTITY`: gaps in a key nobody reads are free, and the cache is why
+inserts are fast. A number a person reads is not a surrogate key.
 
 ## 5. A unique index accepts exactly one NULL
 
-This is the one that arrives from PostgreSQL habit, where every NULL is distinct.
-
-```text
-Msg 2601, Cannot insert duplicate key row in object 'dbo.nulltest'
-with unique index 'ux_code'. The duplicate key value is (<NULL>).
-```
-
-`Msg 2627` where the constraint is a unique constraint rather than an index. **Consequence of being
-wrong: an optional unique field, an external account id, a nullable slug, a soft-delete-aware
-code, works for the first row that leaves it empty and rejects the second.** A model with two or
-three optional unique fields is unusable here and correct on other engines.
-
-The fix is a filtered unique index:
+This one arrives from PostgreSQL habit, where every NULL is distinct.
 
 ```sql
+CREATE UNIQUE INDEX ux_code ON dbo.accounts (code);
+INSERT INTO dbo.accounts (code) VALUES (NULL);   -- 1 row
+INSERT INTO dbo.accounts (code) VALUES (NULL);
+-- Msg 2601, Cannot insert duplicate key row ... The duplicate key value is (<NULL>).
+-- Msg 2627 instead, where the constraint is a unique constraint rather than an index.
+
+-- The fix, verified to accept many NULL rows:
+DROP INDEX ux_code ON dbo.accounts;
 CREATE UNIQUE INDEX ux_code ON dbo.accounts (code) WHERE code IS NOT NULL;
 ```
 
-Verified to accept many NULL rows. The session creating it, and every session writing to the table,
-needs `QUOTED_IDENTIFIER ON`; the drivers set it, and a script run through a command line client
-may not.
+**Consequence of being wrong: an optional unique field, an external account id, a nullable slug,
+works for the first row that leaves it empty and rejects the second.** A model with two or three
+optional unique fields is unusable here and correct on other engines. The session creating a
+filtered index, and every session writing to the table, needs `QUOTED_IDENTIFIER ON`, else
+`Msg 1934`. Drivers set it; a command line client may not.
 
 ## 6. Where the json and vector types belong
 
@@ -233,96 +194,148 @@ Both are storage decisions, not key decisions.
 | Primary key | no | no, `Msg 1919` |
 | `INCLUDE` column | yes, verified | route to `vector-search-azure-sql` |
 | Compared with `=` | no, `Msg 402` against `nvarchar` | route to `vector-search-azure-sql` |
-| Ceiling | 2 GB, 32K unique keys | 1998 dimensions, `Msg 2717` above it |
+| Ceiling | 2 GB | 1998 dimensions, `Msg 2717` above it |
 
-- **A `json` column is not a filter.** To filter or join on a value inside it, promote that value to
-  a `PERSISTED` computed column and index that. Verified working:
+A `json` column is not a filter. Promote anything a query filters on **every time** into a real
+column:
 
-  ```sql
-  ALTER TABLE dbo.doc ADD tenant AS CAST(JSON_VALUE(payload, '$.tenant') AS NVARCHAR(64)) PERSISTED;
-  CREATE INDEX ix_doc_tenant ON dbo.doc (tenant);
-  ```
+```sql
+ALTER TABLE dbo.doc ADD tenant AS CAST(JSON_VALUE(payload, '$.tenant') AS NVARCHAR(64)) PERSISTED;
+CREATE INDEX ix_doc_tenant ON dbo.doc (tenant);
+```
 
-  Anything a query filters on **every time** belongs in a real column, not in the document. The
-  query surface, `OPENJSON` with an explicit schema and the JSON index story, is
-  `t-sql-json-and-openjson`.
-- **A `vector` column is a payload beside the key, never part of it.** A `vector(1536)` occupies
-  6152 bytes of the 8060-byte row, so it pushes a wide row off-row: keep the table narrow and put
-  the embedding next to an integer key. Dimension choice, distance functions, indexing and the
-  restriction list are `vector-search-azure-sql`.
+A `vector` column is a payload beside the key, never part of it. A `vector(1536)` occupies 6152 of
+the 8060 bytes in a row, so keep the table narrow: put the embedding next to an integer key.
 
 ## 7. Two boundaries a design cannot cross here
 
-- **A foreign key cannot reference another database.**
-  `Msg 40515, Reference to database and/or server name in 'otherdb.dbo.some_parent' is not
-  supported in this version of SQL Server.` A shared-lookup-database design has no referential
-  integrity here, so either fold the lookup into the same database or accept that the constraint
-  lives in application code.
-- **There is one filegroup.** `sys.filegroups` returns `PRIMARY` and nothing else, so a partition
-  scheme must map `ALL TO ([PRIMARY])`. Partitioning here buys manageability, never storage
-  separation.
+```sql
+-- No foreign key reaches another database, even one on the same server.
+ALTER TABLE dbo.local_child ADD CONSTRAINT fk_x FOREIGN KEY (parent_id)
+  REFERENCES otherdb.dbo.some_parent (id);
+-- Msg 40515, Reference to database and/or server name in 'otherdb.dbo.some_parent'
+--            is not supported in this version of SQL Server.
 
-Whether a change to any of this is safe to apply to a live database is `schema-migrations-safely`,
-and the declarative alternative is `sql-database-projects`. Creating the database itself, including
-naming its collation, is `provision-azure-sql-db`.
+-- There is one filegroup, so a partition scheme maps everything to it.
+SELECT name, type_desc FROM sys.filegroups;   -- PRIMARY, and nothing else
+CREATE PARTITION SCHEME ps AS PARTITION pf ALL TO ([PRIMARY]);
+```
 
-## Validation rules
+A shared-lookup-database design has no referential integrity here. Partitioning buys
+manageability, never storage separation.
 
-- Every string column in an index key, a unique constraint or a foreign key has an explicit length,
-  and the key's total is at or under 1700 bytes nonclustered, 900 bytes clustered.
-- No `CREATE INDEX` or `CREATE TABLE` in the migration output produced message 1945.
-- The database collation is stated in `CREATE DATABASE`, or a note records that the default was
-  chosen deliberately.
-- Every column holding a case-significant token, key or code carries an explicit case-sensitive
-  collation.
-- No table mixes `VARCHAR` under a SQL collation with an application that binds Unicode parameters.
-- Every human-facing sequential number comes from `SEQUENCE ... NO CACHE` or a counter table, never
-  from a bare `IDENTITY`.
-- Every `CREATE SEQUENCE` states `START WITH`.
-- Every nullable unique column uses a filtered unique index, or the design accepts one NULL row.
-- No `json` or `vector` column appears in a key, a `GROUP BY`, a `DISTINCT` or an equality
-  predicate.
-- Every value a query filters on repeatedly is a real column or a `PERSISTED` computed column, not
-  a path into a document.
-- No foreign key names another database.
+## Check it worked
+
+Run the DDL through `sqlcmd` with `-m-1`, because message 1945 is **severity 10** and `-b` alone
+does not report severity 10 at all, so a migration that emitted it still exits 0:
+
+```bash
+export SQLCMDPASSWORD='<password>'
+sqlcmd -S <server-name>.database.windows.net,1433 -d <database> -U <user> -C -b -m-1 \
+  -i schema.sql -o schema.out
+grep -nE 'Warning!|^Msg ' schema.out
+```
+
+Expect no output from `grep`. A `Warning!` line naming a key length is message 1945 and predicts
+`Msg 1946` on a production insert.
+
+Then audit the schema the engine actually has, as `schema-audit.sql`:
+
+```sql
+-- 1. Index keys over budget. Expect zero rows.
+SELECT OBJECT_NAME(i.object_id) AS table_name, i.name AS index_name, i.type_desc,
+       SUM(CASE WHEN c.max_length = -1 THEN 0 ELSE c.max_length END) AS key_bytes,
+       CASE WHEN i.type = 1 THEN 900 ELSE 1700 END AS budget
+FROM sys.indexes AS i
+JOIN sys.index_columns AS ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+                            AND ic.is_included_column = 0
+JOIN sys.columns AS c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+WHERE i.type IN (1, 2) AND OBJECTPROPERTY(i.object_id, 'IsUserTable') = 1
+GROUP BY i.object_id, i.name, i.type, i.type_desc
+HAVING SUM(CASE WHEN c.max_length = -1 THEN 0 ELSE c.max_length END)
+       > CASE WHEN i.type = 1 THEN 900 ELSE 1700 END;
+
+-- 2. Unique indexes over a nullable column with no filter: one NULL row each. Expect zero.
+SELECT OBJECT_NAME(i.object_id) AS table_name, i.name AS index_name, c.name AS column_name
+FROM sys.indexes AS i
+JOIN sys.index_columns AS ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+                            AND ic.is_included_column = 0
+JOIN sys.columns AS c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+WHERE i.is_unique = 1 AND i.has_filter = 0 AND c.is_nullable = 1;
+
+-- 3. VARCHAR or CHAR key columns on a SQL collation: the lost seek. Expect zero rows.
+SELECT DISTINCT OBJECT_NAME(c.object_id) AS table_name, c.name AS col, c.collation_name
+FROM sys.columns AS c
+JOIN sys.index_columns AS ic ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+                            AND ic.is_included_column = 0
+JOIN sys.types AS t ON t.user_type_id = c.user_type_id
+WHERE t.name IN ('varchar', 'char') AND c.collation_name LIKE 'SQL[_]%';
+
+-- 4. Sequences left on the type minimum because START WITH was omitted. Expect zero rows.
+SELECT name, CAST(start_value AS BIGINT) AS start_value
+FROM sys.sequences WHERE CAST(start_value AS BIGINT) < 0;
+
+-- 5. The two settings the design assumed. Read them, do not assume them.
+SELECT DATABASEPROPERTYEX(DB_NAME(), 'Collation') AS db_collation,
+       (SELECT value FROM sys.database_scoped_configurations
+        WHERE name = 'IDENTITY_CACHE') AS identity_cache;
+```
+
+```bash
+sqlcmd -S <server-name>.database.windows.net,1433 -d <database> -U <user> -C -W \
+  -i schema-audit.sql -o schema-audit.out
+```
+
+Checks 1 to 4 return no rows in a clean schema. Check 5 is the one you read rather than pass:
+`identity_cache` of `0` means gaps are off, `1` means an `INT IDENTITY` will jump by about a
+thousand across the next reconfiguration.
+
+Last, confirm the seek survived on one real lookup:
+
+```sql
+SET STATISTICS IO ON;
+DECLARE @p NVARCHAR(320) = N'u9999@example.com';
+SELECT id FROM dbo.users WHERE email = @p;
+SET STATISTICS IO OFF;
+```
+
+Expect single-digit logical reads that do not grow with the table. Reads in the tens over twenty
+thousand rows is the implicit conversion in section 3, not a cold cache.
 
 ## Do not
 
-- Do not read message 1945 as informational. It is the only notice given, and the failure it
-  predicts is `Msg 1946` on a production insert.
+- Do not read message 1945 as informational. It is the only notice given, and severity 10 means
+  neither `sqlcmd -b` nor most drivers raise it.
 - Do not size a key column in characters. The limit is bytes, and Unicode doubles it.
 - Do not use `VARCHAR` under the default collation for anything an application looks up by value.
-  The lookup scans, silently, forever.
-- Do not add `LOWER()` or `UPPER()` around a column to fix a collation problem. That is
-  `t-sql-correctness`, and it costs the index too.
+- Do not add `LOWER()` or `UPPER()` around a column to fix a collation problem. That costs the
+  index too, and it is `t-sql-correctness`.
 - Do not reach for trace flag 272. It is rejected with `Msg 40518`. The lever is
   `IDENTITY_CACHE = OFF`.
-- Do not put an invoice number, a ticket number or anything a person or an auditor reads on a bare
-  `IDENTITY`. A failover puts a thousand-wide hole in it and reports nothing.
-- Do not create a `SEQUENCE` without `START WITH`. It starts at the minimum 64-bit integer.
+- Do not put an invoice or ticket number, or anything an auditor reads, on a bare `IDENTITY`.
+- Do not create a `SEQUENCE` without `START WITH`.
 - Do not give a model two or three optional unique columns and expect PostgreSQL NULL semantics.
 - Do not store a value in a `json` document and then filter on it. Promote it.
-- Do not teach vector search here, or the mapper-side type configuration. Those belong to
-  `vector-search-azure-sql` and to the three mapper skills.
+- Do not add a clustered index only because you believe this engine demands one. A heap was
+  created and took rows on 2026-08-28.
 
 ## References
 
-- [references/verified-behaviour.md](references/verified-behaviour.md): every statement run, the
-  exact server output, the two query plans, and how to reproduce all of it against a live engine.
-  Read it when a claim above needs a source, or before changing a number in this file.
-- [Maximum capacity specifications](https://learn.microsoft.com/sql/sql-server/maximum-capacity-specifications-for-sql-server):
-  the index key size limits and the column counts. Read it before designing a wide composite key.
-- [Collation and Unicode support](https://learn.microsoft.com/sql/relational-databases/collations/collation-and-unicode-support):
-  SQL collations against Windows collations, UTF-8 collations, and what a collation actually
-  governs. Read it before choosing a database collation.
-- [json data type](https://learn.microsoft.com/sql/t-sql/data-types/json-data-type): availability,
-  the index restrictions, and the size limits. Read it before putting a document in a column.
-- [Database scoped configurations](https://learn.microsoft.com/sql/t-sql/statements/alter-database-scoped-configuration-transact-sql):
-  `IDENTITY_CACHE` and the rest of the per-database levers.
-- `ef-core-azure-sql`, `prisma-azure-sql`, `sqlalchemy-azure-sql`: how each mapper expresses the
-  rules on this page, and the default each one lands on.
-- `t-sql-correctness`: query-level correctness, and the PostgreSQL-to-T-SQL translation.
-- `t-sql-json-and-openjson`: querying a document column once it exists.
-- `vector-search-azure-sql`: the vector type, distance functions and vector indexing.
-- `schema-migrations-safely` and `sql-database-projects`: applying a change to this schema safely.
-- `provision-azure-sql-db`: creating the database, including its collation.
+- Open [the measured statements](references/key-bytes-collation-and-identity-gaps.md) when you need
+  the statement behind a number above, the two query plans, or the reproduction steps.
+- Read [Maximum capacity specifications](https://learn.microsoft.com/sql/sql-server/maximum-capacity-specifications-for-sql-server)
+  before designing a wide composite key.
+- Read [Collation and Unicode support](https://learn.microsoft.com/sql/relational-databases/collations/collation-and-unicode-support)
+  before choosing a database collation: SQL against Windows collations, and UTF-8.
+- Read [json data type](https://learn.microsoft.com/sql/t-sql/data-types/json-data-type) before
+  putting a document in a column, for the index restrictions and the size limits.
+- Read [Database scoped configurations](https://learn.microsoft.com/sql/t-sql/statements/alter-database-scoped-configuration-transact-sql)
+  before setting `IDENTITY_CACHE`, and
+  [T-SQL differences](https://learn.microsoft.com/azure/azure-sql/database/transact-sql-tsql-differences-sql-server)
+  when a statement is refused with 40510, 40515, 40517 or 40518.
+- `ef-core-azure-sql` and `sqlalchemy-azure-sql`: how each mapper reaches these lengths and the
+  default it lands on. The other mapper skills are listed in `skill.spec.jsonc`.
+- `t-sql-correctness` for query-level correctness, `t-sql-json-and-openjson` for querying a
+  document column, `vector-search-azure-sql` for the vector type and its indexing.
+- `schema-migrations-safely` and `sql-database-projects` for applying a change to a live database,
+  and `provision-azure-sql-db` for creating the database and naming its collation.
