@@ -14,139 +14,164 @@ description: >-
   URL, and never submits anything without the user's explicit confirmation.
 ---
 
+
 # Report a defect in a skill, or in the catalog itself
 
-**This reports on the skills, not on Azure SQL Database.** If the skill said the right thing and
-the engine or the query is what misbehaved, that is a product problem and does not belong here.
-If the skill said the wrong thing, said nothing when it should have, or the wrong skill fired at
-all, that is what this builds a report for.
+**This reports on the skills, not on Azure SQL Database.** If the skill said the right thing and the
+engine or the query is what misbehaved, that belongs to the skill that owns the topic. If the skill
+said the wrong thing, said nothing when it should have, or the wrong skill fired at all, this builds
+the report.
 
-Verified on 2026-08-29 against `scripts/check-prefill-contract.mjs` and
-`.github/ISSUE_TEMPLATE/skill_feedback.yml` in `microsoft/azure-sql-skills`, and against the
-mechanism the shipped `azuresql-db-feedback` skill already uses in production.
+Measured 2026-09-03 against the two live `skill_feedback.yml` forms and against
+`scripts/check-prefill-contract.mjs` in `microsoft/azure-sql-skills`. The permission and error-code
+claims are GitHub's own, from "Creating an issue from a URL query".
 
-## The facts that shape this
+## Two forms exist, and the wrong one loses the report
 
-- **Repository:** `microsoft/azure-sql-skills`. Every report opens there, whichever catalog skill
-  it is about.
-- **Mechanism:** build a URL, hand it to the user, the user opens it. This skill never calls a
-  network endpoint, never sends a beacon, and never reports back on its own; the one request that
-  ever fires is the browser request a human makes by opening the link. That is the whole trust
-  model, and it never changes.
-- **`aka.ms` short links drop query strings.** A human-friendly empty-form link exists
-  (`https://aka.ms/sql-agent-skills-feedback`), but it redirects to the bare form with nothing
-  filled in. A prefilled report always uses the full `github.com` URL from
-  [references/issue-fields.md](references/issue-fields.md).
-- **The `skill` dropdown is a fixed, verbatim list**, and it will not contain every catalog id.
-  Never invent a value or guess the closest-sounding one: if the exact id is not in the list, use
-  `Not sure`, or `The collection as a whole (install, discovery, or the wrong skill loaded)` for an
-  install or routing problem.
-- **Checkboxes never prefill.** The form ends with two required confirmations; tell the user they
-  still have to tick both before GitHub accepts the submission.
-- **A `labels=` parameter replaces the template's labels, it does not add to them.** Always pass
-  the full set, never just one.
+Both are named `skill_feedback.yml` and expose the same nine field ids; their option lists and label
+sets differ. Find out which one this reader reaches before drafting anything:
+
+```bash
+gh api repos/microsoft/azure-sql-skills --jq '.full_name + " reachable"' \
+  || echo "not reachable, fall back to microsoft/azure-sql-database-container"
+```
+
+Prefer `microsoft/azure-sql-skills`: it owns all forty skills and every command below uses it. It is
+private to the preview and 404s to everyone else, so when that command fails and the report is about
+an `azuresql-db-*` skill, fall back to the public `microsoft/azure-sql-database-container`, reading
+the comparison in [references/issue-fields.md](references/issue-fields.md) before you switch. If
+neither is reachable, say so rather than handing over a dead link.
+
+**`https://aka.ms/sql-agent-skills-feedback` is not a substitute.** It 301s to the container
+repository's empty form and drops the whole query string on the way:
+
+```bash
+curl -sS -o /dev/null -w '%{redirect_url}\n' \
+  'https://aka.ms/sql-agent-skills-feedback?skill=skill-feedback'
+```
+
+Expect a URL with no `skill=` in it.
 
 ## Step 1: is this actually a skill or catalog defect
 
-Ask what actually failed, not what feels broken.
+Here: instructions that were wrong or incomplete, an agent that had to deviate from them to finish,
+the wrong skill firing or none firing, a skill that would not install or load, a stale description or
+cross-reference. Not here: correct guidance where the database, driver or query failed anyway, which
+belongs to the skill that owns the topic. Praise belongs in Discussions. When unsure, ask; a product
+question filed here reaches the wrong queue.
 
-| What happened | Report it here | Why |
-|---|---|---|
-| A skill's instructions were wrong, incomplete, or the agent had to deviate from them to finish | yes | the instructions are the defect |
-| The wrong skill fired, or none did, for a prompt that clearly named the task | yes | routing is part of the catalog |
-| A skill would not install, or an installed skill never loaded | yes | that is a catalog defect too |
-| A description, example, or cross-reference inside a skill is stale or points nowhere | yes | still a catalog defect |
-| The skill's guidance was correct and the database, driver, or query still failed | no | hand this to the skill that owns the topic instead |
-| The user only wants to say something worked well | no | point them at the repository's Discussions instead of opening an issue |
+## Step 2: gather, then redact, before any URL exists
 
-When genuinely unsure, ask the user rather than guessing. Do not open an issue for a plain product
-question or an ordinary debugging session; that is what the topic skills are for, and filing it
-here sends it to the wrong queue.
+Take what the conversation already shows and ask only for the rest: the skill's exact catalog id,
+the agent harness, how the skills were installed, the prompt, and above all **the instruction that
+was wrong or missing, quoted, with what actually worked instead**, the one field maintainers are
+otherwise blind to. Write each long field to a file, so newlines survive:
 
-## Step 2: gather what you already have
+```bash
+mkdir -p report && cd report
+cat > skill-said.txt <<'EOF'
+The skill said:       port: 1433, hardcoded in the sample.
+What actually worked: reading the port from the connection string.
+Server=tcp:your-server.database.windows.net,11433;Database=appdb;User Id=svc_app;Password=***;
+EOF
+```
 
-Only ask the user for what you cannot already see from the conversation.
+Everything submitted is public and permanent. A password becomes `Password=***`, a subscription or
+tenant id becomes `00000000-0000-0000-0000-000000000000`, a server becomes
+`your-server.database.windows.net`, and a token is described in words rather than pasted: even a
+truncated one can be enough to use. Then let a gate disagree with you:
 
-- Which skill, by its exact catalog id. If none loaded, say so; that omission is itself the bug.
-- Which agent harness is running this session (Claude Code, GitHub Copilot in VS Code or the CLI,
-  Codex, Cursor).
-- How the skills were installed, if known.
-- **The instruction that was wrong or missing, quoted, and what actually worked instead.** This is
-  the single most useful field in the report, and the one the maintainers are otherwise blind to.
-- The prompt the user gave, and what the agent actually did.
+```bash
+grep -nEi 'password=[^*;]|pwd=[^*;]|(bearer|token|apikey|accountkey)[=: ][A-Za-z0-9._-]{16,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' *.txt
+```
 
-## Step 3: redact, before anything else is drafted
+No output and exit 1 is the pass; any hit is a secret still in the draft. The gate is a net, not a
+judgment: no customer name or internal hostname trips it, so read the files too.
 
-Everything submitted becomes a public, permanent record. Strip every one of these from every
-field, including any pasted command output or logs:
+## Step 3: copy the dropdown values from the live form, never from memory
 
-- Any password or credential value. Show the shape, not the secret: a connection string keeps its
-  keys and loses its value, `Password=***` rather than the real one.
-- Server, resource and database names that identify a real environment. Use a placeholder such as
-  `your-server.database.windows.net`.
-- Subscription ids, tenant ids, and directory names. A GUID is not automatically safe to include;
-  replace it with a placeholder.
-- Access or bearer tokens, signed-URL signatures, and any string that begins the way a token does.
-  Describe it in words ("a bearer token was in the header") rather than pasting it.
-- Real email addresses, usernames that map to a real person, or any customer or application data.
+Four fields are dropdowns and none takes free text. Pull the form once, then check each value you
+mean to use is in it character for character:
 
-A worked before-and-after pair is in
-[references/issue-fields.md](references/issue-fields.md#redaction-worked-example). If a value's
-safety is unclear, redact it and say so, rather than deciding it is probably fine.
+```bash
+gh api repos/microsoft/azure-sql-skills/contents/.github/ISSUE_TEMPLATE/skill_feedback.yml \
+  --jq '.content' | base64 -d > form.yml
+grep -E '^    id: ' form.yml
+grep -Fx '        - Claude Code' form.yml
+```
 
-## Step 4: choose the dropdown values, verbatim
+The first grep must print exactly nine ids: `skill`, `problem-type`, `agent`, `install-method`,
+`what-happened`, `skill-said`, `repro`, `additional`, `confirm`. That set is the contract
+`check-prefill-contract.mjs` enforces, and any other name arrives silently empty. The second must
+print its line; exit 1 means the value is gone, and a near neighbour reaches the wrong person.
 
-Every dropdown field takes an exact string from a fixed list; there is no free text fallback for
-these four. Copy the value character for character from
-[references/issue-fields.md](references/issue-fields.md), which carries the full option list for
-`skill`, `problem-type`, `agent`, and `install-method`, current as of the verification date above.
-If a value cannot be determined confidently, leave that field out of the URL rather than guessing;
-an omitted dropdown renders unselected, a wrong one sends the report to the wrong person.
+Two traps in the `skill` list: divider entries such as `-- Drivers and connectivity --` are
+selectable and mean nothing, so never emit one, and a missing id becomes `Not sure`, or
+`The collection as a whole (install, discovery, or the wrong skill loaded)` for install or routing. Open [references/issue-fields.md](references/issue-fields.md) whenever `form.yml`
+cannot be fetched, or for those lists without a network round trip.
 
-## Step 5: build the URL and show it, do not open it
+## Step 4: build the URL, and leave `labels` out of it
 
-Construct one `https://github.com/microsoft/azure-sql-skills/issues/new?template=skill_feedback.yml`
-URL with the field ids and the full label set from the reference file, following the worked example
-there. Show the user the resulting title and every field's text in full, plain language, before
-producing the link: they are agreeing to what gets submitted, not to the idea of submitting
-something.
+```bash
+python3 - <<'PY' > issue-url.txt
+import urllib.parse as u
+f = {"template": "skill_feedback.yml",
+     "title": "[Skill]: connect-from-typescript-and-node hardcodes the port",
+     "skill": "connect-from-typescript-and-node",
+     "problem-type": "The skill told the agent to do something wrong",
+     "agent": "Claude Code",
+     "install-method": "npx skills add"}
+f.update({k: open(k + ".txt").read() for k in ("what-happened", "skill-said")})
+print("https://github.com/microsoft/azure-sql-skills/issues/new?"
+      + u.urlencode(f, quote_via=u.quote))
+PY
+wc -c < issue-url.txt
+```
 
-## Step 6: hand it over, never submit unasked
+**No `&labels=` parameter.** GitHub returns 404 to anyone without permission to add labels, which is
+most people reporting a bug, and both forms declare their own labels anyway, so passing them by hand
+can only turn a working link into a dead one.
 
-Give the user the finished URL, or write the body to a file and offer the equivalent
-`gh issue create` command from [references/issue-fields.md](references/issue-fields.md) if a
-GitHub command-line session is already authenticated. Either way, the user is the one who opens the
-link or runs the command. Confirm explicitly before doing either yourself, and take no for an
-answer without asking again.
+Watch the character count: GitHub returns 414 past its URL length limit, so stay under 8000, trim a
+long log to the lines that matter and tell the user what you cut. Then show them the title and every
+field in full before the link: they are agreeing to what gets submitted.
 
-## Validation rules
+Then hand the URL over and let the user open it. Never open or submit it yourself without their
+explicit yes, and take no for an answer without asking again. `gh issue create` is no shortcut: it
+posts a plain issue that skips the form, so no field id and no template label applies.
 
-- The report is about a skill or the catalog, never an ordinary product or query failure.
-- Every password, connection-string secret, token, subscription id, tenant id, and real email
-  address is gone before the URL exists, not redacted afterward.
-- Every dropdown value is copied verbatim from the reference file, or the field is left out.
-- The full label set is present, not just `via-skill`.
-- The user saw the complete title and body and said yes, before anything was opened or run.
-- The link is the full `github.com` URL, never the `aka.ms` short link.
+## Check it worked
+
+Three things, none of them "the command exited 0".
+
+**The form loaded with the fields filled.** GitHub documents prefilling an issue form's *text*
+fields from query parameters and does not document prefilling a dropdown, so treat those four as
+unproven and ask the user to read them back; a blank one did not carry and they pick it by hand. A
+404 instead of a form means the repository is out of reach, or a parameter needed a permission they
+do not have.
+
+**Both checkboxes are ticked.** Neither prefills, both are required, and GitHub refuses the
+submission until they are. Say so before the user opens the link, not after they reach the end.
+
+**The report arrived where a maintainer will see it.** Nothing here phones home, so an issue is the
+only evidence anything was sent:
+
+```bash
+gh issue list --repo microsoft/azure-sql-skills --limit 3 \
+  --json number,title,labels,createdAt
+```
+
+Their issue should be at the top carrying `skills`, `needs-triage` and the repository's third label.
+Absent means nothing was filed and the user still holds the draft. Present with no labels means the
+form's labels did not apply and it will miss the triage queue, so ask them to add the labels or say
+so in a comment.
 
 ## Do not
 
-- Do not open, submit, or comment on an issue without the user's explicit confirmation of the full
-  content.
-- Do not include a password, token, connection-string secret, subscription id, tenant id, or real
-  email address in any field, ever, even redacted-looking versions that still carry real digits.
-- Do not guess a dropdown value, including the `skill` id. An unlisted id becomes `Not sure` or
-  `The collection as a whole`, never a nearby-sounding option.
-- Do not use the `aka.ms` short link to carry a prefilled report; it drops every field you filled
-  in and hands the user an empty form.
-- Do not file a product or query problem here because the report-building mechanism is convenient.
-  The topic skill owns that report.
-- Do not treat a clean run of this skill's own checks as proof nothing was missed; redaction is a
-  judgment call the agent makes on unfamiliar text, and it is worth a second look before showing
-  the user the draft.
-
-## References
-
-- [references/issue-fields.md](references/issue-fields.md): the exact field ids, the verbatim
-  dropdown options, the label set, the redaction worked example, and a complete prefilled URL.
-  Read this before building any URL or `gh issue create` command.
+- Do not open, submit or comment on an issue without the user's explicit confirmation of the full
+  content, and never add a network call, beacon or automatic report here. A human opening a link is
+  the only thing that leaves the machine.
+- Do not include a password, token, connection-string secret, subscription id, tenant id or real
+  email address in any field, ever, even redacted-looking ones that still carry real digits.
+- Do not guess a dropdown value or emit a divider entry, do not carry a prefilled report on the
+  `aka.ms` short link, and do not add `&labels=`.

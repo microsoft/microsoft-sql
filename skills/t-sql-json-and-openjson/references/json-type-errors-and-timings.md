@@ -1,4 +1,4 @@
-# Verified behaviour: the json type, JSON indexes and OPENJSON
+# The json type, JSON indexes and OPENJSON: errors, limits and timings
 
 ## Contents
 
