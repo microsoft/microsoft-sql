@@ -173,7 +173,7 @@ Builds tenant isolation on Azure SQL Database that a test can prove, with a row 
 
 **[github-actions-for-sql](skills/github-actions-for-sql/SKILL.md)**
 
-Ships schema changes to Azure SQL Database from a GitHub Actions workflow with `azure/sql-action`: building the database project or publishing a prebuilt dacpac, authenticating with a federated credential so no database password or client secret is stored, getting a runner with a changing address through the server firewall, and gating the deployment on an environment.
+Ships schema changes to Azure SQL Database from a GitHub Actions workflow with `azure/sql-action`: building the database project or publishing a prebuilt dacpac, federating the workflow's token so no database password or client secret is stored, getting a runner with a changing address through the server firewall, and gating the deployment on an environment.
 
 **[schema-migrations-safely](skills/schema-migrations-safely/SKILL.md)**
 

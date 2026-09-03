@@ -15,7 +15,8 @@
 
 On 2026-08-28, on a throwaway repository with a user-assigned identity holding federated
 credentials, deleted afterwards along with its resource group. `azure/sql-action` behaviour was
-read from the source at tag `v2.4`, released 2026-07-23.
+read from the source at tag `v2.4`, commit `eb1f9a80`, released 2026-07-23. The subject prefix
+survey below was re-run on 2026-09-03 across twelve repositories in one account.
 
 Three credentials were created in turn against the same workflow, and the workflow was re-run
 after each: a branch-shaped subject, the documented environment-shaped subject, and the subject
@@ -52,21 +53,28 @@ easy fields to get right.
 gh api repos/OWNER/REPO/actions/oidc/customization/sub
 ```
 
-Measured response on a repository nobody had configured:
+Measured 2026-09-03 across twelve repositories nobody had configured. Eleven answered with the
+plain name-based prefix:
 
 ```json
-{"use_default": true, "use_immutable_subject": false, "sub_claim_prefix": "repo:OWNER@<ownerId>/REPO@<repoId>"}
+{"use_default":true,"use_immutable_subject":false,"sub_claim_prefix":"repo:OWNER/REPO"}
 ```
 
-`use_default` being `true` and the prefix still carrying ids is the point: the ids are the
-default, not a customisation. Take `sub_claim_prefix` and append the job segment.
+The twelfth, a repository that had been renamed, answered with numeric ids and the same two flags:
 
-| Job shape | Segment to append |
-|---|---|
-| runs on a branch | `:ref:refs/heads/<branch>` |
-| runs on a tag | `:ref:refs/tags/<tag>` |
-| declares an environment | `:environment:<name>` |
-| triggered by a pull request | `:pull_request` |
+```json
+{"use_default":true,"use_immutable_subject":false,"sub_claim_prefix":"repo:OWNER@<ownerId>/REPO@<repoId>"}
+```
+
+Neither flag distinguishes them. GitHub's OIDC reference gives the rule: repositories created,
+renamed or transferred after 15 July 2026 use an immutable default subject built from the owner
+and repository ids, older ones keep the name-based shape unless they opt in, and
+`use_immutable_subject` reports only that opt-in. Microsoft Learn documents the Azure half at
+[migrate GitHub Actions federated credentials to immutable subjects](https://learn.microsoft.com/entra/workload-id/workload-identities-github-immutable-subjects),
+using the same `repo:contoso@5544123/payments-api@821093847:ref:refs/heads/main` shape. So the
+answer is per repository and cannot be predicted from either flag. Take `sub_claim_prefix` and
+append the job segment: `:ref:refs/heads/<branch>`, `:ref:refs/tags/<tag>`,
+`:environment:<name>`, or `:pull_request`.
 
 ## The three failure messages, in full
 
@@ -75,11 +83,16 @@ or because the prefix was composed by hand:
 
 ```text
 ##[error]AADSTS700213: No matching federated identity record found for presented assertion
-subject 'repo:OWNER@<ownerId>/REPO@<repoId>:environment:production'. Check your federated
-identity credential Subject, Audience and Issuer against the presented assertion.
+subject 'repo:OWNER@<ownerId>/REPO@<repoId>:environment:production'. Please note that matching is
+done using a case-sensitive comparison. Check your federated identity credential Subject,
+Audience, and Issuer against the presented assertion.
 https://learn.microsoft.com/entra/workload-id/workload-identity-federation
 Trace ID: <trace id> Correlation ID: <correlation id> Timestamp: <timestamp>
 ```
+
+The case-sensitivity sentence is not decoration. Learn's authentication change log records that
+federated credential matching moved from case-insensitive to case-sensitive in September 2024, so
+a repository or environment name retyped in the wrong case fails here with no other symptom.
 
 **The line the login step prints next**, which names an input that is not the problem:
 
@@ -123,7 +136,21 @@ az ad app federated-credential create --id <application object id> --parameters 
 ```
 
 One credential per job shape. A workflow whose plan job runs on the branch and whose deploy job
-runs under an environment needs two, and there is no wildcard that covers both.
+runs under an environment needs two of these.
+
+A flexible federated identity credential covers several shapes at once, matching `sub` with `*`
+and `?` wildcards and, for GitHub, requiring `repository_id` or `repository_owner_id` alongside
+it. Learn calls it preview, supported on application objects only, and says Azure CLI, Azure
+PowerShell and Terraform all error on it, leaving Microsoft Graph, the portal, or `az rest`:
+
+```json
+{"claimsMatchingExpression": {"value": "claims['sub'] matches 'repo:OWNER@<ownerId>/REPO@<repoId>:*' and claims['repository_id'] eq '<repoId>'", "languageVersion": 1}}
+```
+
+Azure CLI 2.90.0 on this host does expose `--claims-matching-expression-value`, marked preview and
+mutually exclusive with `--subject`, so the tool and the documentation disagree about whether the
+CLI can create one. That disagreement is unresolved here. Try it against your own tenant before
+building a plan on either answer.
 
 ## What the action does, step by step
 
@@ -139,17 +166,12 @@ at `v2.4`:
    API, and adds a firewall rule whose start and end are that address.
 4. If the error carries no address it throws
    `Failed to add firewall rule. Unable to detect client IP Address. <underlying error>`.
-5. For a project path, runs `dotnet build "<path>" -p:NetCoreBuild=true <build-arguments>` and
-   then looks for `<project dir>/bin/<configuration>/<project file name>.dacpac`, configuration
-   defaulting to `Debug`.
-6. Runs the deployment tool with `/Action:<action>` and `/TargetConnectionString:"<connection
-   string>"`.
-7. Removes the firewall rule in a `finally` block, so it goes away even when the deployment fails.
-
-Consequences worth carrying: the identity needs to be able to write firewall rules on the server
-resource for step 3, an authentication problem is reported by step 4 as a firewall problem, and
-step 5 will not find an output redirected by a property set inside the project file rather than
-passed through `build-arguments`.
+5. For a project path, runs `dotnet build "<path>" -p:NetCoreBuild=true <build-arguments>`, then
+   looks for `<project dir>/bin/<configuration>/<project file name>.dacpac`, configuration
+   defaulting to `Debug`, which is why an output redirected inside the project file is not found.
+6. Runs the deployment tool, appending anything in `arguments` verbatim. `DriftReport` is the one
+   action composed without `/SourceFile`, because it compares the target against its own snapshot.
+7. Removes the firewall rule in a `finally` block, so it goes even when the deployment fails.
 
 Path resolution for the deployment tool: on Windows it collects every install it can find and
 picks the highest version. On Linux it checks a global tool location and otherwise uses the bare

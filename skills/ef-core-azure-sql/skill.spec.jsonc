@@ -29,11 +29,57 @@
       "no non idempotent side effect, such as sending mail, enqueuing a message or taking a payment, sits inside a retried delegate",
       "no code path calls Database.BeginTransaction outside a delegate passed to Database.CreateExecutionStrategy",
       "the retry budget is smaller than the deadline of whatever calls the application, and a CancellationToken reaches every async database call",
-      "the context is configured with UseAzureSql rather than UseSqlServer plus a hand written EnableRetryOnFailure",
+      "dotnet ef dbcontext info reports Options: EngineType=AzureSql, rather than EngineType=SqlServer with a hand written EnableRetryOnFailure",
       "indexed string properties state HasMaxLength rather than inheriting the nvarchar(450) narrowing",
       "the compatibility level is stated explicitly rather than inherited from the provider default",
       "on EF Core 10, a first migration taken after switching to UseAzureSql is inspected for ALTER COLUMN statements that retype JSON columns",
       "the application does not apply migrations from its own startup path against a cloud database"
+    ],
+    "probes": [
+      {
+        "cmd": "PATH=\"$PATH:$HOME/.dotnet/tools\" dotnet ef migrations script --help | grep -q '^  -i|--idempotent'",
+        "where": "host",
+        "expect": { "succeeds": true },
+        "why": "The flag SKILL.md tells a reader to run before an EF Core 10 upgrade, so the retype migration is read as SQL before it reaches a database. Read out of the tool's own help on 2026-09-03, dotnet ef 9.0.19. dotnet ef is a client tool a developer installs with dotnet tool install, never something an engine image ships, so this is a host probe."
+      },
+      {
+        "cmd": "PATH=\"$PATH:$HOME/.dotnet/tools\" dotnet ef database update --help | grep -q -- '--connection <CONNECTION>'",
+        "where": "host",
+        "expect": { "succeeds": true },
+        "why": "The whole permissions argument in SKILL.md rests on this flag existing: --connection is how a migration is applied by a deployment identity while the application keeps its own string in AddDbContext or OnConfiguring. Its help text on 9.0.19 reads 'Defaults to the one specified in AddDbContext or OnConfiguring.'"
+      },
+      {
+        "cmd": "PATH=\"$PATH:$HOME/.dotnet/tools\" dotnet ef migrations --help | grep -q '^  has-pending-model-changes'",
+        "where": "host",
+        "expect": { "succeeds": true },
+        "why": "The second of the three checks in the 'Check it worked' section. The command exists from EF Core 8 and is listed by dotnet ef 9.0.19; measured 2026-09-03, it exits 0 with 'No changes have been made to the model since the last migration.' and exits 1 after one property is added, which is what makes it usable in a pipeline."
+      },
+      {
+        "cmd": "PATH=\"$PATH:$HOME/.dotnet/tools\" dotnet ef dbcontext --help | grep -q '^  info'",
+        "where": "host",
+        "expect": { "succeeds": true },
+        "why": "The first check in 'Check it worked'. Measured 2026-09-03 on 9.0.19, dbcontext info prints 'Options: EngineType=AzureSql' under UseAzureSql and 'Options: EngineType=SqlServer' under UseSqlServer with the same connection string and the same provider name, so it is the only command that separates the two configurations."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_ef_indexed_string (Id int NOT NULL IDENTITY PRIMARY KEY, Name nvarchar(450) NOT NULL);\nCREATE INDEX IX_probe_ef_indexed_string_Name ON dbo.probe_ef_indexed_string (Name);\nINSERT INTO dbo.probe_ef_indexed_string (Name) VALUES (REPLICATE(N'a', 500));",
+        "expect": { "error": 2628 },
+        "why": "The nvarchar(450) claim, made executable. An indexed string property with no HasMaxLength is generated as nvarchar(450), confirmed again on 2026-09-03 in a dotnet ef migrations script run, and the engine then refuses a longer value rather than trimming it. Msg 2628 is what makes the narrowing loud instead of silent, which is the correction this section carries."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_ef_idempotency (Id int NOT NULL IDENTITY PRIMARY KEY, IdempotencyKey uniqueidentifier NOT NULL, Amount decimal(10,2) NOT NULL);\nCREATE UNIQUE INDEX IX_probe_ef_idempotency_Key ON dbo.probe_ef_idempotency (IdempotencyKey);\nDECLARE @k uniqueidentifier = '00000000-0000-0000-0000-000000000001';\nINSERT INTO dbo.probe_ef_idempotency (IdempotencyKey, Amount) VALUES (@k, 10.00);\nINSERT INTO dbo.probe_ef_idempotency (IdempotencyKey, Amount) VALUES (@k, 10.00);",
+        "expect": { "error": 2601 },
+        "why": "The first defence in 'Making the unit safe to run twice', at the storage layer where it actually lives. The second insert is the replayed delegate: with a unique index over the idempotency key it collides instead of duplicating. Microsoft Learn documents Msg 2601 as the unique index violation, distinct from 2627 for a UNIQUE constraint, and this probe creates an index."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_ef_nonunique (Id int NOT NULL IDENTITY PRIMARY KEY, IdempotencyKey uniqueidentifier NOT NULL);\nCREATE INDEX IX_probe_ef_nonunique_Key ON dbo.probe_ef_nonunique (IdempotencyKey);\nDECLARE @k uniqueidentifier = '00000000-0000-0000-0000-000000000002';\nINSERT INTO dbo.probe_ef_nonunique (IdempotencyKey) VALUES (@k);\nINSERT INTO dbo.probe_ef_nonunique (IdempotencyKey) VALUES (@k);\nSELECT COUNT(*) AS rows_after_replay FROM dbo.probe_ef_nonunique WHERE IdempotencyKey = @k;",
+        "expect": { "rows": [[2]] },
+        "why": "The negative control for the probe above, and the duplicate write itself reduced to storage. Same key, same two inserts, only the index is no longer unique: both statements succeed with no error and the table holds two rows. Two here is the defect, not the absence of one, and it is why the skill says an idempotency key without a unique index is decorative."
+      },
+      {
+        "sql": "SELECT CASE WHEN CURRENT_TIMEZONE() LIKE '%UTC%' THEN 1 ELSE 0 END AS timezone_is_utc,\n       CASE WHEN ABS(DATEDIFF(second, GETDATE(), SYSUTCDATETIME())) <= 1 THEN 1 ELSE 0 END AS getdate_is_utc;",
+        "expect": { "rows": [[1, 1]] },
+        "why": "The HasDefaultValueSql(\"GETDATE()\") claim. Measured 2026-08-28 the host was six hours behind the engine and GETDATE() still returned UTC, so a GETDATE() default behaves the same locally and in the cloud, and only a model carried over from an engine on local time changes meaning. A one second tolerance keeps this from failing on a clock boundary."
+      }
     ]
   },
   "triggering": {

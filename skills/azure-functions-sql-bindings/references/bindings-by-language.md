@@ -3,44 +3,49 @@
 ## Contents
 
 - [What you install](#what-you-install)
-- [C#, isolated worker model](#c-isolated-worker-model)
-- [C#, in-process model](#c-in-process-model)
+- [C#, isolated worker](#c-isolated-worker-model)
+- [C#, in-process](#c-in-process-model)
 - [Java](#java)
-- [Python, v2 programming model](#python-v2-programming-model)
+- [Python v2](#python-v2-programming-model)
 - [JavaScript and TypeScript](#javascript-and-typescript)
-- [PowerShell and the function.json form](#powershell-and-the-functionjson-form)
-- [Property names, in one table](#property-names-in-one-table)
+- [PowerShell and function.json](#powershell-and-the-functionjson-form)
+- [Property names in one table](#property-names-in-one-table)
 - [Host settings](#host-settings)
 
-Verified against the Microsoft Learn binding reference on 2026-08-27. The bindings require version
-4.x or later of the Functions runtime. Go is not supported.
+Verified against the Microsoft Learn binding reference on 2026-09-03, and the C# rows built on
+Core Tools 4.12.0 with .NET SDK 8.0.421. The bindings require version 4.x or later of
+the Functions runtime. Go support is not available for these bindings.
 
 ## What you install
 
 | Language | What to add |
 |---|---|
-| C#, isolated worker | `dotnet add package Microsoft.Azure.Functions.Worker.Extensions.Sql` |
+| C#, isolated worker | `dotnet add package Microsoft.Azure.Functions.Worker.Extensions.Sql` (3.1.536 on 2026-09-03) |
 | C#, in-process | `dotnet add package Microsoft.Azure.WebJobs.Extensions.Sql` |
 | Java | The extension bundle, plus `com.microsoft.azure.functions:azure-functions-java-library-sql` |
 | Python, JavaScript, TypeScript, PowerShell | The extension bundle only |
 
-The extension bundle reference lives in `host.json`:
+The extension bundle reference lives in `host.json`. This is what `func init --worker-runtime node`
+wrote on Core Tools 4.12.0, measured 2026-09-03:
 
 ```json
 {
   "version": "2.0",
   "extensionBundle": {
     "id": "Microsoft.Azure.Functions.ExtensionBundle",
-    "version": "[4.0.0, 5.0.0)"
+    "version": "[4.*, 5.0.0)"
   }
 }
 ```
 
-Every function targeting the same database must use the same extension version. Mixing them is
-called out as a breaking-change hazard in the reference.
+Every function targeting the same database must use the same extension version.
 
 The in-process C# model reaches end of support on 10 November 2026, so new work belongs on the
 isolated worker model.
+
+Core Tools 4.12.0 scaffolds none of these: `func new --template "SQL Trigger"` fails with
+`Unknown template 'SQLTrigger' (Parameter 'templateName')` though `func templates list` prints the
+name. Write the declaration below by hand.
 
 ## C#, isolated worker model
 
@@ -62,8 +67,6 @@ public ToDoItem ToDoItem { get; set; }
 IReadOnlyList<SqlChange<ToDoItem>> changes
 ```
 
-`SqlChange<T>` carries `Item` and `Operation`, where `Operation` is `Insert`, `Update` or `Delete`.
-
 ## C#, in-process model
 
 Both the input and the output binding are the single `[Sql]` attribute; only the direction of the
@@ -72,13 +75,7 @@ parameter distinguishes them. The trigger keeps its own name.
 ```csharp
 [Sql(commandText: "dbo.ToDo", connectionStringSetting: "SqlConnectionString")]
 IAsyncCollector<ToDoItem> toDoItems
-
-[SqlTrigger("[dbo].[ToDo]", "SqlConnectionString")]
-IReadOnlyList<SqlChange<ToDoItem>> changes
 ```
-
-With `IAsyncCollector`, the rows are written when `FlushAsync` is awaited, which is the one place
-an output binding exception can be caught before it stops the function.
 
 ## Java
 
@@ -123,9 +120,9 @@ body.
 
 ## JavaScript and TypeScript
 
-In the v4 programming model the bindings are `input.sql()` and `output.sql()`, taking an options
-object with `commandText`, `commandType`, `parameters` and `connectionStringSetting`. The v3 model
-uses the `function.json` form below.
+In the v4 model the bindings are `input.sql()` and `output.sql()`, taking an options object with
+`commandText`, `commandType`, `parameters` and `connectionStringSetting`. The v3 model uses the
+`function.json` form below.
 
 ## PowerShell and the function.json form
 
@@ -149,8 +146,7 @@ uses the `function.json` form below.
 }
 ```
 
-`type` is `sql` for both the input and the output binding, distinguished by `direction` (`in` or
-`out`). The trigger's `type` is `sqlTrigger` and its `direction` is `in`. In PowerShell the value
+The property table below carries the `type` and `direction` values. In PowerShell the value
 reaches the binding through `Push-OutputBinding -Name <name>`.
 
 ## Property names, in one table
@@ -181,5 +177,7 @@ Under `extensions.Sql` in `host.json`:
 | `PollingIntervalMs` | 1000 | Delay between batches |
 | `MaxChangesPerWorker` | 1000 | Pending changes per worker before scaling out, with runtime scale monitoring on |
 
-The same three exist as `Sql_Trigger_MaxBatchSize`, `Sql_Trigger_PollingIntervalMs` and
-`Sql_Trigger_MaxChangesPerWorker` in `local.settings.json` for local runs.
+The same three exist under `Sql_Trigger_` names in `local.settings.json` for local runs.
+**Microsoft Learn contradicts itself on the first**: its settings table says
+`Sql_Trigger_BatchSize`, its own example on the same page says `Sql_Trigger_MaxBatchSize`. Neither
+is measured here, so set it and confirm the batch size changed rather than trusting a spelling.

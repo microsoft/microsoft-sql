@@ -2,145 +2,143 @@
 name: github-actions-for-sql
 description: >-
   Ships schema changes to Azure SQL Database from a GitHub Actions workflow with `azure/sql-action`:
-  building the database project or publishing a prebuilt dacpac, authenticating with a federated
-  credential so no database password or client secret is stored, getting a runner with a changing
-  address through the server firewall, and gating the deployment on an environment. Use when a
-  user asks to "deploy my database project from GitHub Actions", "publish a dacpac on merge",
-  "set up OIDC login to Azure for my pipeline", "stop storing a SQL password in secrets", or
-  "require an approval before the schema deploys", and when a run fails with "no matching
-  federated identity record found for presented assertion subject", with a login error naming
-  `auth-type`, or with "unable to detect client IP address". sql-database-projects owns the
-  project and the publish options, entra-id-auth owns the database user and its grant, and
-  deploy-app-to-azure owns shipping the application.
+  building the database project or publishing a prebuilt dacpac, federating the workflow's token
+  so no database password or client secret is stored, getting a runner with a changing address
+  through the server firewall, and gating the deployment on an environment. Use when a user asks
+  to "deploy my database project from GitHub Actions", "publish a dacpac on merge", "set up OIDC
+  login to Azure for my pipeline", "stop storing a SQL password in secrets", or "require an
+  approval before the schema deploys", and when a run fails with "no matching federated identity
+  record found for presented assertion subject", with a login error naming `auth-type`, or with
+  "unable to detect client IP address". sql-database-projects owns the project and the publish
+  options, entra-id-auth owns the database user and its grant, and deploy-app-to-azure owns
+  shipping the application.
 ---
 
 # Deploy schema to Azure SQL Database from GitHub Actions
 
-**This owns the pipeline: the workflow, the login, the firewall and the gate.** It does not own
-the project or its publish options (`sql-database-projects`), the doctrine of how a schema change
-is sequenced (`schema-migrations-safely`), the database-side grant for an identity
-(`entra-id-auth`), or application deployment (`deploy-app-to-azure`).
+**This owns the pipeline: the workflow, the login, the firewall and the gate.** Not the project
+(`sql-database-projects`), the sequencing of a schema change (`schema-migrations-safely`), the
+database-side grant (`entra-id-auth`), or the application (`deploy-app-to-azure`).
 
-Verified on 2026-08-28 by reading `azure/sql-action` at tag `v2.4`, released 2026-07-23, and by
-running workflows on a throwaway repository against a real directory and subscription: the token
-claims, the login failure, the environment gate and what the hosted runner ships. The
-throwaway repository and its Azure resources were deleted afterwards.
+Checked 2026-09-03 against `azure/sql-action` at tag `v2.4`, commit `eb1f9a80`, still the newest
+tag; SqlPackage 170.4.83.3; sqlcmd 1.10.0; Azure CLI 2.90.0.
 
-## What the action is, as of v2.4
+## The action is three commands. Run them yourself first
 
 | Input | Notes |
 |---|---|
-| `connection-string` | **required**, always. This is where the authentication method is chosen |
-| `path` | `.sql`, `.dacpac` or `.sqlproj`. A glob is allowed and must match exactly one file |
-| `action` | **required for `.dacpac` and `.sqlproj`**. Accepts `Publish`, `Script`, `DriftReport`, `DeployReport` and nothing else |
-| `build-arguments` | passed to the build when the path is a project |
+| `connection-string` | **required**. This is where the authentication method is chosen |
+| `path` | **required**. `.sql`, `.dacpac` or `.sqlproj`. A glob is allowed and must match exactly one file |
+| `action` | **required for `.dacpac` and `.sqlproj`**. `Publish`, `Script`, `DriftReport`, `DeployReport`, nothing else |
+| `arguments` | appended verbatim to the deployment command line, or to the sqlcmd line for a `.sql` path |
+| `build-arguments` | appended to `dotnet build` when the path is a project |
 | `skip-firewall-check` | default `false` |
-| `sqlpackage-path` | override the discovery below |
+| `sqlpackage-path` | point at a SqlPackage the runner already carries |
 
-**It does build a project.** Given a `.sqlproj` it runs `dotnet build "<path>" -p:NetCoreBuild=true`,
-then publishes the result. It looks for the output at `<project directory>/bin/<configuration>/<project file name>.dacpac`,
-defaulting the configuration to `Debug`, so an output path set inside the project file rather than
-passed through `build-arguments` leaves it looking in the wrong place.
+The action shells out. These are the three command lines it composes, read from `src/SqlUtils.ts`
+and `src/AzureSqlAction.ts` at `v2.4`. A red run that reproduces on a laptop is not a pipeline
+problem.
 
-`Extract`, `Import` and `Export` are real SqlPackage actions and are rejected here:
-`Action Extract is invalid. Supported action types are: Publish, Script, DriftReport, or DeployReport.`
-
-**The runner does not ship the deployment tool.** Measured on `ubuntu-24.04`, image
-`20260823.283.1`: `which sqlpackage` finds nothing. The action looks for it as a global .NET tool
-and then falls back to the name on `PATH`. One step fixes it, and `~/.dotnet/tools` is already on
-`PATH` on that image:
-
-```yaml
-- run: dotnet tool install -g microsoft.sqlpackage
+```bash
+sqlcmd -S <server>.database.windows.net,1433 -d master \
+  --authentication-method=ActiveDirectoryDefault \
+  -Q "SELECT 'Validating connection from GitHub SQL Action'"
 ```
 
-macOS runners are not supported for the dacpac and project paths at all. The action throws
-`This action is not supported on a Mac environment.`
+That is the firewall probe, not the deployment, and it runs against `master` first, the target
+database second. Then the build, for a `.sqlproj` path only:
+
+```bash
+dotnet build "./db/ShopDb.sqlproj" -p:NetCoreBuild=true
+```
+
+Then the deployment, and this is the whole argument list rather than an excerpt of one:
+
+```bash
+sqlpackage /Action:Publish \
+  /TargetConnectionString:"Server=tcp:<server>.database.windows.net,1433;Initial Catalog=<database>;Authentication=Active Directory Default;Encrypt=True;" \
+  /SourceFile:"./db/bin/Debug/ShopDb.dacpac"
+```
+
+`arguments:` is appended to that line, which is how `/p:BlockOnPossibleDataLoss=true` reaches the
+deployment. Which properties each action accepts is `sqlpackage-import-export`; open it before
+writing a `/p:` you have not seen in that build's own help output. Four things that shape is
+quietly telling you:
+
+- **The output path is guessed, not asked for.** The action looks for
+  `<project dir>/bin/<configuration>/<project name>.dacpac`, configuration defaulting to `Debug`,
+  so an output redirected inside the project file rather than through `build-arguments` leaves it
+  looking in the wrong place.
+- **`Extract`, `Import` and `Export` are refused**, real SqlPackage actions though they are:
+  `Action Extract is invalid. Supported action types are: Publish, Script, DriftReport, or DeployReport.`
+- **The runner ships sqlcmd but not the deployment tool.** The action downloads `go-sqlcmd` 1.6.0
+  into the tool cache itself; nothing brings SqlPackage, and on Linux the action calls the bare
+  name on `PATH`. One step fixes it with no path override, because `~/.dotnet/tools` is already on
+  `PATH` on the hosted image: `dotnet tool install -g microsoft.sqlpackage`.
+- **macOS runners are refused** for the dacpac and project paths:
+  `This action is not supported on a Mac environment.`
 
 ## Authenticating without a stored password
 
-Two secrets are being avoided, and they are different. **A database password** is avoided by
-choosing an identity-based authentication keyword in the connection string. **A client secret**
-is avoided by federating the workflow's own token to the directory, so nothing long-lived is
-stored at all.
+Two different secrets are being avoided. **A database password** goes away with an identity-based
+keyword in the connection string: `Active Directory Default` picks up the login step's
+credentials, where `Active Directory Password` and `Active Directory Service Principal` put a
+secret back and a plain user and password puts the database password back. **A client secret**
+goes away by federating the workflow's token, which needs `permissions: id-token: write` in the
+workflow below, without which there is no token to exchange.
 
-```yaml
-permissions:
-  id-token: write        # without this there is no token to exchange
-  contents: read
-```
+## The correction: read the subject claim, do not compose it
 
-```yaml
-- uses: azure/login@v2
-  with:
-    client-id: ${{ secrets.AZURE_CLIENT_ID }}
-    tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-    subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-- uses: azure/sql-action@v2.4
-  with:
-    connection-string: "Server=tcp:${{ vars.SQL_SERVER }},1433;Initial Catalog=${{ vars.SQL_DATABASE }};Authentication=Active Directory Default;Encrypt=True;"
-    path: ./db/ShopDb.sqlproj
-    action: Publish
-```
-
-`Active Directory Default` is the keyword that picks up the login step's credentials. The other
-values the action accepts are `Active Directory Password` and `Active Directory Service Principal`,
-both of which put a secret back into the workflow, and a plain user and password, which puts a
-database password back.
-
-## The correction: do not write the subject claim, read it
-
-The federated credential matches on three things, and the subject is the one that goes wrong.
-
-**The documented shape is not what gets presented.** On a repository reporting its subject claim as
-the default and not customised, the prefix carried numeric ids for both the owner and the
-repository:
-
-```text
-sub = repo:OWNER@<ownerId>/REPO@<repoId>:environment:production
-```
-
-A credential created with the documented `repo:OWNER/REPO:environment:production` did **not**
-match it. So composing the subject from a template is the failure, however carefully it is done,
-and no amount of care with the job segment rescues a prefix that was written rather than read.
-
-The job segment still has to be right as well. A job naming an environment presents
-`:environment:<name>` **in place of** the ref segment, not in addition to it, so the two jobs in
-the workflow at the end of this page need two credentials.
-
-**Read the prefix instead of writing it.** The repository reports it, and the answer includes
-whether it has been customised:
+The credential matches on issuer, audience and subject. The subject is the one that goes wrong,
+and composing it from the documented `repo:OWNER/REPO:ref:refs/heads/main` is the failure. Ask the
+repository what prefix it presents instead:
 
 ```bash
 gh api repos/OWNER/REPO/actions/oidc/customization/sub
-# {"use_default":true,"use_immutable_subject":false,"sub_claim_prefix":"repo:OWNER@<ownerId>/REPO@<repoId>"}
 ```
 
-Append the job segment to that prefix: `:ref:refs/heads/<branch>`, `:environment:<name>`, or
-`:pull_request`. Then create the credential:
+Measured 2026-09-03 across twelve repositories in one account: eleven answered with the plain
+name-based prefix, and the twelfth, one that had been renamed, answered with numeric ids in it:
+
+```json
+{"use_default":true,"use_immutable_subject":false,"sub_claim_prefix":"repo:OWNER@<ownerId>/REPO@<repoId>"}
+```
+
+**Both flags say the default is in force and the shape is still different.** GitHub's OIDC
+reference explains why: repositories created, renamed or transferred after 15 July 2026 get an
+immutable default subject built from owner and repository ids, and `use_immutable_subject` reports
+only the separate opt-in, not the shape. Learn covers the Azure side under
+[immutable subjects](https://learn.microsoft.com/entra/workload-id/workload-identities-github-immutable-subjects).
+So a template works on eleven repositories and silently fails on the twelfth, which is worse than
+failing everywhere.
+
+Take `sub_claim_prefix` and append the job segment: `:ref:refs/heads/<branch>`,
+`:ref:refs/tags/<tag>`, `:environment:<name>`, or `:pull_request`. A job naming an environment
+presents `:environment:<name>` **in place of** the ref segment, not in addition, so the two jobs
+below need two credentials.
 
 ```bash
 az identity federated-credential create \
-  --name gh-deploy --identity-name <identity> -g <resource group> \
+  --name gh-deploy-production --identity-name <identity> -g <resource group> \
   --issuer "https://token.actions.githubusercontent.com" \
   --subject "<the prefix>:environment:production" \
   --audiences "api://AzureADTokenExchange"
 ```
 
-### The error, and why it names the wrong thing
+Copy the prefix rather than retyping it: Learn records that credential matching became
+case-sensitive in September 2024, so a name typed in the wrong case fails with no other symptom.
 
-A subject that does not match produces, verbatim:
+A flexible federated identity credential can cover several job shapes at once by wildcard-matching
+`sub` alongside `repository_id` or `repository_owner_id`. Learn calls it preview, application
+objects only, and says Azure CLI errors on it, while Azure CLI 2.90.0 here exposes
+`--claims-matching-expression-value`. The two disagree, so measure before planning around it.
 
-```text
-##[error]AADSTS700213: No matching federated identity record found for presented assertion
-subject 'repo:OWNER@<ownerId>/REPO@<repoId>:environment:production'. Check your federated
-identity credential Subject, Audience and Issuer against the presented assertion.
-```
+### The error names the wrong thing
 
-**That first line is the most useful thing in the run, because it quotes the subject that was
-actually presented.** Copy it into the credential. The line immediately after it is the misleading
-one:
+A subject that does not match produces `AADSTS700213: No matching federated identity record found
+for presented assertion subject '<the subject>'`. **That line is the most useful thing in the run,
+because it quotes the subject actually presented.** Copy it into the credential. The line right
+after it is the misleading one:
 
 ```text
 ##[error]Login failed with Error: The process '/usr/bin/az' failed with exit code 1.
@@ -148,75 +146,50 @@ Double check if the 'auth-type' is correct.
 ```
 
 `auth-type` is an input of the login step and is not the problem. An agent reading only the last
-error changes that input, or switches to a client secret to make the run go green, which throws
-away the entire point of federating. Read upward to the AADSTS line first.
-
-Not every AADSTS code here is a subject problem. A directory can also refuse a federated
-credential on policy grounds, in which case the code and the text are about the policy and not
-about the subject, and no amount of correcting the subject helps. Read the code, then decide.
+error changes it, or reaches for a client secret to go green, throwing away the point of
+federating. Read upward to the AADSTS line and read its number: a directory can also refuse on
+policy grounds, and that refusal is not fixable in the subject at all.
 
 ## The firewall problem, and why it disguises the last one
 
-A hosted runner's public address changes between runs, so a fixed firewall rule is not an option.
-What the action does about it, from its source:
+A hosted runner's public address changes between runs, so a fixed rule is not an option. What the
+action does instead:
 
-1. Before deploying, it connects with `sqlcmd`, to `master` first and then to the target database.
-2. If that connection fails, it looks for an address inside the **error text** and adds a
-   server-level firewall rule for exactly that address.
-3. It deploys, and removes the rule afterwards, including when the deployment fails.
+1. Runs the `sqlcmd` probe above, against `master` first and the target database second.
+2. If that fails, it searches the **error text** for an IPv4 address and adds a server-level rule
+   named `ClientIPAddress_<year>-<month>-<day>_<address>` for exactly that address.
+3. It deploys, then drops the rule in a `finally` block, including when the deployment failed.
 
-Two consequences follow, and the second is the one that wastes time.
+Two consequences follow, and the second wastes the most time.
 
-**It needs a role on the server resource.** Adding a firewall rule is a control-plane call, so the
-login step must have run and the identity must be able to write firewall rules on the logical
-server. Without that, the deployment fails at a step that is not the deployment.
+**It needs a role on the server resource.** Adding a rule is a control-plane call, so the login
+step must have run and the identity must be able to write firewall rules on the logical server.
+Without that, the deployment fails at a step that is not the deployment.
 
-**Any login failure is reported as a firewall failure.** If the probe connection fails for a
-reason other than the firewall, the error carries no address, and the action raises:
+**Any login failure is reported as a firewall failure.** If the probe fails for a reason other
+than the firewall, the error carries no address, and the action raises
+`Failed to add firewall rule. Unable to detect client IP Address. <the underlying error>`. That
+message is about the firewall. The cause is usually the credential. Read past the first sentence.
 
-```text
-Failed to add firewall rule. Unable to detect client IP Address. <the underlying error>
-```
-
-That message is about the firewall. The cause is usually the credential. The underlying error is
-appended to it, so read past the first sentence before changing anything about networking.
-
-The alternatives to letting the action manage the rule, all of which pair with
-`skip-firewall-check: true`:
-
-| Approach | What it costs |
-|---|---|
-| the action manages a temporary rule | the identity needs write access to the server resource, and every run edits the firewall |
-| a self-hosted runner on a fixed address | infrastructure to run, and a rule that stays |
-| a self-hosted runner reaching a private endpoint | no public exposure, and the most to set up |
-
-Allowing all Azure services is not on that list on purpose. It is not a narrow rule.
+The two alternatives both pair with `skip-firewall-check: true`: a self-hosted runner on a fixed
+address, which costs infrastructure and leaves a standing rule, or one reaching a private
+endpoint, which exposes nothing publicly and is the most to set up. Allowing all Azure services is
+not on that list on purpose. It is not a narrow rule.
 
 ## Environment approvals, and what they do not protect
 
-The gate holds the job that names it. Measured, on a workflow whose three jobs differ only by
-that line: the job without `environment:` completed while the two that declared it sat in
-`waiting`, and the pending deployment was released through the API:
+The gate holds the job that names it, and nothing else in the workflow:
 
-```bash
-gh api repos/OWNER/REPO/actions/runs/<run id>/pending_deployments
-gh api -X POST repos/OWNER/REPO/actions/runs/<run id>/pending_deployments \
-  -f state=approved -f comment="reviewed" -F "environment_ids[]=<id>"
-```
-
-So the approval is a gate on a job, and it protects nothing else in the workflow:
-
-- **Another job reads the same repository secrets.** Repository-level secrets are available to
-  every job. Anything reachable with them is reachable without waiting. Put the deployment
-  credential in **environment** secrets, so the gate and the credential cover the same ground.
-- **The credential subject is the real binding.** A federated credential whose subject ends in
-  `:environment:production` cannot be exchanged by a job that does not name that environment.
-  That is enforcement, where the approval is only a pause.
-- **The rule may not exist at all.** Creating a required-reviewer rule on a private repository
-  whose plan does not include it is refused: `Failed to create the environment protection rule.
-  Please ensure the billing plan supports the required reviewers protection rule.` The environment
-  is still created, the workflow still references it, and every job runs unblocked. Confirm the
-  protection rules exist rather than assuming the environment implies them.
+- **Another job reads the same repository secrets.** They are available to every job, so anything
+  reachable with them is reachable without waiting. Put the deployment credential in
+  **environment** secrets, so the gate and the credential cover the same ground.
+- **The credential subject is the real binding.** A subject ending `:environment:production`
+  cannot be exchanged by a job that does not name that environment. That is enforcement, where
+  the approval is only a pause.
+- **The rule may not exist at all.** A required-reviewer rule on a private repository whose plan
+  excludes it is refused with `Failed to create the environment protection rule.` The environment
+  is still created, the workflow still references it, and every job runs unblocked. Read the
+  protection rules back rather than assuming the environment implies them.
 
 ## A workflow shape that holds together
 
@@ -263,51 +236,55 @@ jobs:
           action: Publish
 ```
 
-Two jobs, two federated credentials, because the two jobs present different subjects: one ending
+Two jobs, two credentials, because they present different subjects: one ending
 `:ref:refs/heads/main` and one ending `:environment:production`. The connection string holds no
-password, so it is a secret only to keep the server name out of a public log.
+password, so it is a secret only to keep the server name out of a public log. `DeployReport`
+writes the planned changes and touches nothing, which is what the reviewer releasing the second
+job should be reading.
 
-`action: DeployReport` on the first job writes the planned changes and touches nothing, which is
-what a reviewer should be looking at before releasing the second.
+## Check it worked
 
-## Validation rules
+A green run means the action exited zero. It does not say the schema landed, nor that the firewall
+was left as it was found. Three checks, none of which changes anything.
 
-- The federated credential subject came from the reported prefix or from the presented subject in
-  a failure, never from a template written by hand.
-- Every job that authenticates has a credential whose subject matches the shape that job will
-  present, environment segment included.
-- `id-token: write` is granted, and no client secret or database password is stored anywhere.
-- The runner installs the deployment tool, because the hosted image does not carry it.
-- The path type and the `action` input agree, and `action` is present for a dacpac or a project.
-- How the runner reaches the server through the firewall was decided explicitly, and if the action
-  manages the rule, the identity can write firewall rules on the server resource.
-- A login failure was diagnosed from the identity provider's message rather than from the login
-  step's closing line or the firewall step's message.
-- The environment's protection rules were confirmed to exist, and the deployment credential lives
-  in environment secrets rather than repository secrets.
-- A job that reports the plan runs before the job that applies it.
+```bash
+gh run view <run id> --json conclusion,jobs --jq '.conclusion, [.jobs[] | {name, conclusion}]'
+```
+
+Expect `success` and every job present. A job at `waiting` is the gate working, not a failure, and
+a deploy job that never appears is a `needs:` that never released.
+
+```bash
+sqlpackage /Action:DeployReport /SourceFile:"./db/bin/Debug/ShopDb.dacpac" \
+  /TargetConnectionString:"<the same connection string>" /OutputPath:after.xml
+grep -c "<Operation " after.xml
+```
+
+Expect `0`. A publish that landed leaves the next deploy report nothing to do, and any count above
+zero names an object the run did not apply. `/OutputPath` is the DeployReport parameter;
+`/DeployReportPath` belongs to Publish, so the wrong flag writes no report at all.
+
+```bash
+az sql server firewall-rule list -g <resource group> -s <server> --query "[].name" -o tsv
+```
+
+Expect no name beginning `ClientIPAddress_`. The action removes its own rule even when the
+deployment failed, so a leftover means the job was cancelled rather than failed. Do not read the
+date out of that name: it is built from `getMonth()`, zero-based, and `getDay()`, the weekday.
 
 ## Do not
 
-- Do not compose the federated credential subject from a documented template. Read the prefix the
-  repository reports, then append the job segment.
-- Do not add an environment to a job without adding the matching credential. The gate and the
-  login break together.
-- Do not act on the login step's closing line about `auth-type`. Read the identity provider's
-  message above it.
-- Do not treat "unable to detect client IP address" as a networking problem before reading the
-  error appended to it.
+- Do not compose the subject from a template. Read the prefix the repository reports and append
+  the job segment, and do not add an environment to a job without adding its credential too.
+- Do not act on the login step's closing line about `auth-type`, or treat "unable to detect client
+  IP address" as networking. Both name the step that reported, not the step that failed.
 - Do not fall back to a client secret or a database password to get a red run green. That is the
   one thing the design was for.
 - Do not open the firewall to all Azure services to avoid managing a rule. It is not narrow.
-- Do not assume declaring an environment created a gate, and do not assume a gate on one job
-  protects another job holding the same secrets.
-- Do not point the deployment at a dacpac built by a different step without knowing which target
-  platform it declares. `sql-database-projects` owns that.
+- Do not assume declaring an environment created a gate, or that a gate on one job protects
+  another job holding the same secrets.
 
 ## References
 
-- [references/oidc-and-firewall.md](references/oidc-and-firewall.md): the measured token claims,
-  the failure messages in full, the credential commands for both an application identity and a
-  user-assigned identity, and what the action does step by step from its own source. Read it when
-  a login or a firewall step is failing and the message is not enough.
+- [references/oidc-and-firewall.md](references/oidc-and-firewall.md) holds the token payloads for both job shapes, the failure messages in full, the credential commands for an application identity as well as a user-assigned one, and the action's steps in order. Open it when a login or a firewall step fails and the message on screen does not say which of the two broke.
+- [GitHub's OIDC reference](https://docs.github.com/en/actions/reference/security/oidc) when the subject claim is in question; [SqlPackage Publish](https://learn.microsoft.com/sql/tools/sqlpackage/sqlpackage-publish) and [DeployReport](https://learn.microsoft.com/sql/tools/sqlpackage/sqlpackage-deploy-drift-report) when the deployment step's behaviour is.

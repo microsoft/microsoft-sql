@@ -1,4 +1,4 @@
-# Verified behaviour: the server-side bulk paths
+# Bulk load errors and the log rate governor
 
 ## Contents
 
@@ -10,6 +10,7 @@
 - [bcp: present, but its certificate-trust flags failed silently](#bcp-present-but-its-certificate-trust-flags-failed-silently)
 - [Recovery model: accepted here, do not assume it elsewhere](#recovery-model-accepted-here-do-not-assume-it-elsewhere)
 - [The transaction log rate governor](#the-transaction-log-rate-governor)
+- [Platform limits and permissions from Microsoft Learn](#platform-limits-and-permissions-from-microsoft-learn)
 
 ## Environment
 
@@ -153,14 +154,15 @@ against this engine was not verified**, because no attempt reached a connected s
 `bcp` guidance in the skill body as based on the tool's documented flags and on how `bcp` behaves
 against SQL Server generally, not as measured against this platform.
 
-## Recovery model: accepted here, do not assume it elsewhere
+## Recovery model: accepted here, and beside the point
 
 `ALTER DATABASE dq_bulkload SET RECOVERY BULK_LOGGED` was accepted with no error on this engine,
-and `sys.databases.recovery_model_desc` reported `BULK_LOGGED` afterward. This was measured only
-on the local container used for authoring. Whether the production Azure SQL Database cloud service
-accepts or silently ignores the same statement was not checked in this session and is not claimed
-either way. Regardless of the answer, the log rate governor below applies independently of
-recovery model, which is the reason this skill does not build its advice on recovery model at all.
+and `sys.databases.recovery_model_desc` reported `BULK_LOGGED` afterward, measured 2026-08-29 on
+the local container only. Whether the cloud service accepts or silently ignores the same statement
+was not checked and is not claimed either way, because it does not matter: the `BULK INSERT` page's
+"Log behavior" section states flatly that "Minimal logging isn't supported in Azure SQL Database"
+(fetched 2026-09-03), and the log rate governor below applies regardless of recovery model. That is
+why this skill builds no advice on recovery model at all.
 
 ## The transaction log rate governor
 
@@ -183,6 +185,14 @@ The wait types it documents, from `sys.dm_exec_requests` and `sys.dm_os_wait_sta
 | `HADR_THROTTLE_LOG_RATE_LOG_SIZE` | Feedback control avoiding an out-of-log-space condition |
 | `HADR_THROTTLE_LOG_RATE_MISMATCHED_SLO` | Geo-replication feedback, avoiding secondary unavailability |
 
+The cap itself is readable per database. `sys.dm_user_db_resource_governance` documents
+`primary_max_log_rate` as "Maximum log rate in bytes per second at user workload group level", and
+`pool_max_log_rate` and `instance_max_log_rate` as the pool and instance equivalents. Learn's own
+example query selects `database_name, primary_group_id, primary_max_log_rate, primary_group_max_io,
+pool_max_io` from that view, returning one row for a single database and one row per database in an
+elastic pool. Reading the view needs `VIEW DATABASE STATE`, or membership in
+`##MS_ServerStateReader##` on Basic, S0, S1 and pooled databases. Fetched 2026-09-03, not measured.
+
 The same page's mitigation list: scale up to a higher service level or a different tier (Hyperscale
 publishes an explicit per-database log rate, 150 MiB/s on premium-series hardware, 100 MiB/s on
 other hardware); load transient staging data into `tempdb`, which is minimally logged there; for
@@ -190,3 +200,29 @@ analytic loads, target a table with a clustered columnstore index or data compre
 log volume the load generates. None of this was independently measured against a running load in
 this session, since the container used has one fixed compute size and no elastic pool to compare
 against; it is carried here from the Learn page directly and dated as such.
+
+## Platform limits and permissions from Microsoft Learn
+
+Fetched 2026-09-03 from the `BULK INSERT (Transact-SQL)` page and not independently measured. These
+are the parts that differ from SQL Server and are therefore the parts an agent gets wrong.
+
+| Aspect | Azure SQL Database |
+|---|---|
+| Data source | Azure Storage only. No local path, no UNC path |
+| Source authentication | Microsoft Entra ID, SAS token, or managed identity |
+| Unsupported options | `*` wildcards in the path, `FORMAT = 'PARQUET'` |
+| Permissions on the target | `INSERT` and `ADMINISTER DATABASE BULK OPERATIONS`, plus `ALTER TABLE` when constraints, triggers or `KEEPIDENTITY` are involved |
+| Minimal logging | Not supported |
+
+Three defaults that make a bad load look like a good one:
+
+- `MAXERRORS` defaults to 10. Rows that fail conversion are skipped and counted, and the statement
+  still succeeds. `bcp`'s `-m` has the same default.
+- `ERRORFILE` on Azure SQL Database should be accompanied by `ERRORFILE_DATA_SOURCE`, or the import
+  "might fail with permissions error". The named file must not already exist in the container.
+- `FIRSTROW` is 1-based and, in Learn's words, "isn't intended to skip column headers. The
+  `BULK INSERT` statement doesn't support skipping headers." Skipped rows are scanned for field
+  terminators only, not validated. `bcp`'s `-F` is the flag that does skip a header row.
+
+A format file caps out at 1,024 fields, and exceeding it raises error 4822. `bcp` has no such
+limit.

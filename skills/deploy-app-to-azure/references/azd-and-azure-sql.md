@@ -11,11 +11,12 @@
 
 ## Templates that actually exist for Azure SQL Database
 
-Verified on 2026-08-27 by listing templates from the gallery, which returned 317 entries, and
-filtering them. Template names and repositories move, so confirm before generating a project:
+Verified 2026-09-03 against the Azure Developer CLI 1.32.0 by listing the gallery, which returned
+315 entries, 17 of them tagged `azuresql`. Names, tags and repositories move, so confirm before
+generating a project:
 
 ```bash
-azd template list -f azuresql
+azd template list -f azuresql --output json | grep -B2 '"msft"'
 ```
 
 The Microsoft-published ones that use Azure SQL Database:
@@ -27,8 +28,12 @@ The Microsoft-published ones that use Azure SQL Database:
 | `Azure-Samples/functions-quickstart-python-azd-sql` | The same, Python |
 | `Azure-Samples/functions-quickstart-typescript-azd-sql` | The same, TypeScript |
 | `Azure-Samples/azure-sql-db-session-recommender-v2` | Vector search and retrieval over Azure SQL Database |
-| `Azure-Samples/blazor-azure-sql-vector-search` | Blazor with hybrid vector search |
 | `Azure-Samples/nlp-sql-in-a-box` | Natural language over Azure SQL Database |
+
+**The tag is not a reliable filter in either direction**, measured 2026-09-03.
+`Azure-Samples/blazor-azure-sql-vector-search` is Microsoft-published, uses Azure SQL Database, and
+carries only `msft` and `ai`, so the filter misses it. `Azure-Samples/spring-petclinic-java-mysql`
+carries `azuresql` and is MySQL by name. Read the repository, not the tag.
 
 Anything else in that filtered list is community-published rather than Microsoft-published, which is
 worth saying to a user before it becomes the starting point for their project.
@@ -52,7 +57,7 @@ Two specific mistakes follow from this, and both look reasonable:
 ## What the first-party templates really do about identity
 
 SKILL.md carries the headline. This is the per-template evidence behind it, gathered by reading each
-`infra` directory on 2026-08-27, because the two generations of template differ completely.
+`infra` directory on 2026-09-03, because the two generations of template differ completely.
 
 **The blueprint sample is password-based.** `infra/app/db-avm.bicep` provisions the logical server
 with `administratorLogin` and a password. A deployment script then creates the application's
@@ -84,31 +89,23 @@ narrower than the blueprint's `db_owner` and still wider than most applications 
 | `blazor-azure-sql-vector-search` | Hand-written | | No rule in `infra` |
 | `nlp-sql-in-a-box` | Hand-written | | The deployer's own address |
 
-**Four of four**, and the split follows the module rather than the identity story: every template
-that builds the logical server from the Azure Verified Module ships the wide rule, including the
-three that are otherwise the ones to copy. Choosing the better template fixes the password and
-leaves the firewall open. The range is not in the module's own documented examples, so it travels
-with the samples rather than with the module.
+The split follows the module rather than the identity story: every template that builds the logical
+server from the Azure Verified Module ships the wide rule, including the three that are otherwise
+the ones to copy. The range is not in the module's own documented examples, so it travels with the
+samples rather than with the module. SKILL.md carries the rest of the argument and the commands
+that narrow it.
 
-**The name points at a different rule.** The documented Allow Azure services special case is a
-server-level rule whose start and end address are both `0.0.0.0`. Microsoft Learn already calls that
-one more permissive than most customers want. A rule from `0.0.0.1` to `255.255.255.254` is not a
-narrower version of it; it is every address a client can present.
+### Where it is, verified 2026-09-03
 
-Narrowing it means whatever runs the post-provision hook now needs a rule of its own, or the hook
-fails as a timeout. `provision-azure-sql-db` owns authoring firewall rules and their latency; this
-skill owns catching an inherited one.
-
-### Where it is, verified 2026-08-29
-
-All four repositories were cloned and read on that date.
+All four files were fetched from `main` and read on that date. SKILL.md carries the one-liner that
+reproduces this.
 
 | Template | File | Condition |
 |---|---|---|
-| `todo-csharp-sql` | `infra/app/db-avm.bicep`, line 42 | unconditional |
-| `functions-quickstart-dotnet-azd-sql` | `infra/app/db.bicep`, line 53 | only when `vnetEnabled` is false |
-| `functions-quickstart-python-azd-sql` | `infra/app/db.bicep`, line 53 | only when `vnetEnabled` is false |
-| `functions-quickstart-typescript-azd-sql` | `infra/app/db.bicep`, line 53 | only when `vnetEnabled` is false |
+| `todo-csharp-sql` | `infra/app/db-avm.bicep` | unconditional |
+| `functions-quickstart-dotnet-azd-sql` | `infra/app/db.bicep` | only when `vnetEnabled` is false |
+| `functions-quickstart-python-azd-sql` | `infra/app/db.bicep` | only when `vnetEnabled` is false |
+| `functions-quickstart-typescript-azd-sql` | `infra/app/db.bicep` | only when `vnetEnabled` is false |
 
 The literal shipped in all four:
 
@@ -119,10 +116,6 @@ The literal shipped in all four:
   endIpAddress: '255.255.255.254'
 }
 ```
-
-**These are Microsoft-published samples and this skill does not change them.** The rule is
-inherited, the user is told about it, and narrowing it is their decision after the first
-successful `azd up`. The main body carries the commands.
 
 ## The post-provision grant, end to end
 
@@ -179,16 +172,16 @@ eval "$(azd env get-values | sed 's/^/export /')"
 
 # The statement, its required clauses and its error codes belong to entra-id-auth.
 # Run it against the USER database, never master.
-sqlcmd -S "$AZURE_SQL_SERVER_NAME" -d "$AZURE_SQL_DATABASE_NAME" -G \
+sqlcmd -S "$AZURE_SQL_SERVER_NAME" -d "$AZURE_SQL_DATABASE_NAME" \
+  --authentication-method ActiveDirectoryAzureDeveloperCli \
   -v IDENTITY_NAME="$APP_IDENTITY_NAME" PRINCIPAL_ID="$APP_IDENTITY_PRINCIPAL_ID" \
   -i ./infra/scripts/grant-app-identity.sql
 ```
 
-The hook can be run on its own while developing it, without a full provision:
-
-```bash
-azd hooks run postprovision
-```
+`--authentication-method` and `-v` are both in `sqlcmd -?` on 1.10.0.
+`ActiveDirectoryAzureDeveloperCli` reuses the credential the deployment is already running under,
+where `-G` alone falls back to `ActiveDirectoryDefault` and can pick a different signed-in identity.
+Run the hook on its own while developing it with `azd hooks run postprovision`.
 
 ## Failure table for the wiring
 

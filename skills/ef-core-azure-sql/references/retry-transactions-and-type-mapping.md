@@ -1,4 +1,4 @@
-# What was measured, and how to measure it again
+# Retry, transactions and type mapping: what was measured, and how to measure it again
 
 ## Contents
 
@@ -13,19 +13,19 @@
 - [Measurement 6: compatibility level defaults](#measurement-6-compatibility-level-defaults)
 - [Measurement 7: what an unconfigured model maps to, and what the engine then does](#measurement-7-what-an-unconfigured-model-maps-to-and-what-the-engine-then-does)
 - [Measurement 8: the server clock](#measurement-8-the-server-clock)
+- [Measurement 9: the dotnet ef tool runs, 2026-09-03](#measurement-9-the-dotnet-ef-tool-runs-2026-09-03)
 - [What was not verified by execution](#what-was-not-verified-by-execution)
 - [Claims this file previously got wrong](#claims-this-file-previously-got-wrong)
 
 ## Why this file exists
 
 Every table in `SKILL.md` came from a compiler or a running process rather than from a
-documentation page, because the questions are about API surface, defaults and runtime behaviour, and
-those are exactly the claims that go stale between a release and the article describing it. This
-file records what was run so the claims can be rechecked against a version that did not exist on the
-verification date.
+documentation page, because the questions are about API surface, defaults and runtime behaviour,
+which go stale between a release and the article describing it. This file records what was run so
+the claims can be rechecked against a version that did not exist on the verification date.
 
-Verification date: **2026-08-27**. Unlike the previous revision of this file, **a live engine was
-involved**, and the behavioural claims below are captured output rather than quoted documentation.
+Runtime behaviour: **2026-08-27**, against a live engine. Tool and compiler output: **2026-09-03**,
+in measurement 9.
 
 ## Versions in play on the verification date
 
@@ -61,7 +61,8 @@ message string raises 50000, so:
 
 ```csharp
 options.UseAzureSql(connectionString, o => o.EnableRetryOnFailure(3, TimeSpan.FromSeconds(1), new[] { 50000 }));
-...
+
+using var context = new AppDbContext(options.Options);
 context.Database.ExecuteSqlRaw("RAISERROR('dropped', 16, 1)");
 ```
 
@@ -188,14 +189,6 @@ UseSqlServer+UseAzureSqlDefaults   engine=SqlServer strategy=SqlServerRetryingEx
                                    MaxRetryCount=6 MaxRetryDelay=00:00:30
 ```
 
-`UseAzureSqlDefaults` is not silent about being second best. On 9.0.19 it is attributed obsolete and
-the compiler says so:
-
-```text
-warning CS0618: 'SqlServerDbContextOptionsBuilder.UseAzureSqlDefaults(bool)' is obsolete:
-'Use UseAzureSql instead of UseSqlServer with UseAzureSqlDefaults.'
-```
-
 ## Measurement 6: compatibility level defaults
 
 Read from the provider's own options on 9.0.19, and from the 10.0 source constants:
@@ -283,6 +276,75 @@ the cloud rather than with the machine running it. A `GETDATE()` default therefo
 locally and in Azure, and only a model carried over from an engine running on local time changes
 meaning.
 
+## Measurement 9: the dotnet ef tool runs, 2026-09-03
+
+Host: .NET SDK 8.0.421, `dotnet ef` 9.0.19 installed with
+`dotnet tool install --global dotnet-ef --version 9.0.19`, provider package 9.0.19. EF Core 9
+targets `net8.0`, so `UseAzureSql` is reachable from an SDK 8 host.
+
+The fixture: a console project with one entity carrying a non-unique index on a `string` property,
+a unique index on a `Guid` key, and a `string[]` collection property.
+
+**`dotnet ef dbcontext info` is the only command that prints the engine type.** Under
+`options.UseAzureSql(...)`:
+
+```text
+Type: AppDbContext
+Provider name: Microsoft.EntityFrameworkCore.SqlServer
+Database name: appdb
+Data source: tcp:127.0.0.1,1433
+Options: EngineType=AzureSql
+```
+
+Changing that one call to `options.UseSqlServer(...)`, with nothing else touched, and rerunning:
+
+```text
+Options: EngineType=SqlServer
+```
+
+The provider name is identical in both, and so is the connection string. That line is the only
+thing that tells the two configurations apart.
+
+**`dotnet ef migrations has-pending-model-changes` carries its answer in the exit code.**
+
+```text
+$ dotnet ef migrations has-pending-model-changes ; echo $?
+No changes have been made to the model since the last migration.
+0
+$ dotnet ef migrations has-pending-model-changes ; echo $?
+Changes have been made to the model since the last migration. Add a new migration.
+1
+```
+
+The second run followed adding one property to the entity and nothing else. Exit 1 is usable in CI.
+
+**The generated script, from `dotnet ef migrations script --idempotent --output migrate.sql`**, on
+EF Core 9:
+
+```text
+[Name] nvarchar(450) NOT NULL,
+[Tags] nvarchar(max) NOT NULL,
+CREATE UNIQUE INDEX [IX_Orders_IdempotencyKey] ON [Orders] ([IdempotencyKey]);
+CREATE INDEX [IX_Orders_Name] ON [Orders] ([Name]);
+```
+
+`Name` is the indexed string, narrowed to 450, confirming measurement 7 on a second host. `Tags` is
+the `string[]`, `nvarchar(max)` on EF Core 9, and it is exactly the column EF Core 10 with
+`UseAzureSql` retypes to `json`.
+
+**Compiler results on 9.0.19**, three configurations built in one project:
+
+```text
+warning CS0618: 'SqlServerDbContextOptionsBuilder.UseAzureSqlDefaults(bool)' is obsolete:
+'Use UseAzureSql instead of UseSqlServer with UseAzureSqlDefaults.'
+```
+
+That is the only diagnostic in the build. `ConfigureSqlEngine(c => c.EnableRetryOnFailureByDefault())`,
+which Microsoft Learn gives as the EF Core 9 answer for a `UseSqlServer` call you do not control,
+compiled with no warning, and so did `UseAzureSql(cs, o => o.UseCompatibilityLevel(170))` and the
+`ExecuteInTransactionAsync(db, operation:, verifySucceeded:, cancellationToken:)` form quoted in
+`SKILL.md`.
+
 ## What was not verified by execution
 
 Stated so that nobody reads this file as more than it is.
@@ -292,6 +354,9 @@ Stated so that nobody reads this file as more than it is.
   the release notes.
 - **The `SqlVector<float>` gating claim is a source reading**, carried forward from the previous
   revision, not something this host executed.
+- **Measurement 9 opened no connection.** `dbcontext info`, `migrations script` and
+  `has-pending-model-changes` are design-time commands; the server on the connection string was not
+  running.
 - **The JSON retype on first migration** is quoted from the EF Core 10 release notes, which state
   that existing `nvarchar` JSON columns are changed to `json` by the first migration, and name the
   two ways to opt out. It was not observed against a database.

@@ -16,66 +16,61 @@ description: >-
 
 # LangChain and LlamaIndex on Azure SQL Database
 
-Both frameworks connect to this engine on the first try and then get four things wrong that the
-connection test cannot show. This is what they ship, where it disagrees with the engine, and what
-their defaults expose.
+Both frameworks connect to this engine on the first try and then get three things wrong that the
+connection test cannot show. This is not a text to SQL tutorial and not a vector search reference.
 
-It is not a text to SQL tutorial and not a vector search reference.
+**Measured 2026-08-28** by installing the packages, reading what ships, and running every statement
+below against a local Azure SQL Database container (`SERVERPROPERTY('EngineEdition')` returns 5).
+Every argument name was re-checked 2026-09-03 against the LangChain and LlamaIndex reference
+documentation. The pinned versions move fast, so re-run the reference file before trusting one.
 
-**Verified on 2026-08-28** by installing the packages and reading what ships, then running every
-statement below against a local Azure SQL Database container (`SERVERPROPERTY('EngineEdition')`
-returns 5, `@@VERSION` reports Microsoft SQL Azure). Pinned versions:
+## Reproduce it first, in two minutes
 
-| Package | Version tested |
-|---|---|
-| `langchain` | 1.3.18 |
-| `langchain-core` | 1.6.1 |
-| `langchain-community` | 0.4.2 |
-| `langchain-classic` | 1.0.8 |
-| `langchain-sqlserver` | 1.0.1 |
-| `llama-index-core` | 0.14.24 |
-| `sqlalchemy` | 2.0.52, `pyodbc` 5.3.0, ODBC Driver 18 |
+```bash
+python -m venv .venv && .venv/bin/pip install \
+  "langchain==1.3.18" "langchain-community==0.4.2" "langchain-classic==1.0.8" \
+  "langchain-sqlserver==1.0.1" "llama-index-core==0.14.24" "sqlalchemy==2.0.52" "pyodbc==5.3.0"
+```
 
-**These move fast.** Re-run [references/measured-runs.md](references/measured-runs.md) before
-trusting a version number here. Every command in it is reproducible in about ten minutes.
+```python
+import os, urllib.parse
+from langchain_community.utilities import SQLDatabase
+from langchain_community.agent_toolkits.sql.prompt import SQL_PREFIX
+
+odbc = urllib.parse.quote_plus(
+    "DRIVER={ODBC Driver 18 for SQL Server};SERVER=<host>,<port>;DATABASE=<database>;"
+    "UID=<user>;PWD=" + os.environ["SQL_PASSWORD"] + ";Encrypt=yes;TrustServerCertificate=yes")
+db = SQLDatabase.from_uri(f"mssql+pyodbc:///?odbc_connect={odbc}")
+
+print(db.dialect)                                       # mssql
+print(SQL_PREFIX.format(dialect=db.dialect, top_k=10))  # "always limit your query to at most 10"
+print(db.get_table_info())                              # DDL plus three real rows per table
+```
+
+Three prints, three defects: the dialect is a string from the URL, the prompt tells the model to
+limit, and the schema tool hands live rows to the model before anyone asked it a question.
 
 ## The correction
 
-An agent points a SQLAlchemy URL at Azure SQL Database, takes the framework defaults, and believes
-the framework knows the dialect and that its stated guardrails are enforced. Four things are then
-wrong, and each one surfaces late.
-
-**1. The dialect is the literal string `mssql`, and the agent prompt still says "limit".**
-`SQLDatabase.dialect` returns `engine.dialect.name`, measured as `'mssql'`, identical for the
-container and for the cloud because it comes from the URL and not from the server. That string is
-interpolated into a prompt that never learned T-SQL. See section 1.
+**1. The dialect is the string `mssql`, and the agent prompt still says "limit".** It comes from the
+URL, not the server, so it is the same for the container and the cloud, and it is interpolated into
+a prompt that never learned T-SQL. Section 1.
 
 **2. The framework-created vector table cannot take a vector index.** `langchain-sqlserver` 1.0.1
-creates its table with `PRIMARY KEY NONCLUSTERED`, so the table is a heap, and
-`CREATE VECTOR INDEX` is refused with `Msg 42254`. Its search emits the exact-scan query shape and
-the package contains no approximate search path at all. Every retrieval is a full scan for the life
-of the table, with correct results and latency that only grows. See section 2.
+creates it with `PRIMARY KEY NONCLUSTERED`, so the table is a heap and `CREATE VECTOR INDEX` is
+refused with `Msg 42254`. The package holds no approximate search path at all, so retrieval is a
+full scan for the life of the table, with correct results and latency that only grows. **LlamaIndex
+has no Azure SQL Database vector store**, so an agent installs a neighbour and wires the wrong
+database. Section 2.
 
-**3. LlamaIndex has no Azure SQL Database vector store.** Not on the package index, not in the
-integrations tree. The neighbours that do exist are for other stores, and an agent reaches for one
-of those and wires the wrong database. See section 2.
-
-**4. The read-only, table-scoping and no-DML guardrails are prompt text and prompt scoping, not
-access control.** Measured: with `include_tables` set to one table, the query tool still executed a
-`SELECT` against an excluded table and returned a row; `db.run` executed an `INSERT` and a
-`CREATE`/`DROP` pair; and the schema tool returned three real rows of live data by default. See
-section 3.
-
-Being wrong costs a retry loop on every top-k question that the model cannot diagnose from the
-error it gets, a retrieval path that can never be indexed without rebuilding the table, and a tool
-surface that hands whatever the login can do to any text that reaches the model.
-
-## Which framework gives you what, on this engine
+**3. Read-only, table scoping and no-DML are prompt text, not access control.** With
+`include_tables` set to one table, the query tool still ran a `SELECT` against an excluded table and
+returned a row; `db.run` executed an `INSERT` and a `CREATE`/`DROP` pair. Section 3.
 
 | Capability | LangChain | LlamaIndex |
 |---|---|---|
-| SQL toolkit over an existing schema | `SQLDatabaseToolkit`, four tools | `NLSQLTableQueryEngine` and the SQL retrievers |
-| Per-dialect text to SQL prompt | Only on the legacy chain path | **None.** One template for every engine |
+| SQL toolkit over an existing schema | `SQLDatabaseToolkit`, four tools | `NLSQLTableQueryEngine` |
+| Per-dialect text to SQL prompt | Only on the legacy chain path | **None.** One template per engine |
 | Native `vector` column store | `langchain-sqlserver`, first party | **None.** Keep retrieval in SQL |
 | Approximate vector search | Not implemented | Not applicable |
 | Table info includes live rows | **Yes, three by default** | No, columns and types only |
@@ -86,25 +81,16 @@ There are two prompt surfaces in LangChain and **the per-dialect fix reached onl
 
 | Surface | What it tells the model | Verdict |
 |---|---|---|
-| `SQL_PROMPTS['mssql']` in `langchain_classic.chains.sql_database.prompt`, used by `create_sql_query_chain` | "query for at most `{top_k}` results **using the TOP clause as per MS SQL**" | Correct |
-| `SQL_PREFIX` in `langchain_community.agent_toolkits.sql.prompt`, used by `create_sql_agent` | "create a syntactically correct `{dialect}` query ... always **limit** your query to at most `{top_k}` results" | Wrong, and dialect-blind |
-| The hub prompt `langchain-ai/sql-agent-system-prompt`, which the toolkit's own docstring says to pull | Byte for byte the same "always limit your query" wording | Wrong |
-| `DEFAULT_TEXT_TO_SQL_TMPL` in `llama_index.core.prompts.default_prompts` | `{dialect}` only. No row cap, no pagination guidance, no per-dialect variant anywhere | Silent |
+| `SQL_PROMPTS['mssql']` in `langchain_classic.chains.sql_database.prompt`, used by `create_sql_query_chain` | "at most `{top_k}` results **using the TOP clause as per MS SQL**" | Correct |
+| `SQL_PREFIX` in `langchain_community.agent_toolkits.sql.prompt`, the default `prefix` of `create_sql_agent` | "a syntactically correct `{dialect}` query ... always **limit** your query to at most `{top_k}` results" | Wrong, dialect-blind |
+| The hub prompt `langchain-ai/sql-agent-system-prompt`, and the `system_prompt` written out in LangChain's own SQL agent guide | The same "always limit your query" wording | Wrong |
+| `DEFAULT_TEXT_TO_SQL_TMPL` in `llama_index.core.prompts.default_prompts` | `{dialect}` only. No row cap, no pagination guidance, no per-dialect variant | Silent |
 
-So the fix exists, and it sits on the chain path that current documentation steers people away
-from. The agent path, which is what anyone building a SQL agent today uses, renders as:
-
-```text
-create a syntactically correct mssql query to run ...
-always limit your query to at most 10 results
-```
-
-`mssql` is not a phrase that carries T-SQL pagination, and "limit" is a strong instruction. That
-combination is why the catalog note about `LIMIT` is still true in 2026.
+The fix exists and sits on the chain path current documentation steers people away from.
 
 ### The failure is loud in the wrong place
 
-Measured through the query tool, which is exactly what the model reads before retrying:
+Measured through `QuerySQLDatabaseTool`, which is what the model reads before it retries:
 
 | Query the model wrote | What comes back |
 |---|---|
@@ -113,40 +99,76 @@ Measured through the query tool, which is exactly what the model reads before re
 | `SELECT customer_id FROM customers OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY` | `Msg 102, Incorrect syntax near '0'` |
 
 **Without an `ORDER BY`, the error names the number and never mentions `LIMIT`.** The reason is
-measured, not inferred: `SELECT LIMIT.customer_id FROM customers LIMIT` **succeeds**, because T-SQL
-parses `LIMIT` as a table alias and then trips over the integer that follows it. A model handed
-`Incorrect syntax near '10'` has no reason to remove a keyword the message does not mention, so it
-edits the number, or the column list, and tries again.
+measured, not inferred:
 
-Two things make that worse rather than better:
+```sql
+SELECT LIMIT.customer_id FROM dbo.customers LIMIT;   -- succeeds, returns every row
+```
+
+T-SQL parses `LIMIT` as a table alias and then trips over the integer that follows it. A model
+handed `Incorrect syntax near '10'` has no reason to remove a keyword the message does not mention,
+so it edits the number, or the column list, and tries again. Two things make that worse:
 
 - The toolkit's `sql_db_query_checker` tool, which its own tool description says to call **before
-  every query**, uses a prompt whose list of common mistakes is `NOT IN` with nulls, `UNION` versus
-  `UNION ALL`, `BETWEEN`, type mismatches, quoting, argument counts, casts and join columns.
-  **Dialect pagination is not on the list.** The checker passes the query through.
-- `QuerySQLDatabaseTool` calls `db.run_no_throw`, so the failure never raises in the application.
-  It becomes a string in the model's context and a longer trace.
+  every query**, uses a prompt listing `NOT IN` with nulls, `UNION` versus `UNION ALL`, `BETWEEN`,
+  type mismatches, quoting, argument counts, casts and join columns. **Dialect pagination is not on
+  the list.** The checker passes the query through.
+- `QuerySQLDatabaseTool` calls `db.run_no_throw`, so the failure never raises in the application. It
+  becomes a string in the model's context and a longer trace.
 
-### What to do
+### Replace the prompt. Do not pass the default and hope
 
-**Replace the system prompt. Do not pass the default and hope.** Both frameworks take a prompt
-argument, and this is the one edit that matters:
+`prefix` must still contain the `{dialect}` and `{top_k}` variables, so keep them and put the syntax
+instruction in a sentence the dialect string is not carrying:
 
-- Say **T-SQL**, not `mssql`, and say **Azure SQL Database**. Do not interpolate `db.dialect` into
-  the sentence that a model reads for syntax.
-- State the row cap as **`SELECT TOP (n)`**, and say that `LIMIT` does not exist in this dialect.
-- If the query is paged, say `ORDER BY ... OFFSET n ROWS FETCH NEXT m ROWS ONLY`, and that the
-  `ORDER BY` is mandatory, which is why the third row of the table above fails.
-- On LangChain, pass it as `prefix=` to `create_sql_agent`, or as the system message when the
-  toolkit's tools are handed to an agent directly. On LlamaIndex, pass `text_to_sql_prompt=`.
+```python
+from langchain_community.agent_toolkits import create_sql_agent
 
-The dialect rules themselves are `t-sql-correctness`. Load it alongside this skill rather than
-restating its content in a prompt string that then goes stale.
+TSQL_PREFIX = """You are an agent designed to interact with an Azure SQL Database ({dialect}).
+Write T-SQL. Return at most {top_k} rows with SELECT TOP ({top_k}), which is how this dialect caps
+a result set. LIMIT does not exist in T-SQL and the parser reports it as a syntax error on the
+number that follows it, not on the keyword. To page, write
+ORDER BY <column> OFFSET <n> ROWS FETCH NEXT <m> ROWS ONLY; the ORDER BY is mandatory.
+Never issue INSERT, UPDATE, DELETE, DROP or any other DML statement."""
+
+agent = create_sql_agent(llm, db=db, agent_type="tool-calling", prefix=TSQL_PREFIX, top_k=10)
+```
+
+LlamaIndex takes the same correction through `text_to_sql_prompt`, whose template needs `{dialect}`,
+`{schema}` and `{query_str}`:
+
+```python
+from llama_index.core import PromptTemplate
+from llama_index.core.query_engine import NLSQLTableQueryEngine
+
+tsql_tmpl = PromptTemplate(
+    "Given an input question, write a syntactically correct T-SQL query for Azure SQL Database "
+    "({dialect}). Cap rows with SELECT TOP (n). LIMIT is not valid T-SQL. Page with "
+    "ORDER BY <column> OFFSET <n> ROWS FETCH NEXT <m> ROWS ONLY.\n"
+    "Only use the tables below.\n{schema}\n\nQuestion: {query_str}\nSQLQuery: ")
+
+engine = NLSQLTableQueryEngine(sql_database=lidb, tables=["customers"],
+                               text_to_sql_prompt=tsql_tmpl)
+```
+
+Keep the prompt short. The dialect rules themselves belong in `t-sql-correctness`, not in a prompt
+string that then goes stale.
 
 ## 2. Retrieval, and the index the vector store cannot have
 
-`langchain-sqlserver` is the supported LangChain vector store for this engine. It does use the
-native type: the table it created, read back from the engine, is
+`langchain-sqlserver` is the supported LangChain vector store for this engine and it does use the
+native type. `embedding_length` is required and is not derived from the embedding function;
+`distance_strategy` defaults to cosine:
+
+```python
+from langchain_sqlserver import SQLServer_VectorStore
+
+store = SQLServer_VectorStore(connection_string=f"mssql+pyodbc:///?odbc_connect={odbc}",
+                              embedding_function=embeddings, embedding_length=1536,
+                              table_name="lcv_docs")
+```
+
+The table it then creates, read back off the engine, with the dimension from `embedding_length`:
 
 ```sql
 CREATE TABLE lcv_docs (
@@ -154,68 +176,62 @@ CREATE TABLE lcv_docs (
     custom_id        VARCHAR(1000) NULL,
     content_metadata json NULL,
     content          NVARCHAR(max) NOT NULL,
-    embeddings       vector(8) NOT NULL,
+    embeddings       vector(1536) NOT NULL,
     PRIMARY KEY NONCLUSTERED (id)          -- this line is the problem
-)
+);
 ```
 
-`PRIMARY KEY NONCLUSTERED` leaves the table a heap. Measured against that table:
-
-```text
-Msg 42254, Clustered index is required on table 'dbo.lcv_docs' to create a vector index.
-```
-
-Add one and the refusal moves on to the next gate, which is the expected one:
+`PRIMARY KEY NONCLUSTERED` leaves the table a heap, and a heap cannot carry a vector index. Add the
+clustered index immediately after the store first initialises, before it holds volume, because
+adding it later rewrites the table's storage:
 
 ```sql
-CREATE CLUSTERED INDEX ix_docs_cl ON dbo.lcv_docs (id);
--- Msg 42266, ... only 4 rows with non-null vectors, but at least 100 are required
+CREATE VECTOR INDEX vi_lcv ON dbo.lcv_docs (embeddings) WITH (METRIC='cosine', TYPE='diskann');
+-- Msg 42254, Clustered index is required on table 'dbo.lcv_docs' to create a vector index.
+
+CREATE CLUSTERED INDEX ix_lcv_docs_cl ON dbo.lcv_docs (id);
+SET QUOTED_IDENTIFIER ON;
+CREATE VECTOR INDEX vi_lcv ON dbo.lcv_docs (embeddings) WITH (METRIC='cosine', TYPE='diskann');
+-- Msg 42266 once the clustered index clears the first gate: 100 non-null vectors are required.
 ```
 
-So the clustered index is the fix, the store does not create it, and adding it after the fact means
-a rebuild of the table's storage. **Create the table yourself, or add the clustered index as a
-migration step immediately after the store first initialises, before it holds volume.**
+`Msg 42266` is the expected second gate and proves the clustered index fixed the first. Without
+`QUOTED_IDENTIFIER ON` the statement fails with `Msg 1934` before reaching either.
 
 ### The emitted query is the exact-scan shape, and that is not configurable
 
-The similarity search the store emits, captured off the connection:
+`similarity_search_with_score(k=2)` on a `vector(8)` store, captured off the connection with the
+vector literal written out:
 
 ```sql
-SELECT TOP 2 ..., VECTOR_DISTANCE('cosine', cast ('[...]' as vector(8)), embeddings) AS distance
-FROM lcv_docs ORDER BY distance ASC
+SELECT TOP 2 lcv_docs.id, lcv_docs.custom_id, lcv_docs.content_metadata, lcv_docs.content,
+       VECTOR_DISTANCE('cosine', cast ('[0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8]' as vector(8)),
+                       embeddings) AS distance
+FROM lcv_docs ORDER BY distance ASC;
 ```
 
-Syntactically correct T-SQL, `TOP` and not `LIMIT`, because SQLAlchemy compiles the limit for the
-dialect even when the prompt does not. But the package contains **no `VECTOR_SEARCH`, no
-`WITH APPROXIMATE` and no `CREATE VECTOR INDEX`**, anywhere in its source. There is no option to
-turn on, which means:
-
-- Below roughly tens of thousands of rows, accept it and move on.
-- Above that, do the retrieval in SQL yourself and use the framework only for chunking, prompting
-  and orchestration. The query shape that reaches a vector index, and the reason this one does not,
-  are `vector-search-azure-sql`.
-
-### The rest of the store's contract, measured
+`TOP` and not `LIMIT`, because SQLAlchemy compiles the row cap for the dialect even when the prompt
+does not. But the package contains **no `VECTOR_SEARCH`, no `WITH APPROXIMATE` and no
+`CREATE VECTOR INDEX`** anywhere in its source, so there is no option to turn on. Below roughly tens
+of thousands of rows, accept it. Above that, do the retrieval in SQL and keep the framework for
+chunking, prompting and orchestration. Read `vector-search-azure-sql` before writing that query: the
+shape that reaches the index is a different statement, not a tuning option.
 
 | Behaviour | Detail |
 |---|---|
-| `embedding_length` is a **required** constructor argument | It is not derived from the embedding function. A mismatch fails loudly at write time: `Msg 42204, The vector dimensions 8 and 16 do not match` |
-| A 3072 dimension model | Fails at construction: `Msg 2717, The size (3072) given to the column 'embeddings' exceeds the maximum allowed (1998)`. Decide the dimension budget first, which is `rag-on-azure-sql` |
+| A 3072 dimension model | `Msg 2717` at construction: the size exceeds the maximum allowed (1998). Decide the dimension budget first, which is `rag-on-azure-sql` |
+| `embedding_length` mismatched to the function | `Msg 42204` at write time: the vector dimensions do not match |
 | Metadata filters run inside the search query | `WHERE JSON_VALUE(content_metadata, ?) = ?`, parameterised, applied before the top-k. Good |
-| **Numeric metadata filters cast to `NUMERIC(10, 2)`** | So `{"ts": {"$gt": 1756500000}}` returns `Msg 8115, Arithmetic overflow error converting nvarchar to data type numeric`. The cast is on the stored column, so a single oversized value poisons every numeric filter on that key, and it throws at read time, never at write time. Keep epoch times, large ids and money out of metadata, or store them as strings and filter on equality |
+| **Numeric metadata filters cast to `NUMERIC(10, 2)`** | `{"ts": {"$gt": 1756500000}}` returns `Msg 8115`, arithmetic overflow converting nvarchar to numeric. The cast is on the stored column, so one oversized value poisons every numeric filter on that key, and it throws at read time, never at write. Keep epoch times, large ids and money out of metadata |
 | Batch size is capped at 419 | Larger raises before any round trip |
-| Auth falls back silently | A connection string with no `Uid`/`Pwd` and no `Trusted_Connection=yes` switches to `DefaultAzureCredential` and acquires a token. A typo in the credential keywords does not fail as a bad password, it fails as a token acquisition somewhere else entirely |
+| Auth falls back silently | No `Uid`/`Pwd` and no `Trusted_Connection=yes` switches to `DefaultAzureCredential`, so a typo in the credential keywords fails as a token acquisition, not as a bad password |
 
 ### LlamaIndex has no Azure SQL Database vector store
 
-Checked on the package index and in the integrations tree on 2026-08-28. There is no
-`llama-index-vector-stores` package for this engine, and the near neighbours that do exist point at
-other databases and other services entirely. Do not let an agent install one of those because the
-name looks close.
-
-With LlamaIndex, the two honest options are to keep retrieval in T-SQL and feed the rows in as
-nodes, or to use the SQL toolkit path for structured questions and put the semantic half somewhere
-this catalog already covers. Generating the embeddings inside the engine is
+Checked on the package index and in the integrations tree on 2026-08-28. Do not let an agent install
+a neighbouring package because the name looks close. The two honest options are to keep retrieval in
+T-SQL and feed the rows in as nodes, or to use the SQL toolkit for structured questions and put the
+semantic half where this catalog already covers it. Producing the embedding inside the engine is
 `embeddings-and-external-models`.
 
 ## 3. Read-only, no schema dumping, parameterised
@@ -224,124 +240,118 @@ Treat all three as things to switch on. None of them is a default.
 
 ### Read-only is a login, not a setting
 
-Neither framework has a read-only mode. `SQLDatabase.run` executed an `INSERT` that committed, and
-a `CREATE TABLE`/`DROP TABLE` pair, in one call. LlamaIndex's `run_sql` executed an `UPDATE` and the
-change was visible on the next read. The `DO NOT make any DML statements` line in `SQL_PREFIX` is a
-sentence in a prompt, so any instruction that reaches the model through retrieved content competes
-with it on equal terms.
-
-The control is a dedicated least-privilege login for the agent's connection string. Measured
-through the query tool with that login:
+Neither framework has a read-only mode. `SQLDatabase.run` executed an `INSERT` that committed and a
+`CREATE TABLE`/`DROP TABLE` pair in one call; LlamaIndex's `run_sql` executed an `UPDATE`. The
+`DO NOT make any DML statements` line is a sentence in a prompt, so any instruction reaching the
+model through retrieved content competes with it on equal terms. The control is a dedicated
+least-privilege login. Measured through the query tool with that login:
 
 | Statement | Result |
 |---|---|
 | `SELECT TOP (2) full_name FROM customers` | Rows |
-| `UPDATE customers SET city = N'...'` | `Msg 229, The UPDATE permission was denied on the object 'customers'` |
+| `UPDATE customers SET city = N'Owned' WHERE customer_id = 1` | `Msg 229, The UPDATE permission was denied on the object 'customers'` |
 | `DROP TABLE customers` | `Msg 3701, Cannot drop the table ..., because it does not exist or you do not have permission` |
-| `EXEC sp_executesql N'SELECT 1'` | Runs. The tool is not restricted to `SELECT` text either, so the login is the only boundary |
+| `EXEC sp_executesql N'SELECT 1'` | Runs. The tool does not restrict itself to `SELECT` text either |
 
-Creating that login and granting it correctly is `azuresql-db-auth`.
+Open `azuresql-db-auth` before creating that login, because the grant is the whole guardrail.
 
 ### `include_tables` scopes the prompt, not the connection
 
-This one is worth measuring yourself, because the parameter name suggests otherwise. With
-`include_tables=["customers"]`, `get_usable_table_names()` returned `['customers']` and the schema
-tool described only that table. Then the query tool ran `SELECT TOP (1) id FROM lcv_docs` against a
-table that was **not** in the list, and returned the row.
+Worth measuring yourself, because the parameter name suggests otherwise:
+
+```python
+db = SQLDatabase.from_uri(uri, include_tables=["customers"], sample_rows_in_table_info=0)
+print(db.get_usable_table_names())     # ['customers']
+
+from langchain_community.tools.sql_database.tool import QuerySQLDatabaseTool
+print(QuerySQLDatabaseTool(db=db).invoke("SELECT TOP (1) id FROM lcv_docs"))   # returns the row
+```
 
 `include_tables` decides what the model is told about. It does not decide what the connection can
-reach. Scope the login to the schema, or put the agent's tables behind a schema it is granted and
-nothing else.
+reach. Scope the login to the schema instead.
 
 ### The schema tool returns live rows by default
 
-`SQLDatabase` defaults to `sample_rows_in_table_info=3`, so the schema tool returns the `CREATE
-TABLE` text **plus three real rows of the table**, every column, into the model's context and into
-whatever stores the trace. On a customer table that is three real customers.
+`sample_rows_in_table_info` defaults to `3`, so the schema tool returns the `CREATE TABLE` text
+**plus three real rows**, every column, into the model's context and into whatever stores the trace.
+On a customer table that is three real customers.
 
 ```python
-db = SQLDatabase.from_uri(uri, sample_rows_in_table_info=0)   # schema only
+db = SQLDatabase.from_uri(uri, sample_rows_in_table_info=0)                    # schema only
+db = SQLDatabase.from_uri(uri, custom_table_info={"customers": FAKE_DDL})      # or fake samples
 ```
 
-Set it to `0` unless there is a stated reason not to, and if sample values genuinely help the model
-disambiguate a column, supply them with `custom_table_info` from fake data you control rather than
-from production rows. LlamaIndex's `get_single_table_info` is columns and types only, so this
-particular exposure is LangChain's alone.
-
-Error text is a second channel. `run_no_throw` returns the driver message verbatim to the model,
-including the database name, schema name and object name from `Msg 229` and `Msg 3701` above. That
-is useful for retries and it is also schema disclosure, so do not point a public assistant at a
-connection whose error messages you have not read.
+Error text is a second channel: `run_no_throw` returns the driver message verbatim, database, schema
+and object names included, as in `Msg 229` and `Msg 3701` above.
 
 ### Parameterised means the parts you write
 
-The framework's own SQL is parameterised: the vector store binds both the JSON path and the
-comparison value, and `SQLDatabase.run` accepts a keyword-only `parameters` argument.
+The framework's own SQL binds its values. The query tool takes one argument, a SQL string the model
+wrote, so a text to SQL agent is by construction a machine that executes generated SQL and there is
+no parameterisation to add there; the containment is the login. In the code you write around the
+framework, bind the values, and never build a query out of a chunk retrieved from the corpus.
 
-The exposure is everywhere else. The query tool takes exactly one argument, a SQL string the model
-wrote, so a text to SQL agent is by construction a machine that executes generated SQL. There is no
-parameterisation to add there; the containment is the login, plus a review path for anything that
-writes. For every query the application builds around the framework, bind the values, never format
-them into the string, and never build a query out of a chunk retrieved from the corpus. That
-practice is a skill of its own in this catalog and it is the thing agents get wrong most often.
+## Check it worked
 
-## Validation rules
+Four assertions against the wiring you are about to ship. The first two fail on a default install:
 
-- The system prompt handed to the agent or the query engine names T-SQL and `SELECT TOP (n)`
-  explicitly, and does not interpolate `db.dialect` into the sentence that describes syntax.
-- No generated query in the traces contains `LIMIT`, and there is a test that fails if one does.
-- The agent's connection string uses a dedicated login with read permission and nothing more, and
-  there is a test that asserts an `UPDATE` through that connection is denied.
-- `include_tables` is not the only thing separating the agent from a table it must not read.
-- `sample_rows_in_table_info` is `0`, or the sample rows are fake data supplied through
-  `custom_table_info`.
-- The vector store's table has a clustered index if a vector index is ever intended, and that was
-  checked before the table grew.
-- `embedding_length` equals the dimension the embedding model is asked for, and it is 1998 or fewer.
-- No metadata key holds a number larger than `NUMERIC(10, 2)` can carry if anything filters on it.
-- The pinned framework versions are recorded, and the prompt and the vector store behaviour were
-  re-checked on the last upgrade.
+```python
+import os, re
+from langchain_community.tools.sql_database.tool import QuerySQLDatabaseTool
+
+generated_sql = os.environ["AGENT_SQL"]      # one query your agent actually produced
+assert "SELECT TOP" in TSQL_PREFIX and "LIMIT does not exist" in TSQL_PREFIX
+assert "3 rows from" not in db.get_table_info()
+denied = QuerySQLDatabaseTool(db=db).invoke("UPDATE customers SET city = N'x' WHERE 1 = 0")
+assert "permission was denied" in denied, denied
+assert not re.search(r"\bLIMIT\b", generated_sql, re.I), generated_sql
+print("prompt, schema exposure, write permission and generated SQL all check out")
+```
+
+Expected: the script prints that line and exits 0. A failure on the `get_table_info` assertion means
+`sample_rows_in_table_info` is still `3`; a failure on the `denied` assertion means the agent's login
+can write, which is the finding and not a test bug. Then confirm the vector table can carry an index
+at all, with the password in `SQLCMDPASSWORD`:
+
+```bash
+sqlcmd -S <host>,<port> -d <database> -U <user> -C -Q \
+  "SELECT type_desc FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.lcv_docs') AND type_desc = 'CLUSTERED';"
+```
+
+Expected: one row reading `CLUSTERED`. An empty result set means the table is still the heap the
+store created, and `CREATE VECTOR INDEX` on it will return `Msg 42254`.
 
 ## Do not
 
-- Do not accept the default SQL agent prompt on this engine. It renders as `mssql` and tells the
-  model to limit, and the error it earns names the wrong token.
+- Do not accept the default SQL agent prompt on this engine. It renders as `mssql`, tells the model
+  to limit, and the error it earns names the wrong token.
 - Do not assume the per-dialect prompt applies to the agent. It exists only on the chain path.
-- Do not conclude the query is fine because the checker tool approved it. Dialect pagination is not
-  in the checker's list of mistakes.
-- Do not fix a `LIMIT` failure by editing the number the error points at.
+- Do not conclude the query is fine because the checker tool approved it, and do not fix a `LIMIT`
+  failure by editing the number the error points at.
 - Do not let the vector store create its table and then plan on a vector index later. The heap is
   the blocker and the migration gets more expensive with every row.
 - Do not expect approximate vector search from `langchain-sqlserver`. There is no code path.
 - Do not install a LlamaIndex vector store package whose name merely resembles this engine's.
-- Do not rely on `include_tables`, on `posture` metadata, or on a sentence in a prompt to stop a
-  write. A login is the only thing that stops a write.
-- Do not ship with `sample_rows_in_table_info` at its default and call the agent read-only.
-- Do not put an epoch timestamp or a large identifier in vector store metadata that anything filters
-  on numerically.
+- Do not rely on `include_tables` or on a prompt sentence to stop a write. A login stops a write.
+- Do not ship with `sample_rows_in_table_info` at its default and call the agent read only.
+- Do not put an epoch timestamp or a large id in metadata that anything filters on numerically.
 - Do not re-teach `VECTOR_DISTANCE`, `VECTOR_SEARCH` or the vector index here. Those are
   `vector-search-azure-sql`.
 
 ## References
 
-- [references/measured-runs.md](references/measured-runs.md): the install, every probe script, the
-  raw output, the emitted SQL and the reproduction steps. Read it to re-verify a claim after a
-  version bump, which for these packages is often.
-- `vector-search-azure-sql`: the `vector` type, its restriction list, `VECTOR_DISTANCE`, and the
-  query shape that reaches the vector index rather than scanning.
-- `rag-on-azure-sql`: the chunk and embedding schema, provenance, the dimension budget, and the
-  retrieval query with the permission filter inside it.
-- `rag-local-with-container`: the same wiring offline against the local Azure SQL Database
-  container, with no cloud dependency and no keys.
-- `embeddings-and-external-models`: producing the embedding from inside the engine instead of from
-  the framework.
-- `t-sql-correctness`: the dialect rules the framework prompt fails to teach, including why `LIMIT`
-  is not T-SQL and what replaces it.
-- `connect-from-python`: the driver, the ODBC install, the connection string and token-based auth
-  underneath everything above.
-- `azuresql-db-auth`: creating the least-privilege login the read-only guardrail actually depends on.
-- [LangChain SQL question answering](https://docs.langchain.com/oss/python/langchain/sql):
-  the current first party guidance for the toolkit and the agent path. Read it to check whether the
-  default prompt has changed before trusting section 1.
-- [LlamaIndex structured data](https://docs.llamaindex.ai/en/stable/understanding/querying/querying/):
-  the text to SQL query engines and where the prompt argument goes.
+- Open [references/framework-prompts-and-vector-store.md](references/framework-prompts-and-vector-store.md) when a claim
+  above disagrees with what you are seeing, which after a version bump it will: it holds the install,
+  every probe script, the raw engine output and the reproduction steps.
+- Read `vector-search-azure-sql` before writing the retrieval query yourself, for the `vector` type,
+  its restriction list and the query shape that reaches the index rather than scanning.
+- Read `rag-on-azure-sql` before choosing `embedding_length`, because the dimension budget, the chunk
+  schema and the permission filter are decided there, and `rag-local-with-container` when the same
+  wiring must run offline with no cloud dependency and no keys.
+- Read `t-sql-correctness` when the generated SQL is wrong in a way that is not pagination,
+  `connect-from-python` when the failure is the driver, the connection string or the token rather
+  than the framework, and `azuresql-db-auth` before creating the login section 3 depends on.
+- Read [LangChain's SQL agent guide](https://docs.langchain.com/oss/python/langchain/sql-agent) to
+  check whether the shipped prompt has changed before trusting section 1, and
+  [LlamaIndex structured data](https://developers.llamaindex.ai/python/framework/understanding/putting_it_all_together/structured_data)
+  for where the prompt argument goes on the query engine.

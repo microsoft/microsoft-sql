@@ -2,11 +2,21 @@
   "$schema": "../../catalog/skill.spec.schema.json",
   "id": "design-azure-sql-schema",
   "domain": "schema-and-orm",
-  "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
+  "value": [
+    "corrects-a-wrong-assumption",
+    "multi-step-with-silent-failures"
+  ],
   "correction": "Asked to design a schema for Azure SQL Database, an agent sizes string columns in characters, takes the default collation without noticing what it decides, and treats an identity column as a counter that increments by one. Every failure that follows is deferred rather than immediate, which is why review does not catch them. Measured on 2026-08-28 against a live engine reporting EngineEdition 5 and Edition 'SQL Azure': a unique index on NVARCHAR(1000) is created with message 1945 at severity 10, a warning most clients never surface, and the first genuinely long value fails months later with Msg 1946, because the nonclustered key limit of 1700 bytes and the clustered limit of 900 bytes are byte counts and Unicode spends two per character, making NVARCHAR(850) and NVARCHAR(450) the real ceilings. The default collation SQL_Latin1_General_CP1_CI_AS is case-insensitive, so a table of slugs or API keys rejects 'Ab1X' beside 'aB1x' with Msg 2627, and it is also a SQL collation, which is the one case where a VARCHAR column compared to the Unicode parameter every mainstream driver binds loses its index seek: measured 80 logical reads against 2 over 20,000 rows, with CONVERT_IMPLICIT applied to the column inside an Index Scan, while the identical column under a Windows or UTF-8 collation seeks. Identity is wrong in the same deferred way. The remembered remedy, trace flag 272, is rejected here with Msg 40518, and measured across a single engine restart an INT IDENTITY jumped from 3 to 1002, a BIGINT IDENTITY from 3 to 10002 and a default-cached SEQUENCE from 2 to 51, so any invoice or ticket number built on a bare identity column develops thousand-wide holes on routine reconfiguration, silently and unrecoverably, unless the design uses SEQUENCE ... NO CACHE or ALTER DATABASE SCOPED CONFIGURATION SET IDENTITY_CACHE = OFF.",
-  "posture": ["read", "write", "inspect"],
+  "posture": [
+    "read",
+    "write",
+    "inspect"
+  ],
   "maturity": "draft",
-  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "applies_to": [
+    "azure-sql-db",
+    "azure-sql-db-container"
+  ],
   "related": [
     "ef-core-azure-sql",
     "prisma-azure-sql",
@@ -38,6 +48,159 @@
       "every nullable unique column uses a filtered unique index, or the design states that one NULL row is the intent",
       "no json or vector column appears in a key, a GROUP BY, a DISTINCT or an equality predicate",
       "no foreign key names a second database"
+    ],
+    "probes": [
+      {
+        "sql": "CREATE TABLE dbo.probe_keylen (id INT IDENTITY PRIMARY KEY, email NVARCHAR(1000) NULL);\nCREATE UNIQUE INDEX ux_probe_keylen ON dbo.probe_keylen (email);\nINSERT INTO dbo.probe_keylen (email) VALUES (REPLICATE(CAST(N'a' AS NVARCHAR(MAX)), 900));",
+        "expect": {
+          "error": 1946
+        },
+        "why": "The measurement the whole skill turns on, made executable. The CREATE UNIQUE INDEX on 2000 bytes of key succeeds and emits only message 1945 at severity 10, which most clients never surface, so this batch reaches the INSERT. The 900 character value is 1800 bytes and is refused with Msg 1946. Measured 2026-08-28. The failure arriving on the row rather than on the DDL is the point."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_keywarn (id INT IDENTITY PRIMARY KEY, email NVARCHAR(1000) NULL);\nCREATE UNIQUE INDEX ux_probe_keywarn ON dbo.probe_keywarn (email);",
+        "expect": {
+          "warning": 1945
+        },
+        "why": "The other half of the pair above, and the half nobody sees. The same DDL that sets up Msg 1946 is asserted here on its own: the index over a 2000 byte key is CREATED, the statement succeeds, and the only notice given is message 1945 at severity 10. Measured 2026-08-28, text \"Warning! The maximum key length for a nonclustered index is 1700 bytes\", which Microsoft Learn quotes verbatim on Index JSON data, and sys.messages gives the id 1945 at severity 10. Asserting it needs sqlcmd -m-1, because without that a severity 10 message prints no number and -b never exits non-zero below severity 11, which is exactly why a migration emitting this reports success. Left unasserted, only the deferred error was measured and the moment the mistake is made was not."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_keysum (a NVARCHAR(300) NOT NULL, b NVARCHAR(300) NOT NULL, c NVARCHAR(300) NOT NULL);\nCREATE UNIQUE INDEX ux_probe_keysum ON dbo.probe_keysum (a, b, c);",
+        "expect": {
+          "warning": 1945
+        },
+        "why": "A composite key spends the SUM of its columns, which section 1 states and nothing measured. No column here is anywhere near the limit at 600 bytes each, and the three together are 1800 bytes, so the same message 1945 is emitted and the index is still created. Measured 2026-08-28. This is the shape a real design reaches the warning through, because each column looks harmless on its own and only the key is over budget."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_ceiling (email NVARCHAR(850) NOT NULL);\nCREATE UNIQUE INDEX ux_probe_ceiling ON dbo.probe_ceiling (email);\nINSERT INTO dbo.probe_ceiling (email) VALUES (REPLICATE(CAST(N'a' AS NVARCHAR(MAX)), 850));\nSELECT COUNT(*) AS rows_accepted FROM dbo.probe_ceiling;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "The other half of the same claim: NVARCHAR(850) is 1700 bytes exactly, so it is the widest Unicode column a nonclustered key can carry, and a value using every one of those characters is accepted rather than merely tolerated. Measured 2026-08-28, where 851 raised message 1945 and 850 was clean. Without this probe the table of ceilings in section 1 is only half tested."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_inc (id INT IDENTITY PRIMARY KEY, k NVARCHAR(400) NOT NULL, blob NVARCHAR(MAX) NULL);\nCREATE UNIQUE INDEX ux_probe_inc ON dbo.probe_inc (k) INCLUDE (blob);",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "INCLUDE columns do not count against the 1700 byte key budget, and NVARCHAR(MAX) is legal there even though it can never be a key column. Measured 2026-08-28. This is the escape hatch the skill offers whenever a design wants a wide column covered, so it is worth proving rather than asserting."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_lob (id INT NOT NULL, big NVARCHAR(MAX) NULL);\nCREATE INDEX ix_probe_lob ON dbo.probe_lob (big);",
+        "expect": {
+          "error": 1919
+        },
+        "why": "NVARCHAR(MAX) cannot be an index key column at all, which is a different refusal from being over the byte budget: it is rejected at create time rather than warned about. Measured 2026-08-28, Msg 1919, column is of a type that is invalid for use as a key column in an index."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_json (id INT IDENTITY PRIMARY KEY, payload JSON NULL);\nCREATE INDEX ix_probe_json ON dbo.probe_json (payload);",
+        "expect": {
+          "error": 1978
+        },
+        "why": "A json column is a storage decision, not a key decision, and the engine says so at create time. Measured 2026-08-28, Msg 1978, invalid for use as a key column in an index or statistics. The distinct number from 1919 is why section 6 names both."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_json_eq (id INT IDENTITY PRIMARY KEY, payload JSON NULL);\nSELECT COUNT(*) FROM dbo.probe_json_eq WHERE payload = N'{\"a\":1}';",
+        "expect": {
+          "error": 402
+        },
+        "why": "A json column cannot be compared with equality against a string, so any design that treats the document as a filterable value fails at the first query rather than at the schema review. Measured 2026-08-28, Msg 402, the data types json and nvarchar are incompatible in the equal to operator."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_doc (id INT IDENTITY PRIMARY KEY, payload JSON NULL);\nALTER TABLE dbo.probe_doc ADD tenant AS CAST(JSON_VALUE(payload, '$.tenant') AS NVARCHAR(64)) PERSISTED;\nCREATE INDEX ix_probe_doc_tenant ON dbo.probe_doc (tenant);\nINSERT INTO dbo.probe_doc (payload) VALUES (N'{\"tenant\":\"acme\"}');\nSELECT tenant FROM dbo.probe_doc;",
+        "expect": {
+          "rows": [
+            [
+              "acme"
+            ]
+          ]
+        },
+        "why": "The remedy the skill offers for the previous probe, run end to end: promote the value out of the document into a PERSISTED computed column and index that. Measured 2026-08-28. Asserting the promoted value rather than plain success proves the computed column is actually populated from the document and not merely accepted by the parser."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_tok_ci (t NVARCHAR(64) COLLATE SQL_Latin1_General_CP1_CI_AS NOT NULL PRIMARY KEY);\nINSERT INTO dbo.probe_tok_ci (t) VALUES (N'aB1x');\nINSERT INTO dbo.probe_tok_ci (t) VALUES (N'Ab1X');",
+        "expect": {
+          "error": 2627
+        },
+        "why": "The default collation of a new database is SQL_Latin1_General_CP1_CI_AS, and CI means two case-different tokens are the same key. Measured 2026-08-28, Msg 2627. The collation is stated on the column rather than inherited so the probe measures case insensitivity itself and not whatever collation the scratch database happens to carry."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_tok_cs (t NVARCHAR(64) COLLATE Latin1_General_CS_AS NOT NULL PRIMARY KEY);\nINSERT INTO dbo.probe_tok_cs (t) VALUES (N'aB1x'), (N'Ab1X');\nSELECT COUNT(*) AS rows_accepted FROM dbo.probe_tok_cs;",
+        "expect": {
+          "rows": [
+            [
+              2
+            ]
+          ]
+        },
+        "why": "The fix for the previous probe, and the reason the skill says the fix is per column rather than per database: the same two values are two distinct keys under an explicit case-sensitive collation. Measured 2026-08-28, both rows accepted."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_null (id INT IDENTITY PRIMARY KEY, code NVARCHAR(64) NULL);\nCREATE UNIQUE INDEX ux_probe_null ON dbo.probe_null (code);\nINSERT INTO dbo.probe_null (code) VALUES (NULL);\nINSERT INTO dbo.probe_null (code) VALUES (NULL);",
+        "expect": {
+          "error": 2601
+        },
+        "why": "A unique index here treats NULL as a value, so it accepts exactly one NULL row and refuses the second. This is the belief an agent carries over from PostgreSQL, where every NULL is distinct. Measured 2026-08-28, Msg 2601, the duplicate key value is (<NULL>)."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_null_f (id INT IDENTITY PRIMARY KEY, code NVARCHAR(64) NULL);\nCREATE UNIQUE INDEX ux_probe_null_f ON dbo.probe_null_f (code) WHERE code IS NOT NULL;\nINSERT INTO dbo.probe_null_f (code) VALUES (NULL), (NULL), (N'x');\nSELECT COUNT(*) AS rows_accepted FROM dbo.probe_null_f;",
+        "expect": {
+          "rows": [
+            [
+              3
+            ]
+          ]
+        },
+        "why": "The filtered unique index the skill prescribes, proved to accept many NULL rows while still enforcing uniqueness on the values that are present. Measured 2026-08-28. It also exercises the QUOTED_IDENTIFIER requirement: a session without it fails to create this index with Msg 1934, so a green result says the runner's session is set correctly too."
+      },
+      {
+        "sql": "DBCC TRACEON (272, -1);",
+        "expect": {
+          "error": 40518
+        },
+        "why": "The remedy an agent recalls for identity gaps from a non-PaaS engine, and the measured proof it does not exist here. Measured 2026-08-28, Msg 40518. Microsoft Learn lists 40518 as \"DBCC command '%.*ls' is not supported in this version of SQL Server\" and lists trace flags among the T-SQL not supported in Azure SQL Database, so the number and the refusal are both sourced."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_fk_child (id INT NOT NULL PRIMARY KEY, parent_id INT NOT NULL);\nALTER TABLE dbo.probe_fk_child ADD CONSTRAINT fk_probe_x FOREIGN KEY (parent_id)\n  REFERENCES otherdb.dbo.some_parent (id);",
+        "expect": {
+          "error": 40515
+        },
+        "why": "A foreign key cannot reach another database, so a shared-lookup-database design has no referential integrity here. Measured 2026-08-28 with both databases present on the same server, which is why this is the database boundary and not a missing object. Microsoft Learn gives 40515 as \"Reference to database and/or server name in '%.*ls' is not supported in this version of SQL Server\"."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_p (k NVARCHAR(64) NOT NULL PRIMARY KEY);\nCREATE TABLE dbo.probe_c (id INT NOT NULL PRIMARY KEY, k NVARCHAR(128) NOT NULL);\nALTER TABLE dbo.probe_c ADD CONSTRAINT fk_probe_len FOREIGN KEY (k) REFERENCES dbo.probe_p (k);",
+        "expect": {
+          "error": 1753
+        },
+        "why": "A child key column must match the parent's length exactly, which is how an oversized parent key propagates through a schema instead of staying local. Measured 2026-08-28, Msg 1753, columns participating in a foreign key relationship must be defined with the same length and scale."
+      },
+      {
+        "sql": "CREATE SEQUENCE dbo.probe_seq_nostart AS BIGINT;\nSELECT CASE WHEN CAST(start_value AS BIGINT) = CAST(minimum_value AS BIGINT) THEN 1 ELSE 0 END AS starts_at_type_minimum\nFROM sys.sequences WHERE name = 'probe_seq_nostart';",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "A CREATE SEQUENCE with no START WITH does not start at 1, it starts at the minimum of its type, which for BIGINT is -9223372036854775808. Measured 2026-08-28. The comparison is made against the catalog's own minimum_value rather than a literal, because the literal -9223372036854775808 is parsed as numeric rather than bigint and would make the probe about T-SQL literal typing instead."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_heap (id INT NOT NULL, note NVARCHAR(20) NULL);\nINSERT INTO dbo.probe_heap (id, note) VALUES (1, N'a'), (2, N'b');\nSELECT (SELECT COUNT(*) FROM dbo.probe_heap) AS rows_accepted,\n       (SELECT COUNT(*) FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.probe_heap') AND type = 1) AS clustered_indexes;",
+        "expect": {
+          "rows": [
+            [
+              2,
+              0
+            ]
+          ]
+        },
+        "why": "The correction in the Do not list, made executable: a table with no clustered index is created and takes rows. The belief that this engine requires a clustered index on every table is out of date. Measured 2026-08-28. Two counts are asserted together so the probe cannot pass on a table that quietly acquired a clustered index from a primary key."
+      }
     ]
   },
   "triggering": {

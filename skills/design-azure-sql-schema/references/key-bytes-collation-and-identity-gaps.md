@@ -1,4 +1,4 @@
-# Verified behaviour, with the statements that produced it
+# Index key bytes, collation, identity gaps: the statements that produced every number
 
 Every number and message quoted in `SKILL.md` came from a run on **2026-08-28** against a live
 engine reporting `EngineEdition` 5 and `Edition` `SQL Azure`, product version 12.0.2000.8, server
