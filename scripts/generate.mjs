@@ -271,15 +271,26 @@ emit('.claude-plugin/marketplace.json', j({
 // the difference between a display name and a maintenance problem.
 //
 //   Codex   documents interface.displayName, and skills as a string path
-//   Cursor  does NOT document displayName. The container repo sets it anyway,
-//           so this is a cheap bet rather than a documented feature. Said here
-//           so nobody later reads it as evidence Cursor supports it.
+//
+//   Cursor  MEASURED 2026-09-02, and the bet lost. Cursor does not document
+//           displayName and does not honour it. Installed
+//           azure-sql-database-container, whose manifest asks for "Azure SQL
+//           Database container", and Cursor's panel rendered "Azure Sql
+//           Database Container": title-cased from `name`, ignoring the field.
+//           So displayName stays here because it costs nothing and may be
+//           honoured later, and this comment exists so nobody reads its
+//           presence as evidence that it works. In Cursor we are "Azure Sql".
+//
+//           `logo` IS documented and DOES work: the same install rendered the
+//           container repo's SVG in the panel. Hence assets/plugin-logo.svg,
+//           byte-identical to the container repo's, so the family looks like
+//           one family..
 emit('.codex-plugin/plugin.json', j({
   ...base,
   skills: './skills/',
   interface: { displayName: STORE_NAME, shortDescription: SUMMARY, category: 'Databases' },
 }));
-emit('.cursor-plugin/plugin.json', j({ displayName: STORE_NAME, ...base, skills: 'skills/' }));
+emit('.cursor-plugin/plugin.json', j({ displayName: STORE_NAME, ...base, skills: 'skills/', logo: 'assets/plugin-logo.svg' }));
 
 // The Agent Plugins package IS the repository root: plugin.json beside a flat
 // skills/. Nothing to generate into a subdirectory, and NO displayName here:
