@@ -4,8 +4,23 @@
   "domain": "provisioning-and-local-dev",
   "value": ["not-in-training-data", "corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
   "correction": "Handed one of the Azure SQL Dev Container templates, an agent believes the database behind localhost,1433 is the Azure SQL Database engine because the template is named for it, when every template ships a database service running the Azure SQL Edge image, which reports EngineEdition 9 rather than 5 and rejects Azure SQL Database syntax such as the VECTOR type. The same agent then treats a running container as a ready engine and the postCreateCommand as a schema deployment that always happens, when Compose only waits for the database process to start rather than for it to accept a login, and when the script builds and publishes nothing at all and still exits zero unless exactly one dacpac file already exists in the directory it is handed, so an empty database looks like a successful create.",
+  "value_probe": {
+    "gate": "The answer establishes which engine is actually listening on that port before explaining the rejected type, and treats the create-time script's exit status as saying nothing about whether any schema reached the database.",
+    "task": "I opened one of the ready made development container setups for Azure SQL Database in VS Code, let it build, and it came up without complaining. Two problems. My tables are not there, even though the setup was supposed to deploy the project's schema when the container was created, and nothing in the output looks like an error. And the column type I want for storing embeddings is rejected by the database on localhost port 1433, even though the documentation says that type exists. What is going on, and what would you check first?",
+    "states": [
+      "The engine edition the running database reports is what settles which product is actually listening.",
+      "The create-time script can exit zero having built and published nothing at all.",
+      "Compose waits for the database process to start and not for it to accept a login, so the container can be up before the engine is usable."
+    ],
+    "refutes": [
+      "The database behind that template is the Azure SQL Database engine, so syntax documented for the cloud service is accepted.",
+      "The create-time command finishing without an error means the schema was deployed.",
+      "A container reported as running means the database is ready to accept a connection.",
+      "The rejected column type means the documentation is wrong or the feature is not released yet."
+    ]
+  },
   "posture": ["read", "write", "execute"],
-  "maturity": "preview",
+  "maturity": "draft",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "azuresql-db-sidecar",

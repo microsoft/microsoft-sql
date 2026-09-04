@@ -4,6 +4,22 @@
   "domain": "schema-change-and-cicd",
   "value": ["not-in-training-data", "corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
   "correction": "Asked for a SQL database project for Azure SQL Database, an agent runs `dotnet new sqlproj`, accepts the template's default target platform, and reads a green `dotnet build` as proof the schema is valid for Azure SQL Database. It is not. With the default target the build accepts statements Azure SQL Database has never supported and reports zero errors, and the refusal arrives only at publish, where SqlPackage stops during deployment plan generation and exits 1, so the cost is a release that fails after the artifact was built and handed on. Setting the target platform to SqlAzureV12 turns that same statement into build error SQL70015, which is necessary and is then over-read: the correct target platform does not validate a call to a server feature Azure SQL Database does not have, which stays warning SQL71502 and reaches the database intact, and it does not validate pre and post deployment scripts at all, which no parser reads and which run outside the deployment transaction even when IncludeTransactionalScripts is set, so a script that fails leaves the schema changes already applied and committed. The expensive one is silent and lands after a successful deploy: the SDK never globs a `.refactorlog` file, so unless it is declared as a RefactorLog item the build succeeds without it and the publish plans a column drop and add instead of a rename, which BlockOnPossibleDataLoss blocks until somebody sets it to False to get the pipeline green, at which point the publish prints `Successfully published database`, exits 0, and the column's data is gone.",
+  "value_probe": {
+    "gate": "The build itself is made to refuse what the target database will refuse, and a rename is carried explicitly by the project rather than inferred at deployment time from the changed schema.",
+    "task": "Our schema lives in a database project in the repository and CI builds it on every pull request. Two things happened last month that I need to stop happening again. A build that was green failed at deployment time against our Azure database. And a change that was meant to rename a column ended with the new column empty in production, while the deployment reported success and exited zero. Both went through review and nobody caught either one. What should I change about the project and about the pipeline?",
+    "states": [
+      "The project's target platform has to name the cloud service, or statements that service rejects will build without error.",
+      "The record of a rename has to be declared as an item in the project, or the build succeeds without it and the deployment plans a drop and an add.",
+      "A correct target platform still does not validate calls to server features that are absent here, which stay warnings and reach the database.",
+      "Pre and post deployment scripts are not parsed by the build and run outside the deployment transaction."
+    ],
+    "refutes": [
+      "A green build of the database project means the schema is valid for Azure SQL Database.",
+      "Renaming a column in the project produces a rename at deployment time, so the data in it is not at risk.",
+      "Turning off the block on possible data loss is a reasonable way to get a blocked deployment through.",
+      "A deployment that prints success and exits zero has preserved the data in the columns it changed."
+    ]
+  },
   "posture": ["read", "write", "execute"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],

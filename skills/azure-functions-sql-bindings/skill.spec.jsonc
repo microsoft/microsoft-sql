@@ -4,8 +4,23 @@
   "domain": "apis-and-application-patterns",
   "value": ["not-in-training-data", "multi-step-with-silent-failures"],
   "correction": "Agents treat change tracking as an optimisation the Azure SQL trigger can run without, when it is the mechanism the trigger is built on: the listener asks the database for the change tracking minimum valid version of the monitored table, gets a null back when tracking is off, and throws before it ever polls. The Functions host then retries that one listener in the background with exponential backoff, so the app starts, stays running, keeps serving every other function, and the trigger never fires while the only sign of the problem is a listener startup error buried in the host log. The identity permissions are wrong for the same reason: db_datareader and db_datawriter are enough for the input and output bindings and are explicitly not enough for the trigger, which also needs to read change tracking and to create its own state tables.",
+  "value_probe": {
+    "gate": "The answer identifies a database-side prerequisite the monitored table must carry before this can ever fire, and treats a healthy app whose other functions work as entirely consistent with this one never starting.",
+    "task": "I wrote a function that is meant to run whenever a row changes in one of our Azure SQL Database tables. The function app deploys, starts, and every other function in the same app works normally. This one has never run once, and I cannot find an error anywhere obvious in the logs. I have updated rows by hand to test it and nothing happens. The app connects with its managed identity, which we granted read and write on the database. What is wrong and how do I confirm it?",
+    "states": [
+      "A tracking mechanism has to be enabled on the monitored table, because it is what the trigger reads to find changes.",
+      "The listener fails at startup and is retried in the background, so the app stays up and every other function keeps serving.",
+      "This trigger needs more than reading and writing data, including the ability to create and maintain its own state tables."
+    ],
+    "refutes": [
+      "The trigger works without any change tracking enabled, so the fault must be the connection string or the binding configuration.",
+      "If the trigger's listener had failed, the function app would fail to start or would surface an obvious error.",
+      "Read and write permissions on the database are sufficient for this trigger to operate.",
+      "Enabling tracking is an optimisation that makes the trigger more efficient rather than a prerequisite."
+    ]
+  },
   "posture": ["read", "write", "execute"],
-  "maturity": "preview",
+  "maturity": "draft",
   "applies_to": ["azure-sql-db"],
   "related": [
     "azuresql-db-functions",

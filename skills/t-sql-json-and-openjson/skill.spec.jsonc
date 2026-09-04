@@ -4,8 +4,24 @@
   "domain": "tsql-correctness-and-patterns",
   "value": ["not-in-training-data", "corrects-a-wrong-assumption"],
   "correction": "Asked to store or query JSON on Azure SQL Database, an agent reaches for nvarchar(max) with JSON_VALUE, because that is the pattern almost all of its training data shows, and it treats the native json type as either absent or as a cosmetic rename. Measured on 2026-08-28 against a live engine reporting EngineEdition 5 and Edition 'SQL Azure', the type changes four things that matter and the wrong choice is not merely slower. An nvarchar(max) column accepted the text '{not json at all' with no message at all, while the json column rejected it with Msg 13609, so the older pattern turns a bad write into a JSON_VALUE that returns NULL in a report months later, unless someone remembered CHECK (ISJSON(payload) = 1), which does work and returns Msg 547. CREATE JSON INDEX is impossible on nvarchar(max), Msg 13680, and on the native type it took one equality predicate over 20,000 documents from 915 logical reads and 23 ms of CPU to 142 reads and 5 ms. The json column stores a parsed document rather than the text it was given, so a round trip is not byte for byte and a duplicate key is silently discarded, and the conversion back out is refused in place with Msg 257. The second half of the correction is OPENJSON. An agent that does use OPENJSON usually omits the WITH clause and then calls JSON_VALUE on the default value column, which measured about four times the CPU for array shredding on nvarchar storage, 94 to 130 ms against 375 to 395 ms; but the correctness gap is larger than the performance one, because JSON_VALUE returns NULL rather than an error or a prefix for any value over 4000 characters in lax mode, while OPENJSON WITH an NVARCHAR(MAX) column returned all 5000, and because the default output's key column carries the Latin1_General_BIN2 collation so a lower-cased key comparison matched zero rows on a case-insensitive database. The reverse overcorrection has to be stated too: OPENJSON is not the answer to everything, and reading four scalar properties from every row cost 81 ms with JSON_VALUE against 735 ms with OPENJSON WITH over the same rows.",
+    "value_probe": {
+      "gate": "The answer changes how the document is stored so a bad write is refused at write time and the property filter can be served without reading every row, and it retrieves the long value by a path that is not capped at 4000 characters. Keeping the column as it is, with no validation and no index strategy, has not reached it.",
+      "task": "We save vendor webhook payloads on Azure SQL Database in dbo.webhook_events (id bigint, received_at datetime2, payload nvarchar(max)). Two support problems and one worry.\n\nA report pulls the customer note out with `JSON_VALUE(payload, '$.customer.notes')` and gets nothing back for about three percent of rows. When I open those rows the note text is plainly there in the document, it is just long, several thousand characters. No error is raised, the column is simply empty in the report.\n\nSeparately, we found rows whose payload is not a document at all, a truncated string beginning with `{` that was never finished. Nothing complained when it was written and we have no idea how long they have been there.\n\nAnd we are about to add a filter on `$.status` over roughly twenty million rows, which I am nervous about.\n\nThis is a current Azure SQL Database, created this year. Tell me how to fix the storage and the queries, with the SQL you would actually run.",
+      "states": [
+        "The note is missing because the extraction path has a value length ceiling and returns nothing rather than an error or a shortened value when a value exceeds it.",
+        "A column declared as nvarchar accepts text that is not a valid document, so the invalid rows were never going to be refused without an explicit validation on the column.",
+        "There is a storage choice on a current Azure SQL Database that validates the document on write, and it is not nvarchar(max).",
+        "The property filter over twenty million rows needs an index built for it, and what is available depends on how the column is typed."
+      ],
+      "refutes": [
+        "The extraction function returns the first part of a value that is too long, or raises an error on it, so the empty results must mean the property is genuinely absent from those documents.",
+        "nvarchar(max) is the only way to store a document on Azure SQL Database, and any dedicated document type is either unavailable there or just an alias for nvarchar with no behaviour of its own.",
+        "A document column cannot be indexed on Azure SQL Database, so the only way to make the property filter fast is a persisted computed column with an ordinary index on it.",
+        "Storing the document preserves the text exactly as it was submitted, so what comes back out is byte for byte what the vendor sent."
+      ]
+    },
   "posture": ["read", "write"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "t-sql-correctness",

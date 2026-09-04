@@ -4,8 +4,24 @@
   "domain": "performance-and-diagnostics",
   "value": ["not-in-training-data", "corrects-a-wrong-assumption"],
   "correction": "Agents troubleshooting a slow Azure SQL Database query treat Query Store as an automatic, complete record of everything that ran, because it is enabled by default on every database, when its default AUTO capture mode applies internal thresholds that silently drop ad hoc and infrequently executed queries, so the exact query someone ran once and is asking about can be completely absent from every Query Store view even immediately after a manual flush, and checking the plan cache instead does not rescue the diagnosis, because a query can hold a cached compiled plan with a nonzero use count and still have zero matching rows in sys.dm_exec_query_stats.",
+  "value_probe": {
+    "gate": "The answer treats the absence of the statement from the built-in history as a property of what that history captures rather than as evidence about the query, and gives the reader a way to make this statement recordable or to reach the evidence another way.",
+    "task": "One of our reports on Azure SQL Database took about forty seconds this morning when it normally takes two. It has already finished, so I cannot catch it while it is running. I went looking in the database's own built-in history of what ran and I cannot find the statement at all, not even straight after re-running it once by hand to see if that helped. Does that mean it was never slow, or that something is off about how I am looking? Walk me through how you would work out what happened and which numbers you would want in front of you.",
+    "states": [
+      "The default capture mode applies internal thresholds that drop ad hoc and infrequently executed statements.",
+      "Duration columns in that history are in microseconds, so a one second execution reads as one million.",
+      "A statement can hold a cached plan with a nonzero use count and still have no matching rows in the execution statistics view.",
+      "A single average duration is not a verdict, because the spread across executions is what separates the possible causes."
+    ],
+    "refutes": [
+      "Everything that runs is recorded, so a statement missing from the history did not run slowly or did not run at all.",
+      "Flushing the history to disk makes an ad hoc statement that was dropped appear in it.",
+      "Looking in the plan cache instead reliably rescues the diagnosis when the statement is missing from the history.",
+      "The duration columns in that history are in milliseconds."
+    ]
+  },
   "posture": ["read", "inspect", "execute"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "diagnose-resource-pressure",

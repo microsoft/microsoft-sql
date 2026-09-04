@@ -4,8 +4,26 @@
   "domain": "security-and-safe-sql",
   "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
   "correction": "A probe with no skill loaded found that an agent asked about SQL injection on Azure SQL Database already reaches for parameters and a server-side allowlist unprompted, and is already correct on ownership chaining, on Dynamic Data Masking not being a security boundary, and on which SQL Server escalation paths do not exist here, so a skill that repeats 'use parameterised queries' teaches nothing. What the same probe found wrong survives as the actual correction: QUOTENAME returns NULL for any identifier over 128 characters rather than truncating or erroring, so a dynamic statement concatenated from it becomes NULL and sp_executesql, or EXEC() of the same NULL batch, then runs it as a silent no-op with @@ERROR at 0 and no rows, which both probed model tiers got wrong in different ways (one said QUOTENAME fails to check the object exists, the other said it truncates); a single CASE expression choosing between columns of different types in a dynamic ORDER BY is coerced to one common type by precedence, and int mixed with date fails unconditionally at compile time (Msg 206, not even catchable in the same TRY/CATCH), but int or date mixed with a string column fails only when the sort key selects the string branch, the identical statement running clean when the sort key selects the other branch or matches neither (Msg 245 or Msg 241 only on the failing value), so it passes a test run against whichever sort key was tried and fails only when a caller picks the other one; and Always Encrypted rejects a literal predicate against an encrypted column outright, so on such a column parameterisation is mandatory for the query to run at all rather than a hardening choice, which corrected only the smaller probed model tier and was not reproduced against a live engine because it needs a column master key.",
+    "value_probe": {
+      "gate": "The answer traces the empty grid to a dynamic statement that became nothing before it was executed, and the conversion failure to one expression forced into a single result type by precedence, and it rebuilds both so neither can recur. Restating the case for parameters and an allowlist, which this code already has, does not reach it.",
+      "task": "This procedure on Azure SQL Database drives a grid that lets the caller choose which table to read and which column to sort by. It has been in production for about a year.\n\n```sql\nCREATE PROCEDURE dbo.get_grid @table sysname, @sort nvarchar(50)\nAS\nDECLARE @sql nvarchar(max) =\n  N'SELECT TOP (100) * FROM ' + QUOTENAME(@table) +\n  N' ORDER BY CASE @s WHEN ''name'' THEN name ELSE created_date END';\nEXEC sp_executesql @sql, N'@s nvarchar(50)', @s = @sort;\n```\n\nThe table name is checked against a list held in sys.tables before we ever get here, so the usual question is not what I am asking about. I have two support tickets I cannot explain.\n\nOne tenant generates very long table names and their grid comes back completely empty. No error, no rows, nothing in our logs, and the error handler wrapped around the call never fires. It started only after their generated names got longer.\n\nAnd QA reports 'Conversion failed when converting date and/or time from character string' when they sort by name. Sorting by anything else works, and it worked in every test we ran before release.\n\nReview this and tell me what is actually wrong and how to fix it.",
+      "states": [
+        "The identifier helper returns nothing at all once the name passed to it exceeds the identifier length limit, rather than shortening it or failing loudly.",
+        "Concatenating anything onto that nothing makes the whole statement nothing, so the execution does no work and reports no error, which is why the handler never fires.",
+        "A CASE expression has one result type decided by data type precedence, so every branch is converted into that one type.",
+        "The conversion fails only for the values that select the branch needing the conversion, which is why the statement passed every test that used the other sort key.",
+        "The sort has to be rebuilt so no branch depends on converting one column type into another."
+      ],
+      "refutes": [
+        "The identifier helper shortens a name that is too long, or raises an error on one, so an over-length table name could not have produced a silent empty result.",
+        "The identifier helper checks that the object exists, so an unrecognised or malformed table name is rejected before the dynamic statement is executed.",
+        "Executing a statement variable that holds nothing raises an error, so the empty grid must be caused by the data, the permissions or the tenant's own filtering.",
+        "Each branch of a CASE expression keeps its own data type, so mixing a text column and a date column in one sort expression is valid.",
+        "Both tickets are symptoms of an injection weakness, and parameterising the statement or validating the table name will fix them."
+      ]
+    },
   "posture": ["read", "write"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "rls-multi-tenant",

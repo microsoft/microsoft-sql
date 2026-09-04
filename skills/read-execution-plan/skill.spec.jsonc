@@ -4,8 +4,25 @@
   "domain": "performance-and-diagnostics",
   "value": ["not-in-training-data", "multi-step-with-silent-failures"],
   "correction": "Agents asked to read a query's execution plan reach for sys.dm_exec_query_plan or a first look at Query Store and treat what comes back as what the query actually did, when sys.dm_exec_query_plan only ever returns the compile-time estimated plan with no ActualRows attribute on any operator, and Query Store's default AUTO capture policy can leave a query absent from sys.query_store_query after several executions in a row, so the agent reports an estimate as a measurement, or treats a query's absence from Query Store as proof it never ran, when the absence is inconclusive and a plan-handle-based source answers the question directly instead of waiting on it.",
+    "value_probe": {
+      "gate": "The answer refuses the plan already in hand as a record of what the procedure did, because it carries only estimates, and routes to a source whose operators carry the counts the query really processed without re-running a procedure that writes, or says plainly that re-running is the only option left and why. Treating the retrieved plan as the measurement has not reached it.",
+      "task": "A nightly stored procedure dbo.rebuild_summary on Azure SQL Database takes forty minutes on some nights and two minutes on others. It ran tonight and it was one of the slow ones. I do not want to run it again, it writes to real tables that the morning reports read.\n\nI want to see, operator by operator, what it actually did on that run, and in particular where the row counts it expected are far from what it really processed.\n\nI already have this back:\n\n```sql\nSELECT qp.query_plan\nFROM sys.dm_exec_procedure_stats AS ps\nCROSS APPLY sys.dm_exec_query_plan(ps.plan_handle) AS qp\nWHERE ps.object_id = OBJECT_ID('dbo.rebuild_summary');\n```\n\nIt returned a plan, so I assume that is the run I care about. I also looked in sys.query_store_query for the statements and several of them are not there at all, which worried me because they definitely ran.\n\nDoes what I have answer the question, and if not, what are the exact steps to get what I need?",
+      "states": [
+        "The plan already retrieved carries only the counts the optimizer estimated and no record of what the query processed, so it cannot answer the question as asked.",
+        "There is a source that returns the last real execution's plan without running the query again, and it depends on a database setting that is off unless somebody turned it on.",
+        "A statement missing from the query history is inconclusive rather than proof that it did not run, because the default capture policy does not record every query.",
+        "Re-running the procedure to get the plan would perform its writes for real, so it is not a dry run."
+      ],
+      "refutes": [
+        "sys.dm_exec_query_plan returns the row counts the query actually processed once the query has executed, so the plan already in hand is the measurement.",
+        "A statement absent from the query history proves it never executed, or proves the history feature is switched off on this database.",
+        "The query history has to be enabled on an Azure SQL Database before it captures anything, and it can be switched off again afterwards.",
+        "The only way to obtain a plan carrying real row counts is to run the query again with the actual plan setting turned on.",
+        "The estimated and actual row counts already present in that plan can be compared against each other to find the misestimate."
+      ]
+    },
   "posture": ["read", "inspect", "admin"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "diagnose-slow-query",

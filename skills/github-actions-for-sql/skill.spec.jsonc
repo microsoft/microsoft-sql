@@ -4,6 +4,21 @@
   "domain": "schema-change-and-cicd",
   "value": ["not-in-training-data", "corrects-a-wrong-assumption", "changes-too-fast-to-memorize", "multi-step-with-silent-failures"],
   "correction": "Wiring a workflow to deploy schema to Azure SQL Database, an agent composes the federated credential subject from the documented template `repo:OWNER/REPO:ref:refs/heads/main`, adjusting the job segment for the environment it just added. No amount of care with that segment helps, because the subject the platform actually presents is no longer the documented shape at all: the default prefix now carries numeric owner and repository ids, measured as `repo:OWNER@<ownerId>/REPO@<repoId>:environment:<name>` on a repository whose subject claim is reported as the default and not customised, which no hand-written credential will match. The prefix has to be read from the repository, not written. The identity provider rejects it with AADSTS700213, which does quote the presented subject verbatim, and the login step then prints `Login failed with Error: The process '/usr/bin/az' failed with exit code 1. Double check if the 'auth-type' is correct`, naming an input that is not the problem. The cost compounds one step later, because the deployment action opens the runner's firewall by parsing the client address out of a deliberately failed connection, so any authentication failure surfaces as `Failed to add firewall rule. Unable to detect client IP Address`, and a pipeline reports a firewall problem for an identity problem. The gate is also weaker than it reads: a required-reviewer rule is refused outright on a private repository whose plan does not include it, with the environment still created and the workflow still valid, and it only ever holds jobs that name the environment, so a second job in the same workflow reads the same repository secrets and deploys without waiting.",
+  "value_probe": {
+    "gate": "The subject registered for the credential is read from what the repository actually presents rather than composed by hand from a documented template, and the firewall message is identified as a consequence of the failed sign in rather than a second problem to fix.",
+    "task": "Our workflow deploys schema changes to Azure SQL Database and it worked until I added a deployment environment to the job. Now the sign in step fails and the log tells me to double check that the auth type is correct, and the step after it says it could not detect the client IP address so it could not add a firewall rule. I have re-created the credential in Azure twice, matching the branch and the environment name exactly as the documentation shows. What is wrong, and how can I verify the fix before I push again?",
+    "states": [
+      "The subject the platform presents can carry numeric owner and repository ids, so it has to be read rather than written.",
+      "The identity provider's own rejection quotes the subject that was presented, which is where to read the real value.",
+      "An environment rule only holds jobs that name that environment, so another job in the same workflow deploys without waiting."
+    ],
+    "refutes": [
+      "The subject to register is the documented template carrying the owner and repository names.",
+      "The message about not detecting the client IP address means the firewall or the runner's networking is the problem.",
+      "The auth type input named in the sign in failure is the input that needs correcting.",
+      "A required reviewer rule on the environment can be relied on to hold the whole workflow."
+    ]
+  },
   "posture": ["execute", "provision", "admin"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db"],
