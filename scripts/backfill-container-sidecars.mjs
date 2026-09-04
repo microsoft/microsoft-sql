@@ -648,3 +648,27 @@ if (problems.length) {
 }
 console.log(check ? `all ${Object.keys(AUTHORED).length} container sidecars are current`
                   : `wrote ${written} sidecars into ${ROOT}`);
+
+// The standing obligation, printed on every run including a clean one.
+//
+// This is here rather than only in the workbench's check-maturity-drift.mjs for a
+// reason worth stating: that gate reads the workbench's own skills/, and these 17
+// are not in it. They are authored in microsoft/azure-sql-database-container and
+// mirrored here. So the gate would have printed this obligation for nobody, and
+// the expiry would have been a token that no run ever matched, which is the exact
+// shape of an obligation nobody is ever reminded of.
+//
+// Nothing in any repository can detect that the product changed release stage.
+// That is the point. This line, in `npm test`, is the mechanism.
+const withDeclaration = Object.keys(AUTHORED).filter((id) => DECLARATIONS[id]);
+if (withDeclaration.length) {
+  const dates = [...new Set(withDeclaration.map((id) => DECLARATIONS[id].decided_on))].sort();
+  const who = [...new Set(withDeclaration.map((id) => DECLARATIONS[id].decided_by))].sort();
+  console.log('');
+  console.log(`STANDING OBLIGATION  ${withDeclaration.length} container skill(s) have value DECLARED, never measured.`);
+  console.log(`  Declared by ${who.join(', ')} on ${dates.join(', ')}.`);
+  console.log(`  These expire when ${EXPIRY_TOKEN.replace(/-/g, ' ')}.`);
+  console.log('  At that point training data begins to contain the product, the argument that no model');
+  console.log('  could know it stops holding, and all of them must be measured or demoted. Nothing here');
+  console.log(`  can detect that event. Product release stage is recorded as '${PRODUCT_RELEASE_STAGE}' in this file.`);
+}
