@@ -123,7 +123,7 @@ const AUTHORED = {
     posture: ['read', 'write', 'admin'],
     target: 'both',
     correction:
-      'Asked for a least-privilege user, an agent writes CREATE USER ... WITH PASSWORD, which fails here with Msg 15007, and then tries SET CONTAINMENT = PARTIAL, which fails with Msg 12824. Contained users are not available: create a server login and map a database user to it.',
+      'Asked for a least-privilege user, an agent writes CREATE USER ... WITH PASSWORD, which fails here with Msg 15007, and then tries SET CONTAINMENT = PARTIAL, which fails with Msg 12844. Contained users are not available: create a server login and map a database user to it.',
     implicit: ['my app connects as sa, set up a least-privilege database user instead'],
     assert: ['uses CREATE LOGIN plus CREATE USER FOR LOGIN', 'application does not connect as sa'],
   },
@@ -177,6 +177,58 @@ const NEGATIVE = [
   'connect to SQL Server on my company network',
 ];
 
+// maturity, per skill, from the live probe lane's run of 2026-09-04 against the
+// container on build 12.0.2000.8, EngineEdition 5, Edition 'SQL Azure':
+// 101 of 101 probes passed, 17 of 17 skills ran, 0 skipped.
+//
+// This used to be the literal 'preview' for all 17, written when the sidecar
+// contract was invented and derived from nothing. It is now derived from what
+// ran. The ladder: draft means nothing has run that could contradict the skill,
+// preview means probes ran against a real engine and passed, ga means preview
+// plus a value measurement. No value measurement exists for any of these 17, so
+// none of them can reach ga today.
+//
+// The four that stay at draft each failed a different part of the preview test,
+// and none of them failed a probe. They are held down because of what their
+// probes did not ask, not because of what they answered:
+//
+//   azuresql-db-local-to-cloud  declares target 'both' and ran only on the
+//                               container. No sidecar declares target 'cloud',
+//                               so nothing in the lane waits for a logical
+//                               server and the cloud half was never executed.
+//   azuresql-db-dab             all five probes run on the host. They measure
+//                               the Data API builder CLI on the machine that
+//                               ran them. No statement reached a database.
+//   azuresql-db-sidecar         two probes parse a Compose file on the host and
+//                               the third checks a binary is executable in the
+//                               image. Nothing was asked of the engine.
+//   azuresql-db-feedback        one probe, a live HTTPS redirect check. Real,
+//                               and the only claim here anything can settle,
+//                               but it is a network check and it covers almost
+//                               none of the skill.
+//
+// These values must stay equal to the same field in
+// microsoft/azure-sql-database-container, which is where the probes live.
+const MATURITY = {
+  'azuresql-db-auth': 'preview',
+  'azuresql-db-ci': 'preview',
+  'azuresql-db-connections': 'preview',
+  'azuresql-db-container': 'preview',
+  'azuresql-db-dab': 'draft',
+  'azuresql-db-faq': 'preview',
+  'azuresql-db-feedback': 'draft',
+  'azuresql-db-from-sql-server': 'preview',
+  'azuresql-db-functions': 'preview',
+  'azuresql-db-import': 'preview',
+  'azuresql-db-local-to-cloud': 'draft',
+  'azuresql-db-rag': 'preview',
+  'azuresql-db-scaffold': 'preview',
+  'azuresql-db-schema-migration': 'preview',
+  'azuresql-db-seed': 'preview',
+  'azuresql-db-sidecar': 'draft',
+  'azuresql-db-testing': 'preview',
+};
+
 const check = process.argv.includes('--check');
 const catalog = JSON.parse(readFileSync(CATALOG, 'utf8'));
 const byId = Object.fromEntries(catalog.skills.map((s) => [s.id, s]));
@@ -188,6 +240,7 @@ for (const [id, a] of Object.entries(AUTHORED)) {
   const entry = byId[id];
   if (!entry) { problems.push(`${id} is not in ${CATALOG}`); continue; }
   if (entry.domain !== DOMAIN) { problems.push(`${id} is in domain ${entry.domain}`); continue; }
+  if (!MATURITY[id]) { problems.push(`${id} has no maturity in MATURITY, so nothing sets it`); continue; }
 
   const spec = {
     $schema: '../../catalog/skill.spec.schema.json',
@@ -196,7 +249,7 @@ for (const [id, a] of Object.entries(AUTHORED)) {
     value: entry.value,
     correction: a.correction,
     posture: a.posture,
-    maturity: 'preview',
+    maturity: MATURITY[id],
     applies_to: a.target === 'both'
       ? ['azure-sql-db', 'azure-sql-db-container']
       : ['azure-sql-db-container'],

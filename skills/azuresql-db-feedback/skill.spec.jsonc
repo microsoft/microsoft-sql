@@ -9,7 +9,7 @@
   "posture": [
     "read"
   ],
-  "maturity": "preview",
+  "maturity": "draft",
   "applies_to": [
     "azure-sql-db-container"
   ],
