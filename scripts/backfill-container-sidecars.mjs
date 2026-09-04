@@ -295,8 +295,7 @@ const DECLARATIONS = {
     "covers": [
       "USE being refused with Msg 40508 locally exactly as in the cloud, so the database is named in the connection string",
       "which transient error numbers this engine actually carries in sys.messages, checked rather than recalled",
-      "which platform dynamic management views this engine exposes, so a local diagnostic is not written against one that is absent",
-      "the transport this engine reports, which decides what a local connection diagnostic can conclude"
+      "sys.dm_db_resource_stats and sys.dm_user_db_resource_governance being absent from this engine, so a local throttling diagnostic written against either does not run"
     ],
     "does_not_cover": [
       "connection pooling and retry with backoff as patterns, which are ordinary driver material",
@@ -445,7 +444,7 @@ const DECLARATIONS = {
       "the dimension floor this build enforces and the number it answers with, Msg 42266",
       "the dimension ceiling and the truncation behaviour this build actually has",
       "the vector index being refused against a table under row level security, with Msg 37579",
-      "exact and approximate vector search both building and running on this build, and the database scoped configuration they depend on"
+      "exact and approximate vector search both building and running on this build"
     ],
     "does_not_cover": [
       "chunking strategy, embedding model choice and prompt construction",
