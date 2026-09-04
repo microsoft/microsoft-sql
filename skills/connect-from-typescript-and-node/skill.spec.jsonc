@@ -2,11 +2,21 @@
   "$schema": "../../catalog/skill.spec.schema.json",
   "id": "connect-from-typescript-and-node",
   "domain": "drivers-and-connectivity",
-  "value": ["corrects-a-wrong-assumption", "changes-too-fast-to-memorize"],
+  "value": [
+    "corrects-a-wrong-assumption",
+    "changes-too-fast-to-memorize"
+  ],
   "correction": "Agents give every request or serverless invocation its own mssql connection pool, and close it when the handler returns, because they read sql.connect() as opening one connection; it actually creates a process-wide pool whose default ceiling is ten connections, so the per-invocation version pays a full TLS and login handshake on every call and the paired sql.close() tears the pool out from under every other in-flight request.",
-  "posture": ["read", "write", "execute"],
+  "posture": [
+    "read",
+    "write",
+    "execute"
+  ],
   "maturity": "draft",
-  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "applies_to": [
+    "azure-sql-db",
+    "azure-sql-db-container"
+  ],
   "related": [
     "connect-to-azure-sql",
     "diagnose-connection-errors",
@@ -26,6 +36,78 @@
       "pool.max is set deliberately rather than left at the default of 10",
       "no request handler calls sql.close()",
       "@types/mssql is a devDependency when the project is TypeScript"
+    ],
+    "probes": [
+      {
+        "where": "host",
+        "cmd": "npm view mssql@12.7.0 dependencies.tedious | grep -qxF '^19.2.2 || ^20.0.0'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The body states the exact tedious range mssql 12.7.0 accepts, and the whole Node version split rests on it. Read from the published manifest rather than recalled. Measured 2026-09-03 on this host: the command prints '^19.2.2 || ^20.0.0' and exits 0. Host, because this is a registry read by a developer's own npm and opens no database connection."
+      },
+      {
+        "where": "host",
+        "cmd": "npm view mssql@12.7.0 engines.node | grep -qx '>=18.19.0'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "One half of the version split the body tells a reader to pin against. If mssql raised its floor to 22 the advice would be stale rather than wrong, and this is what would say so. Measured 2026-09-03: prints '>=18.19.0'. Host, a registry read with no engine involved."
+      },
+      {
+        "where": "host",
+        "cmd": "npm view tedious@20.0.0 engines.node | grep -qx '>=22'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The other half. tedious 20 demanding Node 22 is why an install on Node 18 silently stays on tedious 19, which is the only reason the body tells anyone to pin the Node version in package.json and CI. Measured 2026-09-03: prints '>=22'. Host, a registry read."
+      },
+      {
+        "where": "host",
+        "cmd": "test \"$(npm view mssql@12.7.0 name)\" = 'mssql' && test -z \"$(npm view mssql@12.7.0 types)\"",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The body claims mssql publishes no types field of its own, which is the entire reason @types/mssql is a separate devDependency. Asserting an absence, so the first test proves npm answered at all before the second reads an empty value; without it a network failure would look like a pass. Measured 2026-09-03: name is mssql, types is empty, and the full manifest carries neither types nor typings."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && npm install --prefix \"$d\" --no-audit --no-fund --silent mssql@12.7.0 >/dev/null 2>&1 && node -e 'const sql=require(process.argv[1]+\"/node_modules/mssql\");const o=new sql.ConnectionPool({server:\"h\",database:\"d\"})._config().options;process.exit(o.encrypt===true&&o.trustServerCertificate===false?0:1)' \"$d\"; e=$?; rm -rf \"$d\"; exit $e",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The encryption default, resolved in a running process rather than read off a page. A pool built with no options at all must come out encrypt true and trustServerCertificate false, which is what lets the body say a wrong value at these versions is something a person typed. Earlier majors of both packages did not agree, so the version is pinned into the command. Measured 2026-09-03 on mssql 12.7.0 with tedious 20.0.0: resolved true and false, exit 0. Host, because this is a client library on a developer's machine and no database is contacted."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && npm install --prefix \"$d\" --no-audit --no-fund --silent mssql@12.7.0 >/dev/null 2>&1 && node -e 'const sql=require(process.argv[1]+\"/node_modules/mssql\");try{new sql.ConnectionPool({server:\"h\",database:\"d\"}).size;process.exit(1)}catch(e){process.exit(e instanceof TypeError && /numFree/.test(e.message)?0:1)}' \"$d\"; e=$?; rm -rf \"$d\"; exit $e",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The trap in the body's own check script. @types/mssql declares size as readonly size: number, so TypeScript permits reading it, and reading it before the pool is awaited throws TypeError: Cannot read properties of undefined (reading 'numFree'). The probe passes when it throws that exact TypeError, so a future release that makes size safe before connect turns this red and the body's warning can be dropped. Measured 2026-09-03 on mssql 12.7.0."
+      },
+      {
+        "sql": "SELECT COUNT(*) AS rows_for_my_own_session FROM sys.dm_exec_connections WHERE session_id = @@SPID;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "The check script's query has to return a row or the whole Check it worked section is theatre. This asserts existence rather than encrypt_option on purpose: encrypt_option describes whichever client opened the session, so a value read here would describe the lane's own sqlcmd connection and not the pool the reader's process opened, which is the exact confusion the section is written to prevent."
+      },
+      {
+        "sql": "SELECT CASE WHEN CONNECTIONPROPERTY('encrypt_option') IS NULL THEN 1 ELSE 0 END AS connectionproperty_has_no_encrypt_option;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "The body tells a reader that CONNECTIONPROPERTY is no substitute for sys.dm_exec_connections because its documented property list carries no encrypt_option, and Microsoft Learn states any other string returns NULL. That is sourced from Learn and NOT yet measured against this engine, which is why it is a probe: if it comes back non-null the body's advice needs rewriting rather than defending."
+      }
     ]
   },
   "triggering": {

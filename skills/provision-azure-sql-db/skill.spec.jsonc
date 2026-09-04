@@ -7,16 +7,77 @@
   "posture": ["read", "write", "provision"],
   "maturity": "preview",
   "applies_to": ["azure-sql-db"],
-  "related": ["connect-to-azure-sql", "entra-id-auth", "provision-hyperscale"],
+  "related": ["connect-to-azure-sql", "entra-id-auth", "provision-hyperscale", "diagnose-connection-errors"],
   "validation": {
-    "target": "cloud",
-    "setup": ["a resource group in a subscription with no existing free database"],
+    "target": "both",
+    "setup": [
+      "Azure CLI 2.90.0 or later on the host, signed in; every cmd probe reads help or renders a template locally and none of them creates an Azure resource",
+      "a scratch database on the probe target for the one sql probe"
+    ],
     "assert": [
-      "a firewall rule exists, created by a separate command",
+      "a firewall rule exists, created by a separate command, and the plan verifies it with firewall-rule list rather than assuming it",
       "the free offer limit is stated as 10 per subscription, not 1",
       "the free offer uses BillOverUsage or AutoPause, never BillForUsage",
-      "the connection string names the user database, not master",
-      "if any identity other than the administrator must connect, the plan names the principal it gets, a contained database user or an Entra login in master, and who has to run it"
+      "a bare HTTP 500 from a create carrying --use-free-limit is read as no free slot rather than as an outage",
+      "the connection string names the user database, not master, and no password is handed back in it",
+      "a production answer uses a Microsoft Entra managed identity rather than a SQL login with a password in the connection string",
+      "success is reported only after SERVERPROPERTY('EngineEdition') has returned 5 over the connection string being handed back",
+      "Msg 40613 on the first connect is read as a serverless resume and retried, not as a provisioning failure",
+      "if any identity other than the administrator must connect, the plan names the principal it gets, a contained database user or an Entra login in master, and who has to run it",
+      "Hyperscale is handed to provision-hyperscale rather than answered here"
+    ],
+    "probes": [
+      {
+        "cmd": "az sql db create --help 2>&1 | grep -qi 'firewall' && exit 1 || exit 0",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The claim the whole skill turns on, made executable and made safe: az sql db create has no firewall argument at all, so a four-step plan is not padding. Measured on Azure CLI 2.90.0 on 2026-09-03, help output only, no request reaches Azure and nothing is provisioned. Watched going red the same day by pointing the same grep at az sql server firewall-rule create --help, which does match."
+      },
+      {
+        "cmd": "az sql db create --help 2>&1 | tr -s ' \\n' ' ' | grep -q 'Allowed on one database in a subscription'",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The CLI's own help for --use-free-limit says the free offer is allowed on ONE database in a subscription, while the free offer documentation says 10 in three separate places. This probe pins the wrong statement so the skill can be trusted when it contradicts the tool. If a future CLI fixes the help, this probe goes red and the skill's paragraph should be deleted rather than the probe. tr collapses the help's wrapped lines before matching. Measured on Azure CLI 2.90.0, 2026-09-03."
+      },
+      {
+        "cmd": "az sql db create -g rg-nonexistent-probe -s srv-nonexistent-probe -n probedb -e GeneralPurpose -f Gen5 -c 2 --compute-model Serverless --use-free-limit --free-limit-exhaustion-behavior BillForUsage 2>&1 | grep -q 'is not a valid value'",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "BillForUsage, the value the CLI's own help text describes, is rejected by argument parsing before authentication or any network call: 'BillForUsage' is not a valid value for '--free-limit-exhaustion-behavior'. Allowed values: AutoPause, BillOverUsage. Measured on Azure CLI 2.90.0, 2026-09-03. The resource group and server names are deliberately nonexistent so that if a future CLI ever accepts the value, the probe fails on ResourceGroupNotFound and still creates nothing."
+      },
+      {
+        "cmd": "az sql db show-connection-string -c ado.net -s probesrv -n probedb -o tsv | grep -q 'Initial Catalog=probedb;.*Encrypt=true'",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "show-connection-string is a local template generator, not an ARM call, so this asserts the two things the skill tells a reader to check in its output without touching a subscription: Initial Catalog carries the user database rather than master, and Encrypt=true survives. Measured on Azure CLI 2.90.0, 2026-09-03. Watched going red by asking for -n master, where the Initial Catalog half stops matching."
+      },
+      {
+        "cmd": "az sql db show-connection-string --help 2>&1 | tr -s ' \\n' ' ' | grep -q 'Allowed values: ADIntegrated, ADPassword, SqlPassword'",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Why the skill tells a reader to edit the connection string by hand for production. The --auth-type flag offers exactly three modes and none of them is a managed identity, so the CLI cannot emit Authentication=\"Active Directory Managed Identity\", which Microsoft Learn calls the recommended method for programmatic access to SQL. Measured on Azure CLI 2.90.0, 2026-09-03. Watched going red by appending a fourth value to the expected list."
+      },
+      {
+        "sql": "SELECT CAST(SERVERPROPERTY('EngineEdition') AS int) AS engine_edition;",
+        "expect": {
+          "rows": [
+            [
+              5
+            ]
+          ]
+        },
+        "why": "The reachability check the skill's 'Check it worked' section hands the reader, run as a probe so the number in the skill is the number the engine returns. Microsoft Learn documents EngineEdition 5 as SQL Database, and 5 is what the Azure SQL Database container reports too, which is why this probe runs on both targets rather than cloud only. A reader who gets 5 back over their new connection string has proved reachability and product in one round trip."
+      }
     ]
   },
   "triggering": {

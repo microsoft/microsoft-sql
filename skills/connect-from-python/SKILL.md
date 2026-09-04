@@ -12,90 +12,56 @@ description: >-
   Encryption doctrine and transient-fault retry belong to connect-to-azure-sql; Node and .NET have
   their own skills.
 ---
-
 # Connect from Python
 
-The Python answer changed. There are now two supported drivers, and the newer one removes the
-step that causes most Python connection failures: installing an ODBC driver into the operating
-system.
+The Python answer changed. There are now two supported drivers, and the newer one removes the step
+that causes most Python connection failures: installing an ODBC driver into the operating system.
 
-Verified on 2026-08-27 against `mssql-python` 1.13.0 and `pyodbc` 5.3.0, from package metadata on
-the index and the current driver documentation.
+Checked on 2026-09-03 against pyodbc 5.3.0, msodbcsql18 18.6.2.1 and unixODBC 2.3.14 on this
+machine, and the current documentation for mssql-python 1.13.0.
 
-This skill owns the Python-specific half: which driver, how it installs, the connection string
-shape, pooling, and how Python does Entra ID. Encryption doctrine, retry and transient-fault
-handling, and the first-connect error on a paused database are the same in every language and live
-in `connect-to-azure-sql`.
+This skill owns driver choice, installation, connection string shape, pooling and Entra ID for
+Python. Encryption doctrine, retry and the first-connect error on a paused database are the same in
+every language and live in `connect-to-azure-sql`. SQLAlchemy is `sqlalchemy-azure-sql`.
 
 ## Choose the driver first
 
-| | `mssql-python` | `pyodbc` |
+| | `mssql-python` 1.13.0 | `pyodbc` 5.3.0 |
 |---|---|---|
 | Who ships it | Microsoft, first-party | Community, long-standing |
-| Version verified | 1.13.0 | 5.3.0 |
 | Python required | 3.10 or later | 3.9 or later |
-| Operating system install | **None.** The wheel depends on `mssql-python-odbc`, which carries the driver binaries | `msodbcsql18` and a driver manager, installed separately per distribution |
-| Python dependencies | `azure-identity` comes with it | none |
-| Entra `ActiveDirectoryDefault` | Yes | No, see below |
+| Operating system install | **None.** `mssql-python-odbc` carries the driver binaries | `msodbcsql18` and a driver manager, per distribution |
+| Entra `ActiveDirectoryDefault` | Yes, and `azure-identity` comes with it | No, see below |
 
-**Use `mssql-python` for new code.** It is what the current Azure SQL Database Python quickstart
-uses, and skipping the operating system driver install removes an entire class of container and
-CI failures.
-
-**Keep `pyodbc` when something above it already requires it**, most often an ORM or framework whose
-dialect is written against `pyodbc`. Those integrations are `sqlalchemy-azure-sql` and
-`django-azure-sql`; do not rewrite an application's data access layer just to change driver.
+**Use `mssql-python` for new code.** Skipping the operating system install removes a class of
+container and CI failures. **Keep `pyodbc` when something above it already requires it**, most often
+an ORM dialect written against it: `sqlalchemy-azure-sql`, `django-azure-sql`. Do not rewrite a data
+access layer just to change driver.
 
 ```bash
 pip install mssql-python        # first-party path
 pip install pyodbc              # incumbent path, plus the driver install below
 ```
 
-`mssql-python` needs Python 3.10 or later, and on an older interpreter the install fails with
-`No matching distribution found`, which reads like a network problem and is not one. Check the
-interpreter before debugging the index.
+On Python 3.9 the first line fails with `No matching distribution found`, which reads like a network
+problem and is not one. Measured here on 3.9.6.
 
 ## Installing the ODBC driver, for the pyodbc path only
 
-`pip install pyodbc` succeeds on its own: the project publishes both `manylinux` and `musllinux`
-wheels, so there is no compiler step even on a musl-based image. What is missing at runtime is the
-**driver itself**, and the error says `data source name not found and no default driver specified`,
-which points at the connection string rather than at the missing package.
+The package is **`msodbcsql18`**, the connection string names `ODBC Driver 18 for SQL Server`, and
+the two have to agree exactly. `pip install pyodbc` succeeds without it and the failure arrives at
+the first connect, which is why the first check below exists.
 
-What to know rather than copy:
-
-- The package is **`msodbcsql18`**, and the connection string names `ODBC Driver 18 for SQL Server`.
-  The two have to agree.
-- Installation is **non-interactive only if you accept the licence explicitly**: set `ACCEPT_EULA=Y`
-  on the install command, or from driver 18.4 create the file
-  `/opt/microsoft/msodbcsql18/ACCEPT_EULA`. Without one of those a container build hangs waiting on
-  a prompt nobody can answer.
-- Most distributions install from the Microsoft package repository. **Alpine does not**: there is
-  no repository, so the `.apk` is downloaded and installed with `apk add --allow-untrusted`. A
-  Dockerfile that assumes a package manager repository is the usual reason an Alpine image fails.
-- Slim Debian images also need `libgssapi-krb5-2`, which the driver links against and slim images
-  omit.
-
-The per-distribution commands change with releases, so fetch them rather than reciting them:
-[Install the Microsoft ODBC driver for SQL Server on
-Linux](https://learn.microsoft.com/sql/connect/odbc/linux-mac/installing-the-microsoft-odbc-driver-for-sql-server).
+Three things break an unattended build: the licence prompt, Alpine having no Microsoft package
+repository, and slim Debian omitting `libgssapi-krb5-2`. Open
+[references/odbc-driver-install-on-linux.md](references/odbc-driver-install-on-linux.md) before you
+write a Dockerfile or CI step that installs the driver.
 
 ## Connection strings
 
-`mssql-python` takes ODBC-style keywords and needs no `Driver` keyword, because there is only one
-driver and it is inside the package:
-
-```python
-import mssql_python
-
-conn = mssql_python.connect(
-    f"Server=tcp:{server},1433;"      # <server>.database.windows.net
-    f"Database={database};"
-    "Encrypt=yes;"
-)
-```
-
-`pyodbc` needs the driver named, and the name is the one the install registered:
+Both take ODBC-style keywords. `mssql_python.connect()` takes the same string with `Driver` left
+out, because the driver is inside the package. `pyodbc` needs it named, and the name is the one the
+install registered:
 
 ```python
 import pyodbc
@@ -108,13 +74,12 @@ conn = pyodbc.connect(
 )
 ```
 
-Read the server, database and any credential from the environment or a secret store. Never assemble
-a literal one into source.
+Read the server, database and any credential from the environment or a secret store, never a
+literal in source, and bind every value in a query rather than formatting it into the text.
 
 ## Pooling
 
-**`mssql-python` pools by default.** Verified defaults: `max_size` 100 connections per unique
-connection string, `idle_timeout` 600 seconds.
+**`mssql-python` pools by default**, `max_size` 100 and `idle_timeout` 600 seconds.
 
 ```python
 import mssql_python
@@ -123,41 +88,27 @@ import mssql_python
 mssql_python.pooling(max_size=25, idle_timeout=300)
 ```
 
-Three properties that decide whether the pool works:
+A `pooling()` call after any connect is silently ignored, which looks exactly like a setting that
+did not take. The pool key is the connection string byte for byte, so one extra keyword or a
+different capitalisation on one call site produces a second independent pool: build it once as a
+constant. Under managed identity, device code or a `token_provider` the identity joins the key.
+There is no `ClearPool`, no pool statistics and no minimum size.
 
-- **Configuration must precede the first connection.** A `pooling()` call after any connect is
-  silently ignored, which looks exactly like a setting that did not take.
-- **The pool key is the connection string, byte for byte.** Different capitalisation, or an extra
-  keyword on one call site, produces a second independent pool. Build the string once as a constant.
-- **Connections must be returned.** Use the connection as a context manager so an exception still
-  releases it.
+**`pyodbc` does not pool in Python.** Pooling happens in the ODBC layer, `pyodbc.pooling` reads
+`True` out of the box, and it is switched off by assigning `False` **before any connection is
+made**. Its context manager is not `mssql-python`'s: `Connection.__exit__` commits, or rolls back on
+an exception, and **does not close**, so `with pyodbc.connect(...)` alone never returns the
+connection. Call `close()` in a `finally`. Never enable `pyodbc.pooling` and a pool above it at
+once.
 
-There is no `ClearPool`, no pool statistics and no minimum size in the current implementation. Do
-not write code that assumes them.
-
-**`pyodbc` does not pool in Python.** Pooling happens in the ODBC layer, it is **on by default**,
-and it is switched off with the module attribute `pyodbc.pooling = False` set **before any
-connection is made**. When something above `pyodbc` runs its own pool, the two layers should not
-both be enabled; the framework's documentation says which to turn off.
-
-How large the pool should be, and why the binding limit is workers rather than sessions, is
-`connect-to-azure-sql`.
+Pool sizing, and why the binding limit is workers rather than sessions, is `connect-to-azure-sql`.
 
 ## Microsoft Entra ID
 
 ### With mssql-python
 
-Set the `Authentication` keyword. The accepted values are:
-
-| Value | Use it for |
-|---|---|
-| `ActiveDirectoryDefault` | Local development. Uses `DefaultAzureCredential`, so a prior CLI sign-in is picked up |
-| `ActiveDirectoryMSI` | A managed identity in production |
-| `ActiveDirectoryServicePrincipal` | A registered application, client id in `UID` and secret in `PWD` |
-| `ActiveDirectoryInteractive` | A person at a browser |
-| `ActiveDirectoryDeviceCode` | A shell or container with no browser |
-| `ActiveDirectoryIntegrated` | A domain-joined Windows client with Kerberos |
-| `ActiveDirectoryPassword` | Nothing. Microsoft has deprecated this flow |
+Set the `Authentication` keyword: `ActiveDirectoryDefault` locally, because it picks up a CLI
+sign-in, and `ActiveDirectoryMSI` for a managed identity in production.
 
 ```python
 conn = mssql_python.connect(
@@ -168,19 +119,32 @@ conn = mssql_python.connect(
 )
 ```
 
-`ActiveDirectoryDefault` walks a chain of credential providers on the first connection and the
-providers that fail come first, so it costs seconds of latency that a production workload has no
-reason to pay. Name the credential type directly in production. `ActiveDirectoryDefault`,
-`ActiveDirectoryInteractive` and `ActiveDirectoryDeviceCode` need `azure-identity` present, which it
-already is as a dependency.
+`ActiveDirectoryDefault` walks a chain of providers on the first connection, failures first, so it
+costs seconds production has no reason to pay. Name the credential type directly there. Where the
+credential is an `azure-identity` object, `token_provider=` takes it whole and refreshes tokens for
+pooled connections.
 
 ### With pyodbc
 
-**The ODBC driver has no `ActiveDirectoryDefault`.** Its `Authentication` keyword accepts
-`SqlPassword`, `ActiveDirectoryIntegrated`, `ActiveDirectoryInteractive`, `ActiveDirectoryMsi`,
-`ActiveDirectoryServicePrincipal` and the deprecated `ActiveDirectoryPassword`, and nothing else. An
-agent that writes `Authentication=ActiveDirectoryDefault` into a `pyodbc` connection string has
-invented a value.
+**The ODBC driver has no `ActiveDirectoryDefault`.** It is not a slower path, it is a rejected
+string, and the driver says so before it opens a socket:
+
+```bash
+python3 -c "
+import pyodbc
+try:
+    pyodbc.connect('Driver={ODBC Driver 18 for SQL Server};Server=tcp:127.0.0.1,1;'
+                   'Authentication=ActiveDirectoryDefault;Encrypt=yes;', timeout=2)
+except pyodbc.Error as e:
+    print(e.args[0], e.args[1])
+"
+```
+
+Measured 2026-09-03: `08001`, `Invalid value specified for connection string attribute
+'Authentication'`. Swap in `ActiveDirectoryMsi` and the same command reaches `HYT00`, login timeout,
+because that value is accepted. The keyword takes `SqlPassword`, `ActiveDirectoryIntegrated`,
+`ActiveDirectoryInteractive`, `ActiveDirectoryMsi`, `ActiveDirectoryServicePrincipal` and the
+deprecated `ActiveDirectoryPassword`, and nothing else.
 
 To get the same behaviour, acquire the token in Python and hand it to the driver:
 
@@ -189,6 +153,7 @@ import struct
 from azure.identity import DefaultAzureCredential
 import pyodbc
 
+# msodbcsql.h: SQL_COPT_SS_BASE_EX (1240) + 16
 SQL_COPT_SS_ACCESS_TOKEN = 1256
 
 token = DefaultAzureCredential().get_token("https://database.windows.net/.default").token
@@ -202,39 +167,85 @@ conn = pyodbc.connect(
 )
 ```
 
-Three details that make this fail silently if missed: the attribute id is **1256**, the token is
-encoded **UTF-16 little-endian** behind a four-byte length prefix, and the connection string must
-contain **no** `UID`, `PWD`, `Authentication` or `Trusted_Connection`. Supplying both is an error,
-not a preference.
+Three details that fail silently if missed: the attribute id is **1256**, the token is **UTF-16
+little-endian** behind a four-byte length prefix, and the connection string must contain **no**
+`UID`, `PWD`, `Authentication` or `Trusted_Connection`. Supplying both is refused as `FA005`,
+`Cannot use Access Token with any of the following options`, measured the same day.
 
-Either way the identity needs a database principal before it can connect. Creating it is
-`entra-id-auth`.
+Either way the identity needs a database principal first. Creating it, and what the container does
+with no Entra configuration at all, is `entra-id-auth`.
 
-## Validation rules
+## Check it worked
 
-- New code uses `mssql-python`, and the reason is written down if it does not.
-- A `pyodbc` deployment installs `msodbcsql18`, accepts the licence non-interactively, and names
-  `ODBC Driver 18 for SQL Server` in the connection string.
-- `mssql_python.pooling()` is called before the first connection, or not at all.
-- The connection string is built once as a constant and reused, so the pool is not split.
-- Connections are used as context managers.
-- Entra ID on the `pyodbc` path goes through `SQL_COPT_SS_ACCESS_TOKEN`, and that connection string
-  carries no `UID`, `PWD` or `Authentication`.
-- No credential, server hostname or token appears in source.
-- Every value in a query is a bound parameter.
+**One: the driver name in your string is a name the driver manager has.** No database needed, and
+it settles most Python connection failures:
+
+```bash
+python3 -c "import pyodbc; print(pyodbc.version, pyodbc.drivers())"
+```
+
+Expect `ODBC Driver 18 for SQL Server` in the list. Measured here on 2026-09-03: `5.3.0 ['ODBC
+Driver 18 for SQL Server', 'ODBC Driver 17 for SQL Server']`. An empty list means the package
+installed and the driver did not.
+
+The two failures look nothing alike and only one is the one everybody quotes. On unixODBC 2.3.14 a
+`Driver={...}` naming something unregistered raises `01000`, `Can't open lib '<name>' : file not
+found`. `IM002`, `Data source name not found and no default driver specified`, is a string that
+named no driver at all. Installing `msodbcsql18` answers the first and nothing about the second.
+
+**Two: encrypted, as the principal you meant, against the database you meant.** Save this as
+`check_connection.py`:
+
+```python
+import os, sys, pyodbc
+
+CONN = (
+    "Driver={ODBC Driver 18 for SQL Server};"
+    f"Server=tcp:{os.environ['SQL_SERVER']},1433;Database={os.environ['SQL_DATABASE']};"
+    f"UID={os.environ['SQL_USER']};PWD={os.environ['SQL_PASSWORD']};"
+    "Encrypt=yes;TrustServerCertificate=no;"
+)
+
+conn = pyodbc.connect(CONN, timeout=15)
+try:
+    db, login, user, enc = conn.cursor().execute(
+        "SELECT DB_NAME(), SUSER_SNAME(), USER_NAME(),"
+        " (SELECT encrypt_option FROM sys.dm_exec_connections WHERE session_id = @@SPID)"
+    ).fetchone()
+finally:
+    conn.close()
+
+print(f"database={db} login={login} user={user} encrypted={enc}")
+sys.exit(0 if (enc == "TRUE" and db == os.environ["SQL_DATABASE"]
+               and login == os.environ["SQL_EXPECT_LOGIN"]) else 1)
+```
+
+```bash
+export SQL_SERVER=<server-name>.database.windows.net SQL_DATABASE=<database> \
+       SQL_USER=<user> SQL_PASSWORD=<password> SQL_EXPECT_LOGIN=<user>
+python3 check_connection.py; echo "exit $?"
+```
+
+Expect exit `0` and a line ending `encrypted=TRUE`. Read the fields, not only the exit code:
+
+- `encrypted=FALSE` is driver 17, whose `Encrypt` default is `no`. Driver 18 defaults to `yes`.
+- `login` is who authenticated. A credential chain that picked up your own sign-in instead of the
+  managed identity shows up here and nowhere else.
+- `user` is the database principal that login mapped to. Anything but the one you granted means the
+  grant landed in a different database.
+- `TrustServerCertificate=yes` still prints `TRUE`: it keeps encryption and drops validation. Azure
+  SQL Database needs no such exemption; the container's self-signed certificate does, and
+  `connect-to-azure-sql` owns which.
+- A permissions error from `sys.dm_exec_connections` is `VIEW DATABASE STATE`, not encryption: on
+  Basic, S0, S1 and elastic pool databases only an administrator can read it.
 
 ## Do not
 
 - Do not assume `pyodbc` is the only Python driver. That was true and is not.
-- Do not add an operating system ODBC driver install to a `mssql-python` deployment. It carries its
-  own.
-- Do not write `Authentication=ActiveDirectoryDefault` into a `pyodbc` connection string. The ODBC
-  driver does not accept it.
-- Do not combine an access token with `UID`, `PWD` or `Authentication` in the same connection.
-- Do not use `ActiveDirectoryPassword`. Microsoft has deprecated the flow it is built on.
-- Do not call `mssql_python.pooling()` after opening a connection and expect it to apply.
-- Do not use `ActiveDirectoryDefault` in production and then treat the chain latency as a network
-  fault.
+- Do not add an operating system ODBC driver install to a `mssql-python` deployment.
+- Do not put `Authentication=ActiveDirectoryDefault` in a `pyodbc` string, or an access token
+  alongside `UID`, `PWD` or `Authentication`.
+- Do not use `ActiveDirectoryPassword`, or `ActiveDirectoryDefault` in production.
 - Do not build SQL text with string formatting. Bind parameters.
 - Do not write retry loops here. Transient-fault handling is one policy for every language, in
   `connect-to-azure-sql`.
@@ -242,17 +253,13 @@ Either way the identity needs a database principal before it can connect. Creati
 ## References
 
 - [Microsoft Python driver for SQL Server](https://learn.microsoft.com/sql/connect/python/mssql-python/python-sql-driver-mssql-python):
-  the driver's front door, including installation, pooling and the migration guide from `pyodbc`.
-  Read it before writing new Python data access.
+  read it before writing new Python data access.
 - [Microsoft Entra authentication with mssql-python](https://learn.microsoft.com/sql/connect/python/mssql-python/entra-authentication):
-  the authoritative list of authentication modes and when to use each. Read it when choosing a mode.
+  read it when choosing a mode, for the authoritative list and `token_provider`.
 - [Using Microsoft Entra ID with the ODBC driver](https://learn.microsoft.com/sql/connect/odbc/using-azure-active-directory):
-  the ODBC `Authentication` values and the access token attribute. Read it before claiming the
-  driver supports a mode.
-- [Install the ODBC driver on Linux](https://learn.microsoft.com/sql/connect/odbc/linux-mac/installing-the-microsoft-odbc-driver-for-sql-server):
-  current per-distribution commands. Fetch it rather than recalling the package names.
-- [pyodbc, features beyond the DB API](https://github.com/mkleehammer/pyodbc/wiki/Features-beyond-the-DB-API):
-  the project's own statement that ODBC pooling is on by default and how to turn it off. Read it
-  before changing pooling on the `pyodbc` path.
-- `connect-to-azure-sql`: encryption doctrine, retry and transient faults, pool sizing, and the
-  first-connect error on a paused database.
+  read it before claiming the driver supports a mode. Carries the access token structure.
+- [DSN and connection string keywords](https://learn.microsoft.com/sql/connect/odbc/dsn-connection-string-attribute):
+  read it before changing an encryption or certificate keyword. `Encrypt` defaults to `yes` from
+  version 18.
+- `connect-to-azure-sql`: encryption doctrine, retry, pool sizing, and the first-connect error on a
+  paused database.

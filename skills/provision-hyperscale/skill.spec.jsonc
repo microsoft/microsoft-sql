@@ -15,7 +15,7 @@
     "restore-and-recover"
   ],
   "validation": {
-    "target": "cloud",
+    "target": "both",
     "setup": [
       "a General Purpose serverless database on a logical server the caller can update",
       "a second database created directly in the Hyperscale service tier"
@@ -27,6 +27,44 @@
       "read scale-out follows the high availability replica count, and the read-scale switch is accepted and ignored on Hyperscale",
       "a Hyperscale database reports no maximum size, so no max size is chosen at creation",
       "the premium-series hardware families are not the values the create command's help text lists"
+    ],
+    "probes": [
+      {
+        "where": "host",
+        "cmd": "az sql db create --help 2>&1 | tr -s '[:space:]' ' ' | grep -q 'Allowed values include: Gen4, Gen5'",
+        "expect": { "succeeds": true },
+        "why": "The sizing gotcha only makes sense while the help text really does offer Gen4 and Gen5 and nothing else for --family, which is why the body tells a reader to pass --service-objective instead. Measured 2026-09-03 on Azure CLI 2.90.0, exit 0. If Azure CLI ever lists 8IM and 8IH here the gotcha is stale and this probe goes red first. The Hyperscale-only families themselves cannot be probed without creating a database, which this skill is not allowed to do."
+      },
+      {
+        "where": "host",
+        "cmd": "az sql db create --help 2>&1 | tr -s '[:space:]' ' ' | grep -q 'Allowed on one database in a subscription'",
+        "expect": { "succeeds": true },
+        "why": "The free offer section quotes this line to show that the Azure CLI help and the free offer FAQ disagree about how many free databases a subscription gets, which is why the body quotes neither as the answer. Measured 2026-09-03 on Azure CLI 2.90.0, exit 0."
+      },
+      {
+        "where": "host",
+        "cmd": "az sql db update --help 2>&1 | tr -s '[:space:]' ' ' | grep -q 'only settable for Premium and Business Critical databases'",
+        "expect": { "succeeds": true },
+        "why": "The body quotes this sentence as the reason --read-scale is accepted and ignored on Hyperscale. Measured 2026-09-03 on Azure CLI 2.90.0, exit 0. The silent no-op itself needs a live Hyperscale database to observe, so this probe pins the quoted wording rather than the behaviour."
+      },
+      {
+        "where": "host",
+        "cmd": "az sql db update --help 2>&1 | grep -q -- '--ha-replicas'",
+        "expect": { "succeeds": true },
+        "why": "Read scale-out in this skill is configured entirely through --ha-replicas, so the flag existing is the precondition for that whole section. Measured 2026-09-03 on Azure CLI 2.90.0, exit 0."
+      },
+      {
+        "where": "host",
+        "cmd": "az sql db update --help 2>&1 | grep -q -- '--manual-cutover' && az sql db update --help 2>&1 | grep -q -- '--perform-cutover'",
+        "expect": { "succeeds": true },
+        "why": "The conversion procedure is three commands and two of them depend on these flags, which are what keep the cutover in the caller's hands instead of the service's. Measured 2026-09-03 on Azure CLI 2.90.0, both present, exit 0."
+      },
+      {
+        "where": "host",
+        "cmd": "az sql db replica create --help 2>&1 | tr -s '[:space:]' ' ' | grep -q 'Allowed values include: Geo, Named'",
+        "expect": { "succeeds": true },
+        "why": "The named replica command in the body passes --secondary-type Named, and Named is a Hyperscale-only value that a reader coming from geo-replication will not expect to find here. Measured 2026-09-03 on Azure CLI 2.90.0, exit 0."
+      }
     ]
   },
   "triggering": {
