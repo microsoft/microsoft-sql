@@ -10,6 +10,13 @@
 //
 //   node scripts/backfill-container-sidecars.mjs [--check]
 //
+// --check IS NOT A CROSS-REPOSITORY CHECK. It regenerates the 17 sidecars from
+// the literals below and compares the result against this repository. It never
+// opens microsoft/azure-sql-database-container, so it can be green while the
+// two repositories say different things. scripts/check-container-parity.mjs is
+// the one that actually reads the other repository. If you change MATURITY here
+// without changing it there, this check stays green and that one goes red.
+//
 // Sources:
 //   domain, value        data/catalog.json
 //   triggering.implicit  the pilot's eval/trigger-evals.md prompt set, which was
@@ -208,7 +215,9 @@ const NEGATIVE = [
 //                               none of the skill.
 //
 // These values must stay equal to the same field in
-// microsoft/azure-sql-database-container, which is where the probes live.
+// microsoft/azure-sql-database-container, which is where the probes live. That
+// equality is not enforced here, because nothing here reads that repository.
+// scripts/check-container-parity.mjs enforces it.
 const MATURITY = {
   'azuresql-db-auth': 'preview',
   'azuresql-db-ci': 'preview',
