@@ -27,6 +27,46 @@
       "a user-assigned managed identity supplies its client id in User Id",
       "connection strings differ only where a separate pool is intended",
       "the extension package requirement is decided from the dependency graph and the authentication mode, not from the outcome of a connection to the local container"
+    ],
+    "probes": [
+      {
+        "cmd": "dotnet list package --help | grep -q -- '--include-transitive'",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The flag both dependency-graph checks in SKILL.md depend on. Read out of the tool's own help on .NET SDK 8.0.421, measured 2026-09-03. dotnet is a client SDK a developer installs, never something the engine image ships, so this is a host probe and it opens no database connection."
+      },
+      {
+        "cmd": "d=$(mktemp -d) && cd \"$d\" && dotnet new console -o app >/dev/null && cd app && dotnet add package Microsoft.Data.SqlClient >/dev/null && before=$(dotnet list package --include-transitive | grep -cE '> (Azure\\.Identity|Azure\\.Core|Microsoft\\.Identity\\.Client) ' || true) && dotnet add package Microsoft.Data.SqlClient.Extensions.Azure >/dev/null && after=$(dotnet list package --include-transitive | grep -cE '> (Azure\\.Identity|Azure\\.Core|Microsoft\\.Identity\\.Client) ' || true) && test \"$before\" = 0 && test \"$after\" = 3",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The correction this skill exists for, made executable: none of Azure.Identity, Azure.Core or Microsoft.Identity.Client is in the restored graph of Microsoft.Data.SqlClient alone, and all three appear once Microsoft.Data.SqlClient.Extensions.Azure is referenced. Measured 2026-09-03 on 7.0.2 with .NET SDK 8.0.421: 0 then 3, with Azure.Identity 1.18.0, Azure.Core 1.51.1 and Microsoft.Identity.Client 4.84.2. A host probe, and it needs NuGet access to restore the two packages into a throwaway project."
+      },
+      {
+        "sql": "SELECT COUNT(*) AS rows_for_this_session FROM sys.dm_exec_connections WHERE session_id = @@SPID;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "The fourth check in SKILL.md reads encrypt_option, SUSER_SNAME, USER_NAME and DB_NAME over the application's own connection, and all of it rests on sys.dm_exec_connections returning the row for the current session. One row here means the check is runnable; zero means the connection lacks VIEW DATABASE STATE, which is the permission case the section calls out."
+      },
+      {
+        "sql": "SELECT CASE WHEN CONNECTIONPROPERTY('auth_scheme') IS NOT NULL AND CONNECTIONPROPERTY('encrypt_option') IS NULL THEN 1 ELSE 0 END AS no_unprivileged_substitute;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "SKILL.md tells a reader there is no unprivileged substitute for the DMV, because CONNECTIONPROPERTY carries auth_scheme but not encrypt_option and returns NULL for any other property name. Sourced from CONNECTIONPROPERTY (Transact-SQL) on Microsoft Learn, whose argument table lists seven property names, none of them encrypt_option, and ends with 'Any other string: Returns NULL for invalid input'."
+      }
     ]
   },
   "triggering": {

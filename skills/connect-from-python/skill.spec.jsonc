@@ -26,7 +26,68 @@
       "mssql_python.pooling() is called before the first connection or not at all",
       "Entra ID on the pyodbc path passes a token through SQL_COPT_SS_ACCESS_TOKEN, not Authentication=ActiveDirectoryDefault",
       "no credential appears in the connection string on either path"
-    ]
+    ],
+    "probes": [
+        {
+          "where": "host",
+          "cmd": "python3 -c \"import pyodbc, sys\nsys.exit(0 if 'ODBC Driver 18 for SQL Server' in pyodbc.drivers() else 1)\"",
+          "expect": {
+            "succeeds": true
+          },
+          "why": "The skill's first check, made executable. pyodbc installs from a wheel with no compiler step, so pip succeeding proves nothing about the operating system driver the connection string names; this asserts the driver manager has registered that exact name. Measured 2026-09-03 on pyodbc 5.3.0 with unixODBC 2.3.14: exit 0, drivers were ODBC Driver 18 and ODBC Driver 17 for SQL Server. Host, because the claim is about the machine the Python application runs on, not about the engine image. Opens no database connection."
+        },
+        {
+          "where": "host",
+          "cmd": "python3 -c \"import pyodbc\ntry:\n    pyodbc.connect('Driver={ODBC Driver 18 for SQL Server};Server=tcp:127.0.0.1,1;Authentication=ActiveDirectoryDefault;Encrypt=yes;', timeout=2)\nexcept pyodbc.Error as e:\n    print(e.args[0])\" | grep -q '^08001$'",
+          "expect": {
+            "succeeds": true
+          },
+          "why": "The central correction of this skill, asserted rather than described. ActiveDirectoryDefault is a mssql-python and azure-identity value; the ODBC driver's Authentication keyword does not have it, and an agent that writes it into a pyodbc string has invented a value. Measured 2026-09-03: SQLSTATE 08001, 'Invalid value specified for connection string attribute Authentication', raised by the driver before it opens a socket, which is why 127.0.0.1 on a closed port is a sufficient target and no engine is needed. SQLSTATE rather than a Msg number because this never reaches the engine."
+        },
+        {
+          "where": "host",
+          "cmd": "python3 -c \"import pyodbc\ntry:\n    pyodbc.connect('Driver={ODBC Driver 18 for SQL Server};Server=tcp:127.0.0.1,1;Authentication=ActiveDirectoryMsi;Encrypt=yes;', timeout=2)\nexcept pyodbc.Error as e:\n    print(e.args[0])\" | grep -q '^HYT00$'",
+          "expect": {
+            "succeeds": true
+          },
+          "why": "The control for the probe above, and the reason its result means what the skill says. A driver that rejected every Authentication value would produce 08001 for both. ActiveDirectoryMsi is accepted, gets past string validation and fails later on the network instead. Measured 2026-09-03: SQLSTATE HYT00, login timeout expired, after the two second timeout. If this ever returns 08001 the driver has dropped managed identity support and the skill's production recommendation is wrong."
+        },
+        {
+          "where": "host",
+          "cmd": "python3 -c \"import pyodbc, struct\npacked = 'abcd'.encode('utf-16-le')\ntok = struct.pack('<I8s', len(packed), packed)\ntry:\n    pyodbc.connect('Driver={ODBC Driver 18 for SQL Server};Server=tcp:127.0.0.1,1;Database=x;UID=u;PWD=p;Encrypt=yes;', timeout=2, attrs_before={1256: tok})\nexcept pyodbc.Error as e:\n    print(e.args[0])\" | grep -q '^FA005$'",
+          "expect": {
+            "succeeds": true
+          },
+          "why": "Two claims in one command. The driver recognises 1256 as SQL_COPT_SS_ACCESS_TOKEN, which is the attribute id the skill tells a reader to hardcode, and it refuses an access token supplied alongside UID and PWD rather than quietly preferring one. Measured 2026-09-03: SQLSTATE FA005, 'Cannot use Access Token with any of the following options: Authentication, Integrated Security, User, Password'. A wrong attribute id would be ignored and the connection would fall through to the password, which is exactly the silent failure this asserts against."
+        },
+        {
+          "where": "host",
+          "cmd": "python3 -c \"import pyodbc\ntry:\n    pyodbc.connect('Driver={ODBC Driver 99 for SQL Server};Server=tcp:127.0.0.1,1;Database=x;', timeout=2)\nexcept pyodbc.Error as e:\n    print(e.args[0])\" | grep -q '^01000$'",
+          "expect": {
+            "succeeds": true
+          },
+          "why": "Half of the diagnostic split in Check it worked. A Driver= naming something the driver manager has not registered is 01000, 'Can't open lib ... file not found', which is the failure a missing msodbcsql18 install actually produces. Measured 2026-09-03 on unixODBC 2.3.14 with a deliberately absent driver 99."
+        },
+        {
+          "where": "host",
+          "cmd": "python3 -c \"import pyodbc\ntry:\n    pyodbc.connect('Server=tcp:127.0.0.1,1;Database=x;', timeout=2)\nexcept pyodbc.Error as e:\n    print(e.args[0])\" | grep -q '^IM002$'",
+          "expect": {
+            "succeeds": true
+          },
+          "why": "The other half, and the one every search result quotes. IM002, 'Data source name not found and no default driver specified', is a connection string that named no driver at all, not a driver that failed to load. Measured 2026-09-03. The two are routinely conflated, and installing msodbcsql18 answers the probe above and nothing about this one."
+        },
+        {
+          "sql": "SELECT COUNT(*) AS visible_rows FROM sys.dm_exec_connections WHERE session_id = @@SPID;",
+          "expect": {
+            "rows": [
+              [
+                1
+              ]
+            ]
+          },
+          "why": "The check_connection.py script in Check it worked reads encrypt_option from sys.dm_exec_connections for its own session, so this asserts the DMV exists and returns exactly the current session's row on whichever engine the lane runs against. The value of encrypt_option is deliberately not asserted: it depends on the connection the runner opened, and the skill's own point is that TrustServerCertificate=yes still reports TRUE. On Basic, S0, S1 and elastic pool databases a non-administrative login needs VIEW DATABASE STATE and would see zero rows here, which is the permissions case the body calls out."
+        }
+      ]
   },
   "triggering": {
     "explicit": [

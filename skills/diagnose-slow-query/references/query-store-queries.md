@@ -10,7 +10,6 @@ memory.
 - [Find every query with more than one plan](#find-every-query-with-more-than-one-plan)
 - [Query text is normalized, and comments do not survive](#query-text-is-normalized-and-comments-do-not-survive)
 - [The permission error, verbatim](#the-permission-error-verbatim)
-- [Confirming Query Store is on before anything else](#confirming-query-store-is-on-before-anything-else)
 
 ## Rank instability across the whole database
 
@@ -73,30 +72,39 @@ it is stored in `sys.query_store_query_text.query_sql_text` as:
 Checked directly on the test engine: a `LIKE '%QSTIME_cheap4%'` and a `LIKE '%id>0%'` both return
 zero rows against this exact query, captured moments earlier under `QUERY_CAPTURE_MODE = ALL`. The
 literal is gone, replaced by a typed parameter placeholder, `@1 tinyint`. The comment is gone
-entirely. Identifiers gain brackets they may not have had in the original text.
+entirely. Identifiers gained brackets they did not have in the original text.
 
-Search the normalized shape instead:
+**The brackets and the `@N` placeholder are the same event, and it does not happen to every
+query.** The `(@1 tinyint)` prefix is what Microsoft Learn calls the marker of a statement the
+engine parameterized: the names and types of the parameters come before the text of the submitted
+batch. The bracketing rides along with that rewrite, so a statement the engine did not rewrite
+keeps its identifiers as the author wrote them. Learn also warns that parameter names, which
+literals get parameterized, and the spacing can change between builds, a second reason not to match
+on the rewritten shape.
+
+Measured against that on 2026-09-03, in one run against one database: `SELECT @rc = COUNT(*) FROM
+dbo.probe_qs_norm WHERE id > 0` was captured, was found by a search for `probe_qs_norm`, and was
+NOT found by a search for `[dbo].[probe_qs_norm]`. The bracketed pattern that matched the
+single-table case above missed this one, in the same view, for the same table.
+
+So search the bare object name, which matches a rewritten capture and an unrewritten one alike,
+then read the text back rather than guessing which you got:
 
 ```sql
 SELECT query_sql_text
 FROM sys.query_store_query_text
-WHERE query_sql_text LIKE '%[[]dbo].[[]q]%'
-  AND query_sql_text LIKE '%[[]id]>@%';
+WHERE query_sql_text LIKE '%q%';
 ```
 
-`[[]` escapes a literal `[` for `LIKE`, since `[` is itself a wildcard character in T-SQL pattern
-matching. This matched the row above on the test engine; the equivalent search on the original
-literal or comment did not, against the identical row, in the identical database.
+If you do search a bracketed pattern, `[[]` escapes a literal `[` for `LIKE`, since `[` is itself a
+wildcard character in T-SQL pattern matching, and `LIKE '%[[]dbo].[[]q]%'` is what matched the
+rewritten row above.
 
-This normalization behavior and the `AUTO` capture gap above were both re-measured on separate,
-freshly created databases on 2026-08-29. The single-table case above confirmed the same result
-again: literal stripped, comment stripped, brackets added. A JOIN across two tables was captured
-with its comment stripped too, but with the literal left in place, not every query shape is
-eligible for the literal-to-parameter rewrite, so do not assume every captured query will show an
-`@N` placeholder. **Comment-stripping was the one constant across both shapes; the literal
-rewrite was not.** A comment tag is the less reliable thing to search for even than a literal
-value, because it disappears on every capture regardless of query shape, while a literal
-sometimes survives.
+Both this and the `AUTO` gap above were re-measured on separate, freshly created databases on
+2026-08-29: the single-table case repeated exactly, literal stripped, comment stripped, brackets
+added, while a two table JOIN was captured with its comment stripped and its literal left in place.
+**Comment stripping was the one constant across every shape; the literal rewrite and the brackets
+were not.**
 
 ## The permission error, verbatim
 
@@ -121,14 +129,3 @@ JOIN sys.database_principals p ON dp.grantee_principal_id = p.principal_id
 WHERE p.name = '<the account>';
 ```
 
-## Confirming Query Store is on before anything else
-
-```sql
-SELECT actual_state_desc, query_capture_mode_desc, stale_query_threshold_days, max_storage_size_mb
-FROM sys.database_query_store_options;
-```
-
-On a database created moments before this was checked, `actual_state_desc` already read
-`READ_WRITE` with no configuration step taken. An `actual_state_desc` of `READ_ONLY` means storage
-capped out against `max_storage_size_mb` and Query Store stopped accepting new data; that is a
-capacity problem to raise with whoever owns the database, not a sign the workload went quiet.
