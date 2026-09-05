@@ -24,7 +24,7 @@
     ]
   },
   "posture": ["read", "write", "execute"],
-  "maturity": "preview",
+  "maturity": "ga",
   "applies_to": ["azure-sql-db-container", "azure-sql-db"],
   "related": [
     "rag-on-azure-sql",

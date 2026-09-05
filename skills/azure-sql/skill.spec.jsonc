@@ -22,7 +22,7 @@
     ]
   },
   "posture": ["read"],
-  "maturity": "preview",
+  "maturity": "ga",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "provision-azure-sql-db",

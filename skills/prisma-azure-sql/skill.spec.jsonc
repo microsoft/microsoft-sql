@@ -22,7 +22,7 @@
     ]
   },
   "posture": ["read", "write", "execute", "provision"],
-  "maturity": "preview",
+  "maturity": "ga",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "connect-from-typescript-and-node",

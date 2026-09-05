@@ -21,7 +21,16 @@
     ]
   },
   "posture": ["read", "write", "execute"],
-  "maturity": "preview",
+  // Held at draft below a preview ceiling, on purpose. The value measurement of
+  // 2026-09-04 returned NEITHER: the model already answers this skill's own task
+  // correctly without it, so the skill changes nothing about the answer. Its
+  // engine probes still pass. Nothing here is broken and nothing here is
+  // unverified. This is an author declaring below the ceiling, which the ladder
+  // permits, and it is not the skill failing. Do not raise this field back to
+  // clear the promotion backlog. It moves when the skill is rewritten to say
+  // something the model does not already know and a fresh measurement shows
+  // lift, and not before.
+  "maturity": "draft",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "connect-from-dotnet",
