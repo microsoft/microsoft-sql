@@ -21,7 +21,7 @@
     ]
   },
   "posture": ["read", "write", "provision"],
-  "maturity": "preview",
+  "maturity": "draft",
   "applies_to": ["azure-sql-db"],
   "related": [
     "provision-azure-sql-db",

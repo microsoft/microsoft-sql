@@ -28,7 +28,7 @@
     "execute",
     "admin"
   ],
-  "maturity": "preview",
+  "maturity": "draft",
   "applies_to": [
     "azure-sql-db"
   ],

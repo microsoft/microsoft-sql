@@ -20,7 +20,7 @@
     ]
   },
   "posture": ["read", "write", "execute"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db"],
   "related": [
     "azuresql-db-functions",

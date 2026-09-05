@@ -20,7 +20,7 @@
     ]
   },
   "posture": ["read", "write", "provision"],
-  "maturity": "preview",
+  "maturity": "ga",
   "applies_to": ["azure-sql-db"],
   "related": ["connect-to-azure-sql", "entra-id-auth", "provision-hyperscale", "diagnose-connection-errors"],
   "validation": {
