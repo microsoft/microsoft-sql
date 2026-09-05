@@ -20,7 +20,7 @@
     ]
   },
   "posture": ["execute", "provision", "admin"],
-  "maturity": "draft",
+  "maturity": "ga",
   "applies_to": ["azure-sql-db"],
   "related": [
     "sql-database-projects",
