@@ -36,6 +36,56 @@
       "the tenant or permission predicate was exercised on an unindexed local table or in the cloud, and a test fails when the policy is absent",
       "the corpus was fully re-embedded after the model changed, and grouping by the model column returns exactly one row",
       "every sample corpus is fabricated and contains no customer text or real identifier"
+    ],
+    "probes": [
+      {
+        "sql": "CREATE TABLE dbo.probe_rlc_kb (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, tenant_id int NOT NULL, embedding vector(5) NOT NULL);\nGO\nINSERT INTO dbo.probe_rlc_kb (tenant_id, embedding)\nSELECT 1, CAST(JSON_ARRAY(SIN(value * 1.0), COS(value * 1.0), SIN(value * 0.5), COS(value * 0.5), CAST(value * 0.001 AS float)) AS vector(5))\nFROM GENERATE_SERIES(1, 150);\nGO\nCREATE FUNCTION dbo.fn_probe_rlc_kb (@t int) RETURNS TABLE WITH SCHEMABINDING AS RETURN SELECT 1 AS ok WHERE @t = CAST(SESSION_CONTEXT(N'tenant_id') AS int);\nGO\nCREATE SECURITY POLICY dbo.probe_rlc_pol ADD FILTER PREDICATE dbo.fn_probe_rlc_kb(tenant_id) ON dbo.probe_rlc_kb WITH (STATE = ON);\nGO\nCREATE VECTOR INDEX vi_probe_rlc_kb ON dbo.probe_rlc_kb (embedding) WITH (METRIC = 'cosine', TYPE = 'diskann');",
+        "expect": {
+          "error": 42244
+        },
+        "why": "The half of the mutual exclusion this skill owns and the sibling azuresql-db-rag does not: policy FIRST, then the index. That sibling probes the other order, Msg 37579, and the skill's whole point is that no ordering trick gets both, so the reverse order needs its own measurement or the claim is half asserted. Measured 2026-09-04 on the container, Msg 42244, 'A vector index cannot be created on tables with security policies.' This is the cheapest defence in a multi-tenant retrieval design, so a build that starts allowing it is news the skill has to carry; a build that starts refusing the other order too would leave the reader with no local option at all."
+      },
+      {
+        "sql": "SELECT c.chunk_order, c.chunk_offset, c.chunk_length\nFROM (VALUES (N'Retrieval augmented generation grounds an answer in your own text.')) AS d(body)\nCROSS APPLY AI_GENERATE_CHUNKS(SOURCE = d.body, CHUNK_TYPE = FIXED, CHUNK_SIZE = 25) AS c\nORDER BY c.chunk_order;",
+        "expect": {
+          "rows": [
+            [
+              1,
+              1,
+              25
+            ],
+            [
+              2,
+              26,
+              25
+            ],
+            [
+              3,
+              51,
+              16
+            ]
+          ]
+        },
+        "why": "The one step of the pipeline this skill says is not environment specific, asserted on the skill's own sentence rather than on a paraphrase, so the numbers are reproducible by hand from the body. Measured 2026-09-04 on both container builds available here, 18.0.226_4_147 and azure-sql/db-dev:latest, which agreed. NOTE: the skill's body currently says the three lengths are 25, 25 and 15. The sentence is 66 characters, 25 plus 25 plus 16, and the engine returns 16. The body is off by one and this probe records the measured value, so the probe is green and the prose is wrong until somebody fixes it."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_rlc_dim (id int NOT NULL, embedding vector(768) NULL);\nGO\nALTER TABLE dbo.probe_rlc_dim ALTER COLUMN embedding vector(1536);",
+        "expect": {
+          "error": 42204
+        },
+        "why": "The claim that decides the corpus question before any code is written: ALTER COLUMN cannot change a vector's dimension, even on an empty table, so a local model and a cloud model of different widths is a new column and a migration rather than an update. The skill states the rule with no number; measured 2026-09-04 the engine answers Msg 42204, 'The vector dimensions 768 and 1536 do not match.' The table is created empty on purpose, because the version of this claim a reader is most likely to disbelieve is the one about an empty table."
+      },
+      {
+        "sql": "CREATE EXTERNAL MODEL probe_rlc_http WITH (LOCATION = 'http://localhost:11434/api/embed', API_FORMAT = 'Ollama', MODEL_TYPE = EMBEDDINGS, MODEL = 'nomic-embed-text');\nGO\nSELECT name FROM sys.external_models WHERE name = 'probe_rlc_http';",
+        "expect": {
+          "rows": [
+            [
+              "probe_rlc_http"
+            ]
+          ]
+        },
+        "why": "THIS PROBE CONTRADICTS THE SKILL AND IS MEANT TO. Step 2 of the body prints this exact statement and annotates it 'Msg 31610. The statement never gets as far as the network', and builds its structural argument for embedding in application code on that refusal. Measured 2026-09-04 the statement succeeds and the model is listed in sys.external_models, on both container builds available here, 18.0.226_4_147 and azure-sql/db-dev:latest. The https-to-a-private-address refusal the body records as Msg 31624 did not reproduce either. So this is asserted as the measured outcome rather than as the documented one, and it is a row assertion rather than a succeeds assertion so it stays specific: it goes red the day the engine starts refusing the plain-HTTP endpoint, which is the day the skill's prose becomes right again. Until then the body needs correcting, and this probe is the standing evidence."
+      }
     ]
   },
   "triggering": {

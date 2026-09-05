@@ -47,6 +47,100 @@
       "any default constraint the script drops is resolved from sys.default_constraints rather than named literally",
       "no down script is offered as the rollback plan, and the answer states which deployment can be skipped instead",
       "a concurrency or locking claim came from two sessions rather than from a comment"
+    ],
+    "probes": [
+      {
+        "sql": "CREATE TABLE IF NOT EXISTS dbo.probe_mig_ine (id int NOT NULL);",
+        "expect": {
+          "error": 156
+        },
+        "why": "The single most likely thing an agent writes when asked to make a migration re-runnable, because every other engine it has read has this form. Section 7's table says Msg 156, syntax error, does not exist, and this is that row made executable. Measured 2026-09-04 on the container at EngineEdition 5. It fails loudly rather than silently, which is the good case, but only if somebody has been told; the cost of not knowing is a migration script rewritten from scratch at the wrong moment."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_add (id int NOT NULL);\nGO\nALTER TABLE dbo.probe_mig_add ADD IF NOT EXISTS region nvarchar(20) NULL;",
+        "expect": {
+          "error": 156
+        },
+        "why": "The expand half of section 7's asymmetry: there is no ADD IF NOT EXISTS, so every expand step has to be wrapped in an explicit catalog check by hand. Measured 2026-09-04, Msg 156. Paired deliberately with the DROP COLUMN IF EXISTS probe below, because the conclusion the skill draws is not about either statement on its own: it is that contract is idempotent for free and expand is not, which is why the guard appears only on one half of its worked example."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_drop (id int NOT NULL, legacy int NULL);\nGO\nALTER TABLE dbo.probe_mig_drop DROP COLUMN IF EXISTS legacy;\nALTER TABLE dbo.probe_mig_drop DROP COLUMN IF EXISTS legacy;\nSELECT COUNT(*) AS remaining_columns FROM sys.columns WHERE object_id = OBJECT_ID('dbo.probe_mig_drop');",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "The contract half of the same asymmetry, and it is run twice on purpose: idempotent means the second run is a no operation, not that the first one worked. One column left is the id. Measured 2026-09-04. If this ever raises, the worked example in section 7 stops being safe to re-run and the skill's claim that contract is idempotent for free is wrong."
+      },
+      {
+        "sql": "SELECT 1 AS one;\nCREATE VIEW dbo.probe_mig_view AS SELECT 1 AS one;",
+        "expect": {
+          "error": 111
+        },
+        "why": "A different number from the four Msg 156 rows, and a different cause, which is why it is worth its own round trip: CREATE VIEW is refused not because the syntax is wrong but because it is not first in its batch. Measured 2026-09-04, Msg 111. This is the whole reason the skill routes programmability objects through sp_executesql instead of an IF, and a reader who only knows about Msg 156 will try to fix a Msg 111 by editing the statement rather than by moving it."
+      },
+      {
+        "sql": "BEGIN TRAN;\nALTER DATABASE SCOPED CONFIGURATION SET ELEVATE_ONLINE = FAIL_UNSUPPORTED;\nCOMMIT;",
+        "expect": {
+          "error": 226
+        },
+        "why": "One of the three limits section 6 uses to decide where a migration transaction can be split, and the one the skill itself invites a reader to run: it prints ALTER DATABASE SCOPED CONFIGURATION SET ELEVATE_ONLINE in section 3 and then says in section 6 that ALTER DATABASE ... SET is refused inside a multi-statement transaction. Measured 2026-09-04, Msg 226, message text 'ALTER DATABASE SCOPED CONFIGURATION statement not allowed within multi-statement transaction.' A script that wraps the whole migration in one transaction, which is the shape section 6 recommends, cannot also set this inside it."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_res (id int NOT NULL, v int NULL);\nGO\nBEGIN TRAN;\nCREATE INDEX ix_probe_mig_res ON dbo.probe_mig_res (v) WITH (ONLINE = ON, RESUMABLE = ON);\nCOMMIT;",
+        "expect": {
+          "error": 574
+        },
+        "why": "The second of the three limits, and the skill states the rule without a number, so this probe supplies one that was measured rather than remembered: Msg 574, 'RESUMABLE INDEX statement cannot be used inside a user transaction', measured 2026-09-04 on the container. It matters because section 6's recommended shape is one transaction around the whole migration, and a resumable build is the one step that cannot go inside it, so the doctrine and the technique collide and the reader has to be told which gives way."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_walp (id int NOT NULL, w int NULL);\nGO\nALTER TABLE dbo.probe_mig_walp ALTER COLUMN w bigint WITH (ONLINE = ON (WAIT_AT_LOW_PRIORITY (MAX_DURATION = 1 MINUTES, ABORT_AFTER_WAIT = SELF)));",
+        "expect": {
+          "error": 102
+        },
+        "why": "Section 3 says WAIT_AT_LOW_PRIORITY is for rebuilds only and cannot be used with an online ALTER COLUMN, and names Msg 102 as what was measured. Reproduced 2026-09-04 on the container. This is the trap of reading section 3 too fast: the two options appear a paragraph apart, both are about not queueing a workload behind a schema change, and combining them is a parse error rather than anything that explains itself."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_dfc (id int NOT NULL, qty int NOT NULL DEFAULT (0));\nGO\nALTER TABLE dbo.probe_mig_dfc DROP COLUMN qty;",
+        "expect": {
+          "error": 5074
+        },
+        "why": "The names-you-did-not-choose failure in section 7, which is what the constraint lookup in the worked example exists to solve. An inline default gets a generated name that differs per environment, so the contract step fails with Msg 5074 naming an object nobody wrote down. Measured 2026-09-04, message 'The object DF__probe_mig_dfc__qty__<suffix> is dependent on column qty.' The number is asserted rather than the text precisely because the generated suffix is not stable, which is the point of the claim."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_ren (id int NOT NULL, oldname int NULL);\nGO\nEXEC sp_rename 'dbo.probe_mig_ren.oldname', 'newname', 'COLUMN';",
+        "expect": {
+          "warning": 15477
+        },
+        "why": "The most dangerous shape in the skill, and the only probe here that asserts a message on a statement that SUCCEEDS. sp_rename renames the column, raises nothing at severity 11 or above, and emits Msg 15477 at severity 10, which a runner logging only exceptions discards and which sqlcmd prints with no number at all unless -m-1 is set. Measured 2026-09-04. A succeeds-probe would go green here and prove nothing; asserting the warning number is what makes the silence visible. If a future build raises this as an error the skill's warning becomes unnecessary, and if it stops emitting it at all the rename becomes completely silent, which is worse."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_dep (id int NOT NULL, oldc int NULL);\nGO\nCREATE VIEW dbo.probe_mig_depv AS SELECT oldc FROM dbo.probe_mig_dep;\nGO\nEXEC sp_rename 'dbo.probe_mig_dep.oldc', 'newc', 'COLUMN';\nGO\nSELECT oldc FROM dbo.probe_mig_depv;",
+        "expect": {
+          "error": 207
+        },
+        "why": "The consequence of the probe above, and the reason 'never rename in place' is a rule rather than a preference: the view over the renamed column keeps existing, the rename reports nothing worth catching, and the failure arrives as Msg 207 when the view is next called, which may be in production long after the migration was declared successful. Measured 2026-09-04. Kept separate from the warning probe because the two failures happen at different times and a migration runner can catch neither."
+      },
+      {
+        "sql": "ALTER DATABASE SCOPED CONFIGURATION SET ELEVATE_ONLINE = FAIL_UNSUPPORTED;\nGO\nCREATE TABLE dbo.probe_mig_elev (id int NOT NULL);\nGO\nINSERT INTO dbo.probe_mig_elev (id) SELECT value FROM GENERATE_SERIES(1, 10);\nGO\nALTER TABLE dbo.probe_mig_elev ADD g uniqueidentifier NOT NULL DEFAULT NEWID();",
+        "expect": {
+          "error": 12115
+        },
+        "why": "Section 3's claim that FAIL_UNSUPPORTED turns section 1's NEWID() default from a review question into a refusal, made executable and given the number the skill does not carry. Measured 2026-09-04 on the container: Msg 12115, 'ADD COLUMN statement failed by the ELEVATE_ONLINE database scoped option. Column could not be added online.' NEWID() is not a runtime constant, so the add is offline and holds an exclusive lock for the whole rewrite, and this setting is the only mechanism in the skill that stops that happening by accident rather than by review. If the setting stops refusing it, the recommendation becomes advisory and the skill should say so."
+      },
+      {
+        "sql": "DECLARE @rc int;\nEXEC @rc = sys.sp_getapplock @Resource = 'probe-schema-migrations', @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 1000;\nSELECT @rc AS return_code;",
+        "expect": {
+          "rows": [
+            [
+              -999
+            ]
+          ]
+        },
+        "why": "The fix section 5 recommends, run wrong. sp_getapplock with @LockOwner = 'Transaction' outside an explicit transaction does not raise: it returns -999, the code the skill lists as 'a bad call', and a runner that checks only for an exception carries on with no lock at all, which is the exact eight-instances-all-applied failure the lock was added to prevent. Measured 2026-09-04. The probe asserts the number rather than a refusal because the whole hazard is that nothing is refused."
+      }
     ]
   },
   "triggering": {

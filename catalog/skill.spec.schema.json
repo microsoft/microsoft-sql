@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/microsoft/azure-sql-skills-lab/spec/schemas/skill.spec.schema.json",
   "$comment": "Copied from spec/schemas/skill.spec.schema.json in microsoft/azure-sql-skills-lab, which is the source. Sidecars point at this path so editors validate on save. validate-catalog.mjs checks every sidecar against it, so a stale copy fails the build here rather than drifting silently.",
+  "$id": "https://github.com/microsoft/azure-sql-skills-lab/spec/schemas/skill.spec.schema.json",
   "title": "skill.spec.jsonc",
   "description": "Everything about a skill that the agent must NOT read. Sits beside SKILL.md. The eval reads this file; the agent never does. There is deliberately no `personas` key: the primitive is the domain, and a persona is a maintained selection over domain plus posture (spec/personas.yaml). A per-skill persona list would make every persona rename a 142-file edit.",
   "type": "object",
@@ -131,7 +131,8 @@
         "draft",
         "preview",
         "ga"
-      ]
+      ],
+      "description": "How much has actually been RUN against this skill, decided from evidence in this repository rather than from how finished it feels. Written down on 2026-09-04 because it had never been defined: an audit found 34 sidecars saying draft and 6 saying preview with no criterion anywhere, so the field recorded a mood. Every skill in skills/ lints clean or `npm test` fails, so a clean lint is the floor for all three values and separates none of them. `draft`: nothing has run against it that could have contradicted it. In practice it carries no entries in validation.probes, or the probes it carries did not run and pass in the most recent eval/reports/live/live-eval.json, including the case where validation.target is `cloud` and the run therefore deferred it. scripts/promote.mjs refuses to promote this value, with no override flag. `preview`: validation.probes is non-empty and every one of those probes ran and passed in the most recent live lane run, so the skill's own claims about the engine have been put in front of an engine and held. What is still unknown is whether the skill changes an ANSWER. `ga`: preview, plus the value gate satisfied for this skill, meaning eval/reports/value/<id>.json exists, is current, and either carries a decisive verdict or is accompanied by an accepted <id>.decision.md. Exactly one skill in the corpus can reach this today. Two things this deliberately does NOT use. Routing is not a criterion: docs/how-it-works.md section 8 records that no number in eval/reports/triggering-eval.json has ever been measured twice at a fixed catalog hash, so a threshold on `routed` or on the false positive counts is a coin toss with a policy attached, and the routing gate checks that the evidence is current and gates none of the numbers. A cloud-only skill cannot be decided at all: no cloud lane exists yet, so its maturity records what can be checked and says nothing about the skill. The rule that makes all three usable: evidence sets the CEILING and an author may always declare a value BELOW it. dev-container-templates lints clean with eight green probes and is draft on purpose, because the templates it describes wait on other work and nothing mechanical can see that. Nobody may declare a value ABOVE the ceiling."
     },
     "applies_to": {
       "type": "array",
@@ -203,10 +204,17 @@
                 "minLength": 3,
                 "description": "A complete shell command line, for the claims that are about a tool rather than about the engine, such as whether bcp is present in the tools image and prints its banner with no live connection. This is the alternative to `sql`, never a companion to it."
               },
+              "where": {
+                "enum": [
+                  "container",
+                  "host"
+                ],
+                "description": "Which machine a `cmd` probe runs on. ABSENT MEANS `container`, and that default lives in eval/lib/probe.mjs rather than in a `default` keyword here, because this repository's schema validator refuses keywords it does not implement: a `default` in the schema would read as enforced when nothing reads it, and it matters more than it looks. `container` is the default and is right for a tool the engine image ships, such as bcp: the claim is that the image carries it. `host` is right for a client tool a developer installs separately, such as SqlPackage, which is not in the image and never will be. Five probes shipped on 2026-09-02 without this field and every one failed with `sqlpackage: command not found`, because they were written by running the tool on a laptop and then executed inside a container. Ignored for `sql` probes, which always run against the engine."
+              },
               "expect": {
                 "type": "object",
                 "additionalProperties": false,
-                "description": "Exactly one of the three below. Two of them together is a probe whose author had not decided what it measures, and the available schema keywords cannot forbid that, so the count is a review rule until a linter check lands.",
+                "description": "Exactly one of the four below. Two of them together is a probe whose author had not decided what it measures, and the available schema keywords cannot forbid that, so the count is a review rule until a linter check lands.",
                 "properties": {
                   "error": {
                     "type": "integer",
@@ -219,6 +227,10 @@
                   "succeeds": {
                     "const": true,
                     "description": "The statement must complete without error, and nothing is asserted about what came back. The weakest of the three. Worth using where the claim genuinely is that a statement is accepted, such as a scoped configuration the skill depends on still existing, and not worth using to pad a count."
+                  },
+                  "warning": {
+                    "type": "integer",
+                    "description": "A severity 10 message number the statement must emit while still succeeding. Use this when the engine's answer is a warning rather than a refusal, for example Msg 1945 on an index key wider than the limit. This needs sqlcmd's -m-1: without it a severity 10 message prints its text and no number, so nothing can see it, and -b never sets a non-zero exit below severity 11. A succeeds-probe reports any warning it saw rather than failing on it, so use this shape when the warning IS the claim."
                   }
                 }
               },

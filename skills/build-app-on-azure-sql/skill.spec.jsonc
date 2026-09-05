@@ -44,6 +44,32 @@
       "the deployed identity has a database user created from a Microsoft Entra authenticated connection, verifiable in sys.database_principals with authentication_type_desc EXTERNAL",
       "a hand-written CRUD layer is proposed only after the generated data API was considered and rejected for a stated reason",
       "the roles granted to the application identity are named, and are not left at whatever a one-command tool granted"
+    ],
+    "probes": [
+      {
+        "where": "host",
+        "cmd": "az sql server ad-admin list --help > /dev/null 2>&1",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "One of the two read-only commands Step 0 tells a reader to run before writing any application code, and the ordering rule is the whole skill, so a command that is not there is a step that gets skipped. The firewall half of the pair is already probed by diagnose-connection-errors and is deliberately not repeated here. This command has been renamed before in the Azure CLI, which is why remembering it is not good enough. Measured 2026-09-04 on Azure CLI 2.90.0, exit 0. It asserts nothing about a subscription and needs no sign-in."
+      },
+      {
+        "where": "host",
+        "cmd": "az webapp connection create sql --help 2>&1 | tr -s '[:space:]' ' ' | grep -q 'Allowed values: django, dotnet, dotnet-internal, go, java, nodejs, none, php, python, ruby, springBoot' && az webapp connection create sql --help 2>&1 | grep -q -- '--system-identity'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The closed list the skill says --client-type takes, checked verbatim against the command's own help rather than remembered, because the values an agent guesses are the ones this list does not have: node rather than nodejs, csharp or aspnet rather than dotnet. A wrong value here fails the one command that creates the managed identity, the database user and the role grant together, which is the step the skill flags as easy to skip. The whole list is asserted rather than the four values the body names, so an addition is visible too. Measured 2026-09-04 on Azure CLI 2.90.0."
+      },
+      {
+        "where": "host",
+        "cmd": "test \"$(az extension list-available --query \"[?name=='serviceconnector-passwordless'] | length(@)\" -o tsv 2>/dev/null)\" = 1",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The extension the skill tells a reader to install by exact name, checked against the live index. az extension add fails on an unknown name, so a renamed or withdrawn extension turns the deployment section's first command into a dead end, and nothing else in the skill can be attempted until it is fixed. Measured 2026-09-04, one match, version 3.3.7. It queries the public index and needs no subscription. Note that this skill's validation target is cloud, so the live lane defers every probe here rather than running it; these three were run by hand on the host on 2026-09-04 and all exited 0."
+      }
     ]
   },
   "triggering": {
