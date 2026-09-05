@@ -21,7 +21,8 @@ that get made wrong at the start. Every technique it names belongs to another sk
 is the point.
 
 Verified 2026-09-03 against Azure CLI 2.90.0, go-sqlcmd 1.10.0, Data API builder 2.0.9 and .NET SDK
-8.0.421, and against the four first-party Azure SQL Database quickstarts on Microsoft Learn.
+8.0.421, and against the four first-party Azure SQL Database quickstarts on Microsoft Learn. The two
+sqlcmd builds were compared again on 2026-09-05, go-sqlcmd 1.10.0 against ODBC sqlcmd 18.6.0002.1.
 
 ## The failure this exists to prevent
 
@@ -59,10 +60,36 @@ sqlcmd -S <server>.database.windows.net,1433 -d <database> -G -N mandatory -l 30
   -Q "SELECT SUSER_NAME() AS connected_as, DB_NAME() AS db"
 ```
 
-`-G` is Microsoft Entra authentication and takes no `-U`. `-m-1` makes a severity 10 message print
-its number, which it otherwise does not do, and which `-b` alone will never turn into a non-zero
-exit. Open `connect-to-azure-sql` when that command fails, or before turning it into a connection
-string: it owns the switch-to-keyword mapping, encryption, retry and pool sizing.
+`-G` is Microsoft Entra authentication and takes no `-U`. Open `connect-to-azure-sql` when that
+command fails, or before turning it into a connection string: it owns the switch-to-keyword
+mapping, encryption, retry and pool sizing.
+
+### Which sqlcmd you have decides what you see
+
+Two different programs are called `sqlcmd`, and the message numbers in this skill and in every
+skill it routes to come out of only one of them. Microsoft Learn calls them
+[the two variants](https://learn.microsoft.com/sql/tools/sqlcmd/sqlcmd-utility#sqlcmd-variants):
+
+| | ODBC `sqlcmd` | Go `sqlcmd`, also written go-sqlcmd |
+|---|---|---|
+| Where it comes from | the Microsoft command line utilities, `mssql-tools18`, and the Azure SQL Database container image | a standalone download, `winget install sqlcmd`, `brew install sqlcmd` |
+| Version it reports | 18.x | 1.x |
+| How to tell | `sqlcmd -?` starts `Microsoft (R) SQL Server Command Line Tool` | `sqlcmd --version` prints a version alone |
+
+`-m-1` is an **ODBC `sqlcmd`** instruction, and it is the flag that makes a severity 10 message
+print its `Msg` number, which that build otherwise does not do. Measured 2026-09-05 on 18.6.0002.1:
+`RAISERROR('a severity ten note', 10, 1)` prints `Msg 50000, Level 0, State 1` at `-m-1` and the
+bare text without it.
+
+**go-sqlcmd 1.10.0 does not do this.** Measured the same day against the same engine, it prints the
+`Msg` header only at severity 11 and above, and a severity 10 message arrives as text with no number
+at `-m-1`, `-m0` and `-m1` alike, on stdout and on stderr. Its `-m` still filters, so `-m17` drops a
+severity 16 message entirely, but no value of it puts a number back on a warning. If the numbers a
+skill tells you to look for never appear, check which build you are running before you conclude the
+engine stayed quiet: query `sys.messages`, or run the statement through the ODBC build.
+
+Neither build turns a severity 10 message into a non-zero exit. `-b` returns 1 only above severity
+10, so a warning never fails the command on either.
 
 Two facts decide what to do when the rule looks right and the connection still fails:
 

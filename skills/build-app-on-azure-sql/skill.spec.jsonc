@@ -84,7 +84,31 @@
         "expect": {
           "succeeds": true
         },
-        "why": "The extension the skill tells a reader to install by exact name, checked against the live index. az extension add fails on an unknown name, so a renamed or withdrawn extension turns the deployment section's first command into a dead end, and nothing else in the skill can be attempted until it is fixed. Measured 2026-09-04, one match, version 3.3.7. It queries the public index and needs no subscription. Note that this skill's validation target is cloud, so the live lane defers every probe here rather than running it; these three were run by hand on the host on 2026-09-04 and all exited 0."
+        "why": "The extension the skill tells a reader to install by exact name, checked against the live index. az extension add fails on an unknown name, so a renamed or withdrawn extension turns the deployment section's first command into a dead end, and nothing else in the skill can be attempted until it is fixed. Measured 2026-09-04, one match, version 3.3.7. It queries the public index and needs no subscription. Measured by hand on the host on 2026-09-04, exit 0. It is a host probe: nothing in it reaches a database, which is true of all three of the probes above it."
+      },
+      {
+        "where": "container",
+        "engine": true,
+        "cmd": "/opt/mssql-tools18/bin/sqlcmd -S localhost,1433 -U sa -P \"$MSSQL_SA_PASSWORD\" -d probe_build_app_on_azure_sql -C -N -m-1 -Q \"RAISERROR('a severity ten note', 10, 1);\" 2>&1 | grep -q 'Msg 50000'",
+        "expect": { "succeeds": true },
+        "why": "Step 0 tells a reader to run sqlcmd with -m-1 because it makes a severity 10 message print its number, and the body now says that instruction is for the ODBC sqlcmd rather than for go-sqlcmd. This runs the statement through the ODBC build the image ships, at /opt/mssql-tools18/bin/sqlcmd, which is the client the sentence names, so where it runs is half the claim. It ran on the host until 2026-09-05 and was red there, because the host PATH sqlcmd is go-sqlcmd: measured that day on go-sqlcmd 1.10.0 against 18.0.226_4_147, the text is printed and no Msg number is, on stdout or stderr, at -m-1, -m0 and -m1 alike. That reading is what the body was corrected from, and it is kept here because it is the reason this check moved. Measured by hand the same day inside the image on ODBC sqlcmd 18.6.0002.1: Msg 50000, Level 0, State 1 at -m-1, and the bare text without it. mssql-tools18 is deliberately not installed on the host instead, because it would take the sqlcmd name on PATH away from go-sqlcmd and turn the checks in connect-to-azure-sql and diagnose-connection-errors, which read go-sqlcmd's own help output, red. Red if the ODBC build stops printing the number, at which point Step 0 has no build left that does it."
+      },
+      {
+        "where": "host",
+        "engine": true,
+        "cmd": "sqlcmd -S localhost,$PROBE_PORT -U sa -P \"${LAB_SA_PASSWORD:-Str0ng!Lab_Passw0rd_2026}\" -d \"$PROBE_DB\" -C -N -b -Q \"RAISERROR('a severity ten note', 10, 1);\" && ! sqlcmd -S localhost,$PROBE_PORT -U sa -P \"${LAB_SA_PASSWORD:-Str0ng!Lab_Passw0rd_2026}\" -d \"$PROBE_DB\" -C -N -b -Q \"RAISERROR('a real error', 16, 1);\"",
+        "expect": { "succeeds": true },
+        "why": "The other half of the same sentence: -b alone will never turn a severity 10 message into a non-zero exit. Both directions are asserted, because an exit code that is always zero would satisfy the first half on its own and prove nothing. Measured 2026-09-05 on go-sqlcmd 1.10.0: severity 10 exits 0, severity 16 exits 1. Red if -b ever fails on an informational message, which is the case that would make a reader's deployment script stop on a message that is not an error, and red too if it stops failing on a real one."
+      },
+      {
+        "sql": "SET QUOTED_IDENTIFIER ON; CREATE USER probe_app_identity WITHOUT LOGIN; GRANT CONTROL ON DATABASE::\"probe_build_app_on_azure_sql\" TO \"probe_app_identity\"; SELECT permission_name, state_desc FROM sys.database_permissions WHERE grantee_principal_id = DATABASE_PRINCIPAL_ID('probe_app_identity') AND class = 0 AND permission_name = 'CONTROL';",
+        "expect": { "rows": [["CONTROL", "GRANT"]] },
+        "why": "Check what it granted quotes GRANT CONTROL ON DATABASE::\"<database>\" TO \"<user>\" as the grant the one-command tool leaves behind, and tells a reader to go and look at it. This runs that statement verbatim, on the double-quoted identifier form the documentation uses, and reads the grant back out of sys.database_permissions. The scratch database name is the one the live lane derives from the skill id. Measured 2026-09-05: CONTROL, GRANT. Red if the permission does not land, if it lands as something other than a GRANT of CONTROL at class 0, or if the identifier form is rejected. It is rejected with Msg 102 when QUOTED_IDENTIFIER is OFF, which is how the sqlcmd inside the image connects by default, so the SET is part of the claim rather than decoration."
+      },
+      {
+        "sql": "DBCC FLUSHAUTHCACHE;",
+        "expect": { "error": 40518 },
+        "why": "Step 0 says DBCC FLUSHAUTHCACHE forces the five minute firewall cache to refresh, does not apply to master, and needs the admin account. None of that can be settled here: measured 2026-09-05, this build refuses the command outright as sa in a user database and in master alike, Msg 40518, DBCC command 'flushauthcache' is not supported in this version of SQL Server. The probe records that boundary as a measurement rather than leaving the claim looking checked. Red if a later build implements the command, which is the day the master-versus-user-database half becomes locally testable."
       }
     ]
   },
