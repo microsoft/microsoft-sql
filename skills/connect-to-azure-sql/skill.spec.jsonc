@@ -4,6 +4,22 @@
   "domain": "drivers-and-connectivity",
   "value": ["corrects-a-wrong-assumption", "changes-too-fast-to-memorize"],
   "correction": "Agents write Azure SQL Database connection code as a single attempt and treat retry as a later hardening step, when retry is mandatory rather than optional on this service: the first connection to an auto-paused serverless or free database is documented to fail with error 40613 while the resume happens, so the generated code fails on its very first run and the failure reads as an outage or a bad credential. The same reflex then downgrades security, because an agent that meets a certificate error reaches for TrustServerCertificate=true or Encrypt=false instead of fixing the name it is connecting to.",
+  "value_probe": {
+    "task": "We are starting a new order service. It runs against a local Azure SQL Database container on developer machines and against a database in Azure for the deployed environments. Today the team stores one database user name and password in configuration and uses it in both places, and the data access code opens a connection and runs the query with no wrapper around it.\n\nTwo things keep happening. The first call of the morning against the shared development database fails, and the second call a moment later succeeds, so our on-call rota has an entry telling people to \"just try again\" and one engineer has already filed a support case about it. Separately, a developer hit a certificate error connecting from a new laptop and got past it by adding a setting to the connection string, and that connection string has now been copied into the deployed configuration.\n\nWe are about to write the real data access layer. Tell me what it should look like for both environments, what belongs in the connection string, and how we should be handling credentials. Be specific about what changes and why.",
+    "gate": "The answer treats reconnection through transient failures as part of the connection code from the first version rather than as later hardening, and keeps encryption on with server certificate validation intact in the deployed environment, allowing a trust override only where the local container's self-signed certificate genuinely requires it.",
+    "states": [
+      "A connection that fails on the first attempt and succeeds on a retry a moment later is expected behaviour for a database that can be idle, not evidence of an outage or a bad credential.",
+      "The connection code must retry transient failures itself, because no configuration change on the server removes them.",
+      "A certificate validation error is fixed by correcting what the client connects to or what it trusts, not by telling the client to accept any certificate.",
+      "The deployed environment should authenticate without a stored database password, using the platform identity of the running service."
+    ],
+    "refutes": [
+      "A first connection failing while an immediately following one succeeds indicates a service outage, an incorrect password, or a misconfigured server, and should be escalated rather than retried.",
+      "Retry for transient failures is a hardening step to add once the connection code is working, rather than part of the first version of it.",
+      "Turning off server certificate validation, or turning encryption off, is an acceptable way to resolve a certificate error in a deployed environment.",
+      "The same stored user name and password is the correct credential for both the local container and the deployed environment, because no other option works in both."
+    ]
+  },
   "posture": ["read", "write"],
   "maturity": "preview",
   "applies_to": ["azure-sql-db"],

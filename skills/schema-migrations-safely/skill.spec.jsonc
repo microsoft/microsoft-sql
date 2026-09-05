@@ -4,8 +4,25 @@
   "domain": "schema-change-and-cicd",
   "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
   "correction": "Asked whether a schema change is safe to apply to a live Azure SQL Database, an agent answers with expand and contract, adds IF NOT EXISTS guards, and calls the script idempotent, and all three of those beliefs are wrong in ways nothing reports. Measured on 2026-08-28 against a live engine reporting EngineEdition 5 and Edition 'SQL Azure' at compatibility level 170 with read committed snapshot isolation on, over a 2,000,000 row table: ALTER TABLE is not uniformly cheap and the expensive statements are not the ones that look expensive, since adding a NOT NULL column with a constant default took 1.7 ms and 2.2 KB of log while adding one with a NEWID() default took 4.6 s and 448 MB, widening varchar(20) to varchar(50) took 1.0 ms while widening to varchar(max) took 7.3 s and 572 MB, and changing NULL to NOT NULL took 14.5 s and 661 MB. The schema modification lock those statements hold is the one thing snapshot isolation does not protect a reader from: a default read, an explicit SNAPSHOT read and a NOLOCK read all waited 3.10 s on LCK_M_SCH_S behind an uncommitted 2 ms ALTER, and worse, when one 10 second query was already in flight the 2 ms ALTER waited 9.0 s and three trivial SELECTs issued after it waited 8.0 s each blocked by the ALTER rather than by the slow query, which is how a metadata only change becomes an outage. The same change offline held two readers for 7.17 s where WITH (ONLINE = ON) let them through in 74 ms. A guard protects the statement it wraps and nothing else: eight instances starting at once all passed the same IF NOT EXISTS checks and applied the same backfill eight times, ending at 4000 where 500 was correct, and the only error raised was Msg 2627 on the history row after the data was already wrong, while the unguarded version failed loudly with Msg 2705 on seven of eight and left the data correct. The same guarded script under a transient fault retry policy, faulted once after the backfill committed and before the history row was written, re-ran from the top, doubled the backfill and returned success with no exception, no warning and no log line, and wrapping the four statements in one transaction was what made it correct. Rollback is not the inverse: DROP COLUMN reclaimed nothing, 202 pages before and after, and re-adding a char(4000) column failed with Msg 1701 for a column that no longer exists. What being wrong costs is that the changes which stall a production database are indistinguishable from the ones that do not until they run at production row count, and the concurrency and retry failures are silent or surface attributed to the wrong statement.",
+  "value_probe": {
+    "gate": "The answer treats each existence check as protecting only the statement it wraps, so it reaches the fact that this script can apply its effects more than once, and it decides the blocking question from what the statements do to the rows rather than from the isolation level the database runs at.",
+    "task": "We ship database changes with the application, and this one adds a column to a table of about two million rows, backfills that column, and writes a row to our own migrations history table. Every statement is wrapped in a check so it only runs if it has not already been applied, and our runner retries on transient failures. We deploy eight instances at once. Is this safe to run against production in the middle of the working day, or do I need a maintenance window? Tell me what would actually happen if I ran it right now.",
+    "states": [
+      "The whole set of statements has to be one transaction, because a retry can re-run from the top after part of it already committed.",
+      "A schema change holds a lock that readers wait behind whatever isolation level they asked for.",
+      "Cost depends on whether the statement has to touch every row, so two similar looking changes can differ by orders of magnitude.",
+      "Several instances passing the same existence checks at the same moment can each apply the same backfill."
+    ],
+    "refutes": [
+      "Guarding each statement with an existence check makes the script safe to run twice or from several instances at once.",
+      "Readers are unaffected because read committed snapshot isolation is on, so nothing waits behind the schema change.",
+      "Asking for a dirty read lets a query through while a schema change is in flight.",
+      "Adding a column is metadata only and therefore cheap whatever default value it carries.",
+      "Dropping a column and adding it back is a clean way to undo the change."
+    ]
+  },
   "posture": ["read", "write"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "sql-database-projects",
@@ -47,6 +64,143 @@
       "any default constraint the script drops is resolved from sys.default_constraints rather than named literally",
       "no down script is offered as the rollback plan, and the answer states which deployment can be skipped instead",
       "a concurrency or locking claim came from two sessions rather than from a comment"
+    ],
+    "probes": [
+      {
+        "sql": "CREATE TABLE IF NOT EXISTS dbo.probe_mig_ine (id int NOT NULL);",
+        "expect": {
+          "error": 156
+        },
+        "why": "The single most likely thing an agent writes when asked to make a migration re-runnable, because every other engine it has read has this form. Section 7's table says Msg 156, syntax error, does not exist, and this is that row made executable. Measured 2026-09-04 on the container at EngineEdition 5. It fails loudly rather than silently, which is the good case, but only if somebody has been told; the cost of not knowing is a migration script rewritten from scratch at the wrong moment."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_add (id int NOT NULL);\nGO\nALTER TABLE dbo.probe_mig_add ADD IF NOT EXISTS region nvarchar(20) NULL;",
+        "expect": {
+          "error": 156
+        },
+        "why": "The expand half of section 7's asymmetry: there is no ADD IF NOT EXISTS, so every expand step has to be wrapped in an explicit catalog check by hand. Measured 2026-09-04, Msg 156. Paired deliberately with the DROP COLUMN IF EXISTS probe below, because the conclusion the skill draws is not about either statement on its own: it is that contract is idempotent for free and expand is not, which is why the guard appears only on one half of its worked example."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_drop (id int NOT NULL, legacy int NULL);\nGO\nALTER TABLE dbo.probe_mig_drop DROP COLUMN IF EXISTS legacy;\nALTER TABLE dbo.probe_mig_drop DROP COLUMN IF EXISTS legacy;\nSELECT COUNT(*) AS remaining_columns FROM sys.columns WHERE object_id = OBJECT_ID('dbo.probe_mig_drop');",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "The contract half of the same asymmetry, and it is run twice on purpose: idempotent means the second run is a no operation, not that the first one worked. One column left is the id. Measured 2026-09-04. If this ever raises, the worked example in section 7 stops being safe to re-run and the skill's claim that contract is idempotent for free is wrong."
+      },
+      {
+        "sql": "SELECT 1 AS one;\nCREATE VIEW dbo.probe_mig_view AS SELECT 1 AS one;",
+        "expect": {
+          "error": 111
+        },
+        "why": "A different number from the four Msg 156 rows, and a different cause, which is why it is worth its own round trip: CREATE VIEW is refused not because the syntax is wrong but because it is not first in its batch. Measured 2026-09-04, Msg 111. This is the whole reason the skill routes programmability objects through sp_executesql instead of an IF, and a reader who only knows about Msg 156 will try to fix a Msg 111 by editing the statement rather than by moving it."
+      },
+      {
+        "sql": "BEGIN TRAN;\nALTER DATABASE SCOPED CONFIGURATION SET ELEVATE_ONLINE = FAIL_UNSUPPORTED;\nCOMMIT;",
+        "expect": {
+          "error": 226
+        },
+        "why": "One of the three limits section 6 uses to decide where a migration transaction can be split, and the one the skill itself invites a reader to run: it prints ALTER DATABASE SCOPED CONFIGURATION SET ELEVATE_ONLINE in section 3 and then says in section 6 that ALTER DATABASE ... SET is refused inside a multi-statement transaction. Measured 2026-09-04, Msg 226, message text 'ALTER DATABASE SCOPED CONFIGURATION statement not allowed within multi-statement transaction.' A script that wraps the whole migration in one transaction, which is the shape section 6 recommends, cannot also set this inside it."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_res (id int NOT NULL, v int NULL);\nGO\nBEGIN TRAN;\nCREATE INDEX ix_probe_mig_res ON dbo.probe_mig_res (v) WITH (ONLINE = ON, RESUMABLE = ON);\nCOMMIT;",
+        "expect": {
+          "error": 574
+        },
+        "why": "The second of the three limits, and the skill states the rule without a number, so this probe supplies one that was measured rather than remembered: Msg 574, 'RESUMABLE INDEX statement cannot be used inside a user transaction', measured 2026-09-04 on the container. It matters because section 6's recommended shape is one transaction around the whole migration, and a resumable build is the one step that cannot go inside it, so the doctrine and the technique collide and the reader has to be told which gives way."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_walp (id int NOT NULL, w int NULL);\nGO\nALTER TABLE dbo.probe_mig_walp ALTER COLUMN w bigint WITH (ONLINE = ON (WAIT_AT_LOW_PRIORITY (MAX_DURATION = 1 MINUTES, ABORT_AFTER_WAIT = SELF)));",
+        "expect": {
+          "error": 102
+        },
+        "why": "Section 3 says WAIT_AT_LOW_PRIORITY is for rebuilds only and cannot be used with an online ALTER COLUMN, and names Msg 102 as what was measured. Reproduced 2026-09-04 on the container. This is the trap of reading section 3 too fast: the two options appear a paragraph apart, both are about not queueing a workload behind a schema change, and combining them is a parse error rather than anything that explains itself."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_dfc (id int NOT NULL, qty int NOT NULL DEFAULT (0));\nGO\nALTER TABLE dbo.probe_mig_dfc DROP COLUMN qty;",
+        "expect": {
+          "error": 5074
+        },
+        "why": "The names-you-did-not-choose failure in section 7, which is what the constraint lookup in the worked example exists to solve. An inline default gets a generated name that differs per environment, so the contract step fails with Msg 5074 naming an object nobody wrote down. Measured 2026-09-04, message 'The object DF__probe_mig_dfc__qty__<suffix> is dependent on column qty.' The number is asserted rather than the text precisely because the generated suffix is not stable, which is the point of the claim."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_ren (id int NOT NULL, oldname int NULL);\nGO\nEXEC sp_rename 'dbo.probe_mig_ren.oldname', 'newname', 'COLUMN';",
+        "expect": {
+          "warning": 15477
+        },
+        "why": "The most dangerous shape in the skill, and the only probe here that asserts a message on a statement that SUCCEEDS. sp_rename renames the column, raises nothing at severity 11 or above, and emits Msg 15477 at severity 10, which a runner logging only exceptions discards and which sqlcmd prints with no number at all unless -m-1 is set. Measured 2026-09-04. A succeeds-probe would go green here and prove nothing; asserting the warning number is what makes the silence visible. If a future build raises this as an error the skill's warning becomes unnecessary, and if it stops emitting it at all the rename becomes completely silent, which is worse."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_dep (id int NOT NULL, oldc int NULL);\nGO\nCREATE VIEW dbo.probe_mig_depv AS SELECT oldc FROM dbo.probe_mig_dep;\nGO\nEXEC sp_rename 'dbo.probe_mig_dep.oldc', 'newc', 'COLUMN';\nGO\nSELECT oldc FROM dbo.probe_mig_depv;",
+        "expect": {
+          "error": 207
+        },
+        "why": "The consequence of the probe above, and the reason 'never rename in place' is a rule rather than a preference: the view over the renamed column keeps existing, the rename reports nothing worth catching, and the failure arrives as Msg 207 when the view is next called, which may be in production long after the migration was declared successful. Measured 2026-09-04. Kept separate from the warning probe because the two failures happen at different times and a migration runner can catch neither."
+      },
+      {
+        "sql": "ALTER DATABASE SCOPED CONFIGURATION SET ELEVATE_ONLINE = FAIL_UNSUPPORTED;\nGO\nCREATE TABLE dbo.probe_mig_elev (id int NOT NULL);\nGO\nINSERT INTO dbo.probe_mig_elev (id) SELECT value FROM GENERATE_SERIES(1, 10);\nGO\nALTER TABLE dbo.probe_mig_elev ADD g uniqueidentifier NOT NULL DEFAULT NEWID();",
+        "expect": {
+          "error": 12115
+        },
+        "why": "Section 3's claim that FAIL_UNSUPPORTED turns section 1's NEWID() default from a review question into a refusal, made executable and given the number the skill does not carry. Measured 2026-09-04 on the container: Msg 12115, 'ADD COLUMN statement failed by the ELEVATE_ONLINE database scoped option. Column could not be added online.' NEWID() is not a runtime constant, so the add is offline and holds an exclusive lock for the whole rewrite, and this setting is the only mechanism in the skill that stops that happening by accident rather than by review. If the setting stops refusing it, the recommendation becomes advisory and the skill should say so."
+      },
+      {
+        "sql": "DECLARE @rc int;\nEXEC @rc = sys.sp_getapplock @Resource = 'probe-schema-migrations', @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 1000;\nSELECT @rc AS return_code;",
+        "expect": {
+          "rows": [
+            [
+              -999
+            ]
+          ]
+        },
+        "why": "The fix section 5 recommends, run wrong. sp_getapplock with @LockOwner = 'Transaction' outside an explicit transaction does not raise: it returns -999, the code the skill lists as 'a bad call', and a runner that checks only for an exception carries on with no lock at all, which is the exact eight-instances-all-applied failure the lock was added to prevent. Measured 2026-09-04. The probe asserts the number rather than a refusal because the whole hazard is that nothing is refused."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_dup (id int NOT NULL);\nGO\nALTER TABLE dbo.probe_mig_dup ADD region nvarchar(20) NULL;\nALTER TABLE dbo.probe_mig_dup ADD region nvarchar(20) NULL;",
+        "expect": {
+          "error": 2705
+        },
+        "why": "What the guard the previous probes require is actually guarding against, which none of them measure: the unguarded ADD is not quietly idempotent underneath the wrapper, the second one is refused. Measured 2026-09-05 on the container at EngineEdition 5: Msg 2705, 'Column names in each table must be unique.' That is what makes the hand-written catalog check load-bearing rather than decorative, and it is also the asymmetry section 7 turns on: an unguarded expand step re-run is loud, a guarded one is silent, and a contract step is silent either way. Red if a repeated ADD succeeds, which would make the guard cosmetic and the loud-versus-silent argument wrong."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_name (id int NOT NULL, a int NOT NULL DEFAULT 0);\nGO\nALTER TABLE dbo.probe_mig_name DROP CONSTRAINT DF_probe_mig_name_a;",
+        "expect": {
+          "error": 3728
+        },
+        "why": "Why the skill tells an author to resolve a default constraint out of sys.default_constraints rather than naming it literally. An inline unnamed DEFAULT gets an engine-generated name carrying an unguessable hash suffix, so the conventional name a script writes by hand matches nothing and the contract step fails in whichever environment it meets first. Measured 2026-09-05: Msg 3728, \"'DF_probe_mig_name_a' is not a constraint.\" Distinct from the Msg 5074 probe above, which measures the drop being blocked by a default that IS there; this one measures a name that is not. Red if the engine ever names an inline default predictably, which would make the lookup unnecessary."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_wide (id int IDENTITY(1,1) NOT NULL PRIMARY KEY, pad char(4000) NOT NULL, pad2 char(3000) NOT NULL);\nGO\nINSERT INTO dbo.probe_mig_wide (pad, pad2) SELECT TOP 500 'x', 'y' FROM sys.all_objects;\nGO\nDECLARE @before bigint = (SELECT SUM(used_page_count) FROM sys.dm_db_partition_stats WHERE object_id = OBJECT_ID('dbo.probe_mig_wide') AND index_id IN (0, 1));\nALTER TABLE dbo.probe_mig_wide DROP COLUMN pad;\nDECLARE @after bigint = (SELECT SUM(used_page_count) FROM sys.dm_db_partition_stats WHERE object_id = OBJECT_ID('dbo.probe_mig_wide') AND index_id IN (0, 1));\nSELECT CASE WHEN @after = @before THEN 'unchanged' WHEN @after < @before THEN 'reclaimed' ELSE 'grew' END AS space;",
+        "expect": {
+          "rows": [
+            [
+              "unchanged"
+            ]
+          ]
+        },
+        "why": "DROP COLUMN is a metadata operation and the space the dropped data occupied is not returned, which is the fact the next probe depends on and the reason a contract step is not free even though it is fast. Measured 2026-09-05 on the container: the same page count before and after dropping a char(4000) column across 500 rows. Red if the engine reclaims the pages, which would mean the row width is not still committed and the refusal the next probe asserts would stop happening."
+      },
+      {
+        "sql": "ALTER TABLE dbo.probe_mig_wide ADD pad char(4000) NOT NULL DEFAULT 'z';",
+        "expect": {
+          "error": 1701
+        },
+        "why": "Rollback is not the inverse of the change, made executable, and the sharpest argument in the skill for skipping a deployment rather than running a down script. The column the previous probe dropped cannot be added back, because its space was never reclaimed and the minimum row size would exceed the page. Measured 2026-09-05: Msg 1701, a minimum row size over the 8060 maximum, for a column that no longer exists in the table. It runs against the table the previous probe left behind on purpose, because the state, not the statement, is the claim. Red if the re-add succeeds, which would make a down script a viable rollback here."
+      },
+      {
+        "sql": "SELECT CASE WHEN OBJECT_DEFINITION(OBJECT_ID('dbo.probe_mig_depv')) LIKE '%oldc%' THEN 'stale' ELSE 'updated' END AS view_definition;",
+        "expect": {
+          "rows": [
+            [
+              "stale"
+            ]
+          ]
+        },
+        "why": "The mechanism behind the Msg 207 probe above, kept separate because the two are read at different times and by different people. After sp_rename the dependent view's stored definition still names the old column, so nothing in the catalog was rewritten and nothing was warned about, and an author who checks that the rename 'worked' by opening the view is reading text that no longer compiles. Measured 2026-09-05 against the fixture the sp_rename probe leaves behind. Red if the definition is rewritten by the rename, which would mean the catalog does track the change and only a compiled plan was stale."
+      }
     ]
   },
   "triggering": {

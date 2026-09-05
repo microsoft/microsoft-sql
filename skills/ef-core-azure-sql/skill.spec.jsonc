@@ -4,8 +4,24 @@
   "domain": "schema-and-orm",
   "value": ["not-in-training-data", "corrects-a-wrong-assumption"],
   "correction": "Every current answer for Entity Framework Core on Azure SQL Database turns retry on, whether by the corpus shape UseSqlServer with EnableRetryOnFailure or by the EF Core 9 call UseAzureSql, and both install SqlServerRetryingExecutionStrategy. The agent then treats the InvalidOperationException that follows, 'does not support user-initiated transactions', as the whole problem, because the exception dictates its own remedy: wrap the transaction in a delegate passed to Database.CreateExecutionStrategy(). That remedy is incomplete and its incompleteness is silent. Measured on 2026-08-27 against a live Azure SQL engine on 9.0.19, a transient fault arriving after the Commit inside that delegate runs the delegate a second time, commits the row twice, and returns success to the caller with no exception, no warning and no log line, identically under UseSqlServer and under UseAzureSql. Turning retry on does not make a transaction resilient, it makes it repeatable, so a retriable unit is correct only once it carries an idempotency key or is handed to ExecuteInTransaction with a verifySucceeded predicate. Two commonly repeated claims are also wrong and were measured wrong: Database.BeginTransaction itself succeeds and the next query or SaveChanges is what throws, and ExecuteSqlRaw inside that transaction is not guarded at all.",
+  "value_probe": {
+    "task": "Our ASP.NET Core service uses Entity Framework Core 9 against a database in Azure. We turned on the built in retrying behaviour for transient faults when we moved to Azure.\n\nA checkout path writes an order and then writes a ledger entry, and we needed both or neither, so we wrapped the two SaveChanges calls in a transaction. That immediately threw at runtime telling us the configured execution strategy does not support user initiated transactions. We followed what the exception told us to do and wrapped the whole thing in a delegate handed to the execution strategy, roughly:\n\n```csharp\nvar strategy = db.Database.CreateExecutionStrategy();\nawait strategy.ExecuteAsync(async () =>\n{\n    await using var tx = await db.Database.BeginTransactionAsync();\n    db.Orders.Add(order);\n    await db.SaveChangesAsync();\n    db.Ledger.Add(entry);\n    await db.SaveChangesAsync();\n    await tx.CommitAsync();\n});\n```\n\nThe exception went away and this has been in production for three months. Roughly once a fortnight, always during a period when the database is visibly having a bad few minutes, a customer is charged twice and we find two identical orders seconds apart. There is no exception in our logs, no warning, and no failed request. The customer's own request returned a success.\n\nIs this code correct, and if not, what do we do about it?",
+    "gate": "The answer identifies that the retried unit can be run a second time after its first run already committed, so the write is repeated and reported as success, and requires the unit to be made safe to repeat, whether by an idempotency key, a uniqueness constraint the second attempt violates, or a check that confirms whether the first attempt succeeded before repeating it.",
+    "states": [
+      "Wrapping the transaction in the execution strategy delegate makes the unit repeatable, and does not by itself make it safe to repeat.",
+      "A transient fault arriving after the commit causes the entire delegate to run again, producing a second committed write.",
+      "The duplicate is reported to the caller as a success, with no exception, warning or log entry, which is why nothing appears in the logs.",
+      "Correctness requires either an identifier that makes a repeat a no operation, or a check that establishes whether the first attempt committed before it is retried."
+    ],
+    "refutes": [
+      "Wrapping the transaction in a delegate passed to the execution strategy makes the transaction safe to retry, so the duplicates must originate somewhere else, such as the client, a load balancer, or a message being delivered twice.",
+      "A retry can only re-run a transaction that failed to commit, so a committed transaction is never repeated by the retrying behaviour.",
+      "Turning retry on is what makes a write resilient against transient faults on this service.",
+      "The fix is to raise the retry count, lengthen the delay between attempts, or turn the retrying behaviour off for this code path."
+    ]
+  },
   "posture": ["read", "write", "execute"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "connect-from-dotnet",

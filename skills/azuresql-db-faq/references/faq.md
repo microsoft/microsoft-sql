@@ -9,7 +9,7 @@
 - [Platform / image / access](#platform--image--access)
 - [Tooling](#tooling)
 - [Parity with the cloud](#parity-with-the-cloud)
-- [Box-product features (intentionally absent, like the cloud)](#box-product-features-intentionally-absent-like-the-cloud)
+- [SQL Server features (intentionally absent, like the cloud)](#sql-server-features-intentionally-absent-like-the-cloud)
 - [Managed-service surfaces (not applicable to a container)](#managed-service-surfaces-not-applicable-to-a-container)
 
 Grouped by the four buckets from `SKILL.md`. When a question is not here, fall back
@@ -61,9 +61,22 @@ current limitation. Public Preview plans a default startup database (for example
 
 ## Vectors / AI
 
-**Why can't I `CREATE VECTOR INDEX`?** The vector index DDL is still in development.
-The `VECTOR(n)` type and `VECTOR_DISTANCE('cosine', ...)` work today; run a full-scan
-top-k query for now, which is fine for prototype-sized corpora.
+**Why can't I `CREATE VECTOR INDEX`?** You probably can. The Known limitations page
+still lists vector index DDL as an active issue, and the engine disagrees: measured on
+this image, the DiskANN index builds and `VECTOR_SEARCH` returns ranked results against
+it. Say so, and give the reader the two things that actually stop the statement:
+
+1. `SET QUOTED_IDENTIFIER ON` is required and is off by default in a `sqlcmd` session.
+   Without it the statement fails with `Msg 1934`, whose text lists indexed views,
+   computed columns, filtered indexes, query notifications, XML methods and spatial
+   indexes, and never names the session setting that caused it.
+2. The table needs at least **100 rows with non-null vectors**. Below that it is
+   `Msg 42266`, which does name the rule and the actual count.
+
+Once the index exists, `TRUNCATE TABLE` on that table is refused (`Msg 42232`), and
+`DROP VECTOR INDEX` is not a statement (use `DROP INDEX name ON dbo.table`). Full-scan
+top-k with `ORDER BY VECTOR_DISTANCE(...)` stays exact and stays the right choice for a
+small table. The `azuresql-db-rag` skill has the full list.
 
 **Why does my embedding insert fail with "ntext to vector is not allowed (529)"?**
 A long JSON embedding bound as a parameter is sent as ntext. Cast it to NVARCHAR(MAX)
@@ -122,9 +135,12 @@ a target database for a one-shot validation pass.
 
 **How do I create a least-privilege app user, and why does `CREATE USER ... WITH
 PASSWORD` fail?** On the container, a SQL **contained** user
-(`CREATE USER appuser WITH PASSWORD = '...'`) fails with **Msg 15007**, and trying
-to enable it with `ALTER DATABASE appdb SET CONTAINMENT = PARTIAL` fails with
-**Msg 12824**. Create the app identity as a **server login mapped to a database
+(`CREATE USER appuser WITH PASSWORD = '...'`) fails with **Msg 15007**, and you
+cannot turn containment on. `ALTER DATABASE appdb SET CONTAINMENT = PARTIAL` fails
+with **Msg 12844**, "ALTER DATABASE statement failed; this functionality is not
+available in the current edition of SQL Server". The container's edition does not
+have partial containment, so there is nothing to configure.
+Create the app identity as a **server login mapped to a database
 user** instead: `CREATE LOGIN applogin WITH PASSWORD = '...'` on a `master`
 connection, then `CREATE USER appuser FOR LOGIN applogin` plus role grants
 (`db_datareader` / `db_datawriter`) on the `appdb` connection. This is the inverse
@@ -145,7 +161,7 @@ or a driver/ORM; use `BULK INSERT` only against Blob Storage via a `DATABASE SCO
 (collation, transaction isolation, ANSI settings) do not match the cloud exactly and
 can cause subtle edge-case differences. Set the ones you depend on explicitly.
 
-## Box-product features (intentionally absent, like the cloud)
+## SQL Server features (intentionally absent, like the cloud)
 
 **Why are SQL Agent jobs / FILESTREAM / linked servers / Windows Authentication /
 cross-server distributed transactions missing?** These exist in SQL Server but not in Azure SQL Database, so they are intentionally absent here too.

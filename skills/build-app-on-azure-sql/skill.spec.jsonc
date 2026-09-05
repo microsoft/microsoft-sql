@@ -4,6 +4,22 @@
   "domain": "apis-and-application-patterns",
   "value": ["multi-step-with-silent-failures", "corrects-a-wrong-assumption"],
   "correction": "Asked to build an application on Azure SQL Database, an agent starts inside the application: it picks a stack, writes a data layer, and puts a SQL user name and password in configuration. Every first-party Azure SQL Database quickstart starts outside the application instead, with three server-side prerequisites that no code can substitute for: a firewall rule covering the client address, a Microsoft Entra administrator on the logical server, and, once the application is deployed, a database user for its managed identity created from a connection that is itself authenticated with Microsoft Entra ID. All three fail silently. The firewall rule takes up to five minutes to take effect, so the first run can fail after the rule was created correctly; the missing Entra admin surfaces as a login failure that reads as a bad credential; and the missing database user surfaces only after deployment, as a server error from an application whose code is correct. The same start-inside-the-code reflex then hand-writes CRUD that Data API builder would generate, and carries the quickstart's create-the-table-at-startup step into a real application, which is the one part of that sample code Microsoft explicitly labels as testing only.",
+  "value_probe": {
+    "gate": "The answer puts the server-side prerequisites ahead of the application code, so that by the time the first request runs the client address is admitted, a Microsoft Entra administrator exists on the logical server, and the deployed application's identity has a database user of its own.",
+    "task": "I have a working Node API on my laptop talking to a local database, and it needs to be running in Azure this week, on App Service, with a new Azure SQL Database behind it. Give me the order of operations, from an empty resource group to the first successful request that reads a row. I would rather not debug this at two in the morning, so be specific about the steps that fail without a clear error, and tell me what I should check after each one.",
+    "states": [
+      "A database user for the application's identity has to be created from a connection that is itself authenticated with Microsoft Entra ID.",
+      "The first connection can fail after a correct firewall rule was added, because the rule takes several minutes to take effect.",
+      "A missing Microsoft Entra administrator on the logical server surfaces as a login failure that reads like a bad credential.",
+      "The work that has to happen outside the application code comes first and no code can substitute for it."
+    ],
+    "refutes": [
+      "Putting an administrator login and password in the application's configuration is the normal way to connect a deployed application.",
+      "Granting the application's managed identity a role on the Azure resource is enough, with no step run inside the database itself.",
+      "Creating the tables from application startup code is a reasonable pattern for a real application.",
+      "A connection failure straight after adding a firewall rule proves the rule itself is wrong."
+    ]
+  },
   "posture": ["read", "write", "provision"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db"],
@@ -44,6 +60,32 @@
       "the deployed identity has a database user created from a Microsoft Entra authenticated connection, verifiable in sys.database_principals with authentication_type_desc EXTERNAL",
       "a hand-written CRUD layer is proposed only after the generated data API was considered and rejected for a stated reason",
       "the roles granted to the application identity are named, and are not left at whatever a one-command tool granted"
+    ],
+    "probes": [
+      {
+        "where": "host",
+        "cmd": "az sql server ad-admin list --help > /dev/null 2>&1",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "One of the two read-only commands Step 0 tells a reader to run before writing any application code, and the ordering rule is the whole skill, so a command that is not there is a step that gets skipped. The firewall half of the pair is already probed by diagnose-connection-errors and is deliberately not repeated here. This command has been renamed before in the Azure CLI, which is why remembering it is not good enough. Measured 2026-09-04 on Azure CLI 2.90.0, exit 0. It asserts nothing about a subscription and needs no sign-in."
+      },
+      {
+        "where": "host",
+        "cmd": "az webapp connection create sql --help 2>&1 | tr -s '[:space:]' ' ' | grep -q 'Allowed values: django, dotnet, dotnet-internal, go, java, nodejs, none, php, python, ruby, springBoot' && az webapp connection create sql --help 2>&1 | grep -q -- '--system-identity'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The closed list the skill says --client-type takes, checked verbatim against the command's own help rather than remembered, because the values an agent guesses are the ones this list does not have: node rather than nodejs, csharp or aspnet rather than dotnet. A wrong value here fails the one command that creates the managed identity, the database user and the role grant together, which is the step the skill flags as easy to skip. The whole list is asserted rather than the four values the body names, so an addition is visible too. Measured 2026-09-04 on Azure CLI 2.90.0."
+      },
+      {
+        "where": "host",
+        "cmd": "test \"$(az extension list-available --query \"[?name=='serviceconnector-passwordless'] | length(@)\" -o tsv 2>/dev/null)\" = 1",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The extension the skill tells a reader to install by exact name, checked against the live index. az extension add fails on an unknown name, so a renamed or withdrawn extension turns the deployment section's first command into a dead end, and nothing else in the skill can be attempted until it is fixed. Measured 2026-09-04, one match, version 3.3.7. It queries the public index and needs no subscription. Note that this skill's validation target is cloud, so the live lane defers every probe here rather than running it; these three were run by hand on the host on 2026-09-04 and all exited 0."
+      }
     ]
   },
   "triggering": {

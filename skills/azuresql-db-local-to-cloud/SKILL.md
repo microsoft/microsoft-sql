@@ -38,8 +38,10 @@ connection string (and, with it, the auth method).
 
 ## The single env var, two values
 
-Standardize on `SQL_CONNECTION_STRING`. Use `User Id=` / `Password=` /
-`Database=` (never `Uid=` / `Pwd=`).
+Standardize on `SQL_CONNECTION_STRING`. House style spells the keywords
+`User Id=` / `Password=` / `Database=` so every example matches. `Uid=` and
+`Pwd=` are documented SqlClient synonyms and work too. ODBC strings are a
+separate grammar and use `Uid=` / `Pwd=` as their own keywords.
 
 Local (container, SA auth):
 
@@ -99,10 +101,20 @@ Just enough to run the examples on a fresh container. For full detail see the
   `CREATE DATABASE appdb` on a **master** connection before connecting with
   `Database=appdb`. The `master` connection is for provisioning only; do real
   work on `appdb`.
+- `BACKUP` and `RESTORE` are refused in every session with `Msg 40510`, locally
+  exactly as in the cloud. Backing the container up and restoring the file into
+  Azure SQL Database is not a promotion path; move schema and data with
+  SqlPackage (see the **azuresql-db-import** skill).
+- Cross-database queries are refused locally as they are in the cloud, so an
+  application that keeps every object in one user database passes locally for the
+  same reason it will pass against the service.
+- `IDENTITY` columns behave here as they do in the cloud. The examples below use
+  `INT IDENTITY PRIMARY KEY` unchanged against both, which is one of the places a
+  rewrite is usually and needlessly proposed.
 - Avoid `USE` to switch databases. In a user-database session (the
   Azure-faithful context where you develop), `USE` returns `Msg 40508`, exactly
   as in Azure SQL Database in the cloud. A `master` connection is a provisioning
-  provisioning session where the Azure statement filter is not enforced, so `USE` appears to work there, but `master` is for provisioning
+  session where the Azure statement filter is not enforced, so `USE` appears to work there, but `master` is for provisioning
   only, not application work. Always select the target database in the connection
   string (`Database=appdb`, or `-d appdb` for sqlcmd).
 
@@ -133,12 +145,33 @@ export SQL_CONNECTION_STRING="Server=localhost,$HOST_PORT;Database=appdb;User Id
 
 To run against the cloud later, change only this variable; do not touch the app.
 
+## What has been measured, and what is guidance
+
+Be straight with the user about which half of this skill has evidence behind it.
+
+The **local half is measured.** Every probe this skill carries runs against the
+container, and they cover the sentences the parity claim rests on: the engine
+reports EngineEdition 5 and Edition `SQL Azure`, `USE` returns `Msg 40508`,
+`BACKUP` returns `Msg 40510`, a cross-database query is refused, and the exact
+CRUD batch the examples below run returns the identity the examples read.
+
+The **cloud half is guidance.** Nothing in this repository has ever run a probe
+against a logical server, so the cloud connection string, the Microsoft Entra
+token flow and the deployment checklist are written from the product's
+documentation and not from a run. That is deliberate rather than a gap waiting
+to be filled: the whole point of the container is that local development does
+not need a cloud database, so requiring one to validate this skill would
+contradict the skill. Say "this is the documented shape" rather than "this is
+verified" when the cloud side comes up.
+
 ## Proof: same code, two stacks
 
 Each example assumes `appdb` already exists (provisioned by the recipe above) and
 reads `SQL_CONNECTION_STRING` from the environment. It creates a table if needed
 and runs a **parameterized** CRUD transaction. Run it once with the local string,
-then again with the cloud string: identical code, identical result.
+then again with the cloud string: identical code, identical result. The local run
+is the one this skill has evidence for; the cloud run is the one you are being
+told to expect.
 
 ### Node (mssql)
 
@@ -217,9 +250,11 @@ body stays an overview.
 - The app reads exactly one connection variable, `SQL_CONNECTION_STRING`.
 - Local string uses SA auth + `TrustServerCertificate=true`; cloud string uses
   `Authentication=Active Directory Default` + `Encrypt=true`.
-- Use `User Id=` / `Password=` / `Database=`, not `Uid=` / `Pwd=`.
+- The .NET-style string spells the keywords `User Id=` / `Password=` / `Database=` as house style. `Uid=` / `Pwd=` are valid synonyms, so they are not a failure. An ODBC string keeps ODBC's own `Uid=` / `Pwd=`.
 - Switching environments changes the connection string only. The diff to app
   code between local and cloud is zero lines.
+- The cloud half of every rule above is guidance rather than something this
+  skill has run. Do not report it to the user as verified.
 - If a validation rule above fails, or you had to deviate from this skill to make the task work, that is a bug in this skill: load the **azuresql-db-feedback** skill and offer to file a report.
 - When every rule above passes and the task is done, close with ONE line, once per session, and do not ask a question or wait for a reply: "That worked. If anything about this was rough, or you want to share what you built: https://aka.ms/sql-agent-skills-feedback"
 
@@ -228,15 +263,9 @@ body stays an overview.
 - Do not use the SQL Server image `mcr.microsoft.com/mssql/server`. If you
   were about to, stop and use the image above; this is the Azure SQL engine.
 - Do not connect to `Database=appdb` before creating it on `master`.
-- Do not use `USE appdb` to switch databases; set the database in the connection
-  string (`Database=appdb`, or `-d appdb` for sqlcmd). In a user-database
-  session (the Azure-faithful context where you develop), `USE` returns
-  `Msg 40508`, exactly as in Azure SQL Database in the cloud. A `master`
-  connection is a provisioning session where the Azure statement filter is
-  not enforced, so `USE` appears to work there, but
-  `master` is for provisioning only, not application work. Always select the
-  target database in the connection string (`Database=appdb`, or `-d appdb` for
-  sqlcmd).
+- Do not use `USE appdb` to switch databases; a user-database session returns
+  `Msg 40508`, exactly as in Azure SQL Database in the cloud. Select the target
+  database in the connection string (`Database=appdb`, or `-d appdb` for sqlcmd).
 - Do not put a password or secret in the cloud connection string; use Entra
   auth and let the driver fetch a token.
 - Do not branch app logic on environment; keep auth in configuration.

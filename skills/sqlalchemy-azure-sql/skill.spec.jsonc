@@ -4,8 +4,24 @@
   "domain": "schema-and-orm",
   "value": ["corrects-a-wrong-assumption", "not-in-training-data"],
   "correction": "Agents treat SQLAlchemy against Azure SQL Database as the same job as SQLAlchemy against PostgreSQL, when the dialect silently appends OUTPUT inserted to every INSERT into a table whose key the server generates; that clause is rejected outright on any table carrying an enabled trigger, the dialect has no trigger detection and is not going to grow one, the only switch is implicit_returning=False declared per table by hand, and the same clause is why setting fast_executemany=True on ORM inserts appears to do nothing at all.",
+  "value_probe": {
+    "task": "We use SQLAlchemy 2.0 with the ORM against a database in Azure. Everything works except one table.\n\nThe `orders` table has an audit trigger on it that the data team added. A plain `session.add(Order(...))` followed by `session.commit()` on that table fails, and the message says the target table of the statement cannot have any enabled triggers when the statement contains an OUTPUT clause without an INTO clause. The identical pattern against every other mapped class is fine. We are not writing any raw SQL here and nothing in our code mentions OUTPUT.\n\nSeparately, and possibly unrelated, we turned on the driver's fast execute option on the engine to speed up a nightly load that inserts a few hundred thousand rows through the ORM. It made no measurable difference at all, and we cannot see the batching we expected in the traces.\n\nWhat is causing the first problem, what is the fix, and is the second one connected?",
+    "gate": "The answer identifies that the dialect itself adds the returning clause to inserts into tables whose keys the server generates, and turns that behaviour off for the affected table explicitly, rather than dropping the trigger, rewriting the insert by hand, or changing the driver.",
+    "states": [
+      "The clause is added by the dialect, not by the application code, on inserts into a table whose primary key value the server generates.",
+      "The dialect does not detect triggers on the target table and will not do so, so the behaviour has to be turned off explicitly by the author.",
+      "The switch is declared per table by hand, so every affected table has to be found and marked.",
+      "The two problems have the same cause, because the same generated clause prevents the ORM inserts from being sent as one batched execution."
+    ],
+    "refutes": [
+      "SQLAlchemy does not emit a returning clause unless the application asks for one, so the clause must be coming from a trigger, from raw SQL, or from somewhere else in the application.",
+      "The dialect detects an enabled trigger on the target table and adjusts the generated statement automatically, so an upgrade will resolve this.",
+      "The right fix is to drop or disable the audit trigger, or to replace it with something outside the database.",
+      "The fast execute option having no effect on these ORM inserts is a driver, batch size, or connection tuning problem to be solved separately from the first issue."
+    ]
+  },
   "posture": ["read", "write", "execute"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "connect-from-python",

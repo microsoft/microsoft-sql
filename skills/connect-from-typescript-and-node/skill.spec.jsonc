@@ -7,12 +7,28 @@
     "changes-too-fast-to-memorize"
   ],
   "correction": "Agents give every request or serverless invocation its own mssql connection pool, and close it when the handler returns, because they read sql.connect() as opening one connection; it actually creates a process-wide pool whose default ceiling is ten connections, so the per-invocation version pays a full TLS and login handshake on every call and the paired sql.close() tears the pool out from under every other in-flight request.",
+  "value_probe": {
+    "task": "Our Express API on Node.js 20 talks to a database in Azure through the mssql package, pinned at a current version. Every route calls this helper:\n\n```ts\nexport async function query<T>(text: string): Promise<T[]> {\n  const pool = await sql.connect(config);\n  const result = await pool.request().query<T>(text);\n  await sql.close();\n  return result.recordset;\n}\n```\n\nUnder light load it is fine. Under real traffic two things happen. Response times climb well past what the queries themselves take, and we get intermittent failures on requests that were already in flight, complaining that the connection is closed. The failures are not tied to any one route, and the same queries are fast when run from a command line client.\n\nOne engineer wants to raise the pool maximum, another wants to raise the connection timeout. Neither has helped in staging. Show me the corrected helper and explain what was actually wrong.",
+    "gate": "The answer removes the per request creation and teardown, leaving one shared pool that is created once for the life of the process and reused by every request, so no request can destroy the connections another request is using.",
+    "states": [
+      "The connect call does not open a single dedicated connection; it creates or returns a process wide pool shared by every caller.",
+      "The close call in this helper destroys that shared pool, which is why requests already in flight fail with a closed connection.",
+      "The latency growth comes from paying a full encryption and login handshake on requests that should have reused an already open connection.",
+      "The corrected shape creates the pool once at module level and exports it, with no close call in the request path."
+    ],
+    "refutes": [
+      "The connect call opens one connection belonging to this request, so closing it when the handler finishes affects only that request and is correct practice.",
+      "The problem is that the pool maximum or the connection timeout is set too low, and raising either of them is the fix.",
+      "The closed connection errors come from the server dropping idle connections, so a keep alive setting or a retry wrapper around the query is what is needed.",
+      "Leaving connections open across requests is a leak, so a connection must be released or closed at the end of every handler."
+    ]
+  },
   "posture": [
     "read",
     "write",
     "execute"
   ],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": [
     "azure-sql-db",
     "azure-sql-db-container"

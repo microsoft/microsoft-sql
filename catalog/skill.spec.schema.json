@@ -1,7 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/microsoft/azure-sql-skills-lab/spec/schemas/skill.spec.schema.json",
-  "$comment": "Copied from spec/schemas/skill.spec.schema.json in microsoft/azure-sql-skills-lab, which is the source. Sidecars point at this path so editors validate on save. validate-catalog.mjs checks every sidecar against it, so a stale copy fails the build here rather than drifting silently.",
   "title": "skill.spec.jsonc",
   "description": "Everything about a skill that the agent must NOT read. Sits beside SKILL.md. The eval reads this file; the agent never does. There is deliberately no `personas` key: the primitive is the domain, and a persona is a maintained selection over domain plus posture (spec/personas.yaml). A per-skill persona list would make every persona rename a 142-file edit.",
   "type": "object",
@@ -110,6 +109,62 @@
         }
       }
     },
+    "value_declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "THE VALUE QUESTION ANSWERED BY A WRITTEN ARGUMENT INSTEAD OF A MEASUREMENT, AND IT IS NEVER A MEASUREMENT. Present, current and honoured, this raises the ceiling to `ga` exactly as a decisive `value_probe` run does, and everything that reads it has to keep saying which of the two it read. `value_probe` measures; this declares. A report that blurs them has invented evidence. It exists for one situation and is fenced to it. The Azure SQL Database container is a gated private preview: no model has training data on the product, so a two-arm run would spend around a thousand model requests re-establishing what the product's release status already settles. That argument is true of that collection and of nothing else, so `scripts/check-maturity-drift.mjs` honours this ONLY on a skill whose `domain` is `azure-sql-database-container`, and treats it as a failure anywhere else rather than ignoring it. A MEASUREMENT ALWAYS WINS. If a current `eval/reports/value/<id>.json` exists for the skill, the measurement decides the ceiling and this block is not read at all, whichever way the measurement went. That is what stops it becoming a way to overrule a run somebody did not like. Every declaration expires, and `expires_when` is an enum rather than prose so a check can surface the obligation instead of a reader having to notice a sentence.",
+      "required": [
+        "rationale",
+        "covers",
+        "does_not_cover",
+        "decided_by",
+        "decided_on",
+        "expires_when"
+      ],
+      "properties": {
+        "rationale": {
+          "type": "string",
+          "minLength": 400,
+          "description": "The argument itself, in prose, and it must contain its own boundary rather than leave it to `covers` and `does_not_cover` to imply. A reader who finds this block a year from now gets the paragraph, not the arrays, so a paragraph that says value was accepted and stops has recorded a conclusion and thrown away the reasoning. State what makes the measurement redundant, state what the argument does NOT reach, and state what would end it. The length floor is deliberately high for the same reason the `<id>.decision.md` floor is forty characters: a declaration that overrides a measurement while explaining almost nothing is worse than no declaration."
+        },
+        "covers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "The specific corrections the argument reaches, one per entry, named concretely enough to be checked. For the container these are the things a model cannot know because they are not in any training data: the engine's refusal numbers, the absent init directory, the engine never auto-creating a database. A vague entry here is the tell that the argument is broader than its evidence.",
+          "items": {
+            "type": "string",
+            "minLength": 20
+          }
+        },
+        "does_not_cover": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "The material inside the same skills that this argument does NOT excuse from measurement, one per entry. This is the half that keeps the block honest. A skill is rarely all kernel: the container skills wrap their container-specific corrections in retry-with-backoff loops, compose YAML, service-container workflows and ORM scaffolding, and all of that is abundant in training data, so no argument from product novelty says anything about whether the skill improves an answer there. Naming it here is an admission, on the record, that part of the skill is still unmeasured.",
+          "items": {
+            "type": "string",
+            "minLength": 20
+          }
+        },
+        "decided_by": {
+          "type": "string",
+          "minLength": 2,
+          "description": "The person who made the call, by name. Not a team and not a role: the point of the field is that somebody can be asked about it later."
+        },
+        "decided_on": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "description": "The date the decision was made, ISO. Read with `expires_when` it is what lets a reader say how long the argument has been standing."
+        },
+        "expires_when": {
+          "enum": [
+            "the-container-reaches-public-preview"
+          ],
+          "description": "The condition that ends the argument, as a token a program can match rather than a sentence a program can only print. One value exists today. `the-container-reaches-public-preview`: when the Azure SQL Database container leaves the gated private preview, model training data starts to contain the product, the premise that nothing could know it stops being true, and every skill carrying this block has to be measured or demoted. Adding a second value means writing down a second argument, which is the friction this enum is for."
+        }
+      }
+    },
     "posture": {
       "type": "array",
       "minItems": 1,
@@ -131,7 +186,8 @@
         "draft",
         "preview",
         "ga"
-      ]
+      ],
+      "description": "How much has actually been RUN against this skill, decided from evidence in this repository rather than from how finished it feels. Written down on 2026-09-04 because it had never been defined: an audit found 34 sidecars saying draft and 6 saying preview with no criterion anywhere, so the field recorded a mood. Every skill in skills/ lints clean or `npm test` fails, so a clean lint is the floor for all three values and separates none of them. `draft`: nothing has run against it that could have contradicted it. In practice it carries no entries in validation.probes, or the probes it carries did not run and pass in the most recent eval/reports/live/live-eval.json, including the case where validation.target is `cloud` and the run therefore deferred it. scripts/promote.mjs refuses to promote this value, with no override flag. `preview`: validation.probes is non-empty and every one of those probes ran and passed in the most recent live lane run, so the skill's own claims about the engine have been put in front of an engine and held. What is still unknown is whether the skill changes an ANSWER. `ga`: preview, plus the value question settled, by one of two routes that must never be reported as the same thing. MEASURED: eval/reports/value/<id>.json exists, is current, and either carries a decisive verdict or is accompanied by an accepted <id>.decision.md. DECLARED: the skill carries a value_declaration and no current value report, in which case a written, dated, attributed argument stands in for the run. The declared route was added on 2026-09-04 for the Azure SQL Database container collection, whose product is a gated private preview that no model has training data on, and it is fenced to the azure-sql-database-container domain so it cannot spread into a general licence to skip measurement. A current measurement always beats a declaration, and a declaration outside that domain is a failure rather than a value that is quietly ignored. Exactly one skill in the corpus reaches ga by measurement today. Two things this deliberately does NOT use. Routing is not a criterion: docs/how-it-works.md section 8 records that no number in eval/reports/triggering-eval.json has ever been measured twice at a fixed catalog hash, so a threshold on `routed` or on the false positive counts is a coin toss with a policy attached, and the routing gate checks that the evidence is current and gates none of the numbers. A cloud-only skill cannot be decided at all: no cloud lane exists yet, so its maturity records what can be checked and says nothing about the skill. The rule that makes all three usable: evidence sets the CEILING and an author may always declare a value BELOW it. dev-container-templates lints clean with eight green probes and is draft on purpose, because the templates it describes wait on other work and nothing mechanical can see that. Nobody may declare a value ABOVE the ceiling."
     },
     "applies_to": {
       "type": "array",
@@ -167,7 +223,7 @@
             "both",
             "none"
           ],
-          "description": "Which substrate lane 4 runs this against."
+          "description": "Which substrate lane 4 runs this against, and with it which instrument decides `maturity`. `container` and `both` have an engine, so `preview` requires at least one probe that opened a database connection: a `sql` probe, or a `cmd` probe carrying `engine: true`. `cloud` has no lane yet, so its probes are always deferred. `none` DECLARES THAT THE SKILL HAS NO ENGINE SURFACE, which is the one route past the engine requirement, and it is checked rather than believed: scripts/check-maturity-drift.mjs reads the skill's own SKILL.md and FAILS the declaration if the body names an engine message number, reads SERVERPROPERTY, carries T-SQL or runs a query with sqlcmd. A skill that tells a reader what the engine does has an engine surface whatever this field says. Such a skill is then judged by whatever instrument does fit it, which for azuresql-db-feedback is an HTTPS redirect, and it can reach `preview` on that."
         },
         "setup": {
           "type": "array",
@@ -203,10 +259,17 @@
                 "minLength": 3,
                 "description": "A complete shell command line, for the claims that are about a tool rather than about the engine, such as whether bcp is present in the tools image and prints its banner with no live connection. This is the alternative to `sql`, never a companion to it."
               },
+              "where": {
+                "enum": [
+                  "container",
+                  "host"
+                ],
+                "description": "Which machine a `cmd` probe runs on. ABSENT MEANS `container`, and that default lives in eval/lib/probe.mjs rather than in a `default` keyword here, because this repository's schema validator refuses keywords it does not implement: a `default` in the schema would read as enforced when nothing reads it, and it matters more than it looks. `container` is the default and is right for a tool the engine image ships, such as bcp: the claim is that the image carries it. `host` is right for a client tool a developer installs separately, such as SqlPackage, which is not in the image and never will be. Five probes shipped on 2026-09-02 without this field and every one failed with `sqlpackage: command not found`, because they were written by running the tool on a laptop and then executed inside a container. Ignored for `sql` probes, which always run against the engine."
+              },
               "expect": {
                 "type": "object",
                 "additionalProperties": false,
-                "description": "Exactly one of the three below. Two of them together is a probe whose author had not decided what it measures, and the available schema keywords cannot forbid that, so the count is a review rule until a linter check lands.",
+                "description": "Exactly one of the four below. Two of them together is a probe whose author had not decided what it measures, and the available schema keywords cannot forbid that, so the count is a review rule until a linter check lands.",
                 "properties": {
                   "error": {
                     "type": "integer",
@@ -219,6 +282,10 @@
                   "succeeds": {
                     "const": true,
                     "description": "The statement must complete without error, and nothing is asserted about what came back. The weakest of the three. Worth using where the claim genuinely is that a statement is accepted, such as a scoped configuration the skill depends on still existing, and not worth using to pad a count."
+                  },
+                  "warning": {
+                    "type": "integer",
+                    "description": "A severity 10 message number the statement must emit while still succeeding. Use this when the engine's answer is a warning rather than a refusal, for example Msg 1945 on an index key wider than the limit. This needs sqlcmd's -m-1: without it a severity 10 message prints its text and no number, so nothing can see it, and -b never sets a non-zero exit below severity 11. A succeeds-probe reports any warning it saw rather than failing on it, so use this shape when the warning IS the claim."
                   }
                 }
               },
@@ -226,6 +293,10 @@
                 "type": "string",
                 "minLength": 30,
                 "description": "What this probe proves, and why it is worth a round trip against a live engine. A probe that cannot say why it exists is a probe nobody will maintain. When the number it asserts changes under some future engine build, this sentence is what tells the next reader whether the probe was wrong or the product moved, so name the measurement it came from where the skill has one."
+              },
+              "engine": {
+                "const": true,
+                "description": "`cmd` probes only, and only where the command genuinely opens a database connection. `sql` probes run against the scratch database by construction and must NOT carry this field. It exists because `preview` requires engine evidence and nothing in a shell command's shape says whether it contacted an engine: `dab --version` and a `dab start` that serves rows out of the scratch database are both `cmd`. The claim is checked, not taken: scripts/check-maturity-drift.mjs fails a probe that declares it and whose body carries neither a credential nor the PROBE_PORT the lane hands a host probe, because a probe that opens a connection has to say who it is connecting as. That does not catch every lie and is not meant to; it catches the one that matters, which is a decorative probe relabelled to clear a gate."
               }
             }
           }

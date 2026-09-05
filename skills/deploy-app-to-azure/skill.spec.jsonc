@@ -8,12 +8,27 @@
     "multi-step-with-silent-failures"
   ],
   "correction": "Agents treat a first-party Azure sample's infrastructure as a reviewed baseline and spend their attention on the application code, so asked to reach Azure SQL Database without a password using the Azure Developer CLI they recommend the first-party template as the way to get there. `Azure-Samples/todo-csharp-sql` is the only Microsoft-published template in the gallery pairing a web application with Azure SQL Database, and it does not use an identity for the database at all: it provisions the logical server with an administrator login and a password, creates the application's database user with `create user ... with password` from a deployment script, and adds that user to `db_owner`, with `FROM EXTERNAL PROVIDER` appearing nowhere under its infrastructure directory. The template does create a managed identity, which is what lets the misreading survive a glance, but that identity authenticates to a vault and what the vault holds is a connection string with a password in it. The second half is worse, because it survives choosing correctly: all four Microsoft-published templates that build the logical server from the Azure Verified Module, including the three serverless quickstarts that are otherwise exemplary about identity, ship a firewall rule named `Azure Services` spanning `0.0.0.1` to `255.255.255.254`, which is every address a client can present, while the documented Allow Azure services rule uses `0.0.0.0` as both its start and its end address. So the identity defect is fixed by choosing a different template and the firewall defect is not fixed by choosing anything.",
+  "value_probe": {
+    "gate": "The answer reads the infrastructure the template generates rather than trusting it because it is first-party, and reaches both how the application actually authenticates to the database and which addresses the generated firewall rule really admits.",
+    "task": "My team lead wants our new web application and its database deployed to Azure with no password anywhere, and asked me to start from a Microsoft published template rather than writing the infrastructure myself. I have found a first-party sample that pairs a web application with a SQL database, and on the face of it that is what we want. Before I commit the team to it, review the choice: does starting there actually get us where he is asking to be, and is there anything in the infrastructure it generates that I should not merge as it stands?",
+    "states": [
+      "A managed identity can be present in a template while the database connection still uses a password held in a vault.",
+      "The start and end addresses of a generated firewall rule have to be read, because a wide range admits every address a client can present.",
+      "The documented allowance for Azure services uses one specific address as both its start and its end."
+    ],
+    "refutes": [
+      "The first-party sample pairing a web application with a SQL database authenticates to that database with an identity.",
+      "The presence of a managed identity in the template means the database connection is passwordless.",
+      "Choosing a better published template removes the need to review the firewall rule it generates.",
+      "A firewall rule named for allowing Azure services admits only Azure and needs no further check."
+    ]
+  },
   "posture": [
     "provision",
     "execute",
     "admin"
   ],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": [
     "azure-sql-db"
   ],

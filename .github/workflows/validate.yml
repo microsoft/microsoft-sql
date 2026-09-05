@@ -32,8 +32,30 @@ jobs:
       - name: Generated surfaces match a fresh generation
         run: node scripts/generate.mjs --check
 
+      # Regenerates the 17 container sidecars from literals in its own source and
+      # compares them against this repository. It is a GENERATOR check. It says
+      # nothing at all about the product repository, and must not be read as if
+      # it does. The step below is the one that reads the other repository.
       - name: Container sidecars are current
         run: node scripts/backfill-container-sidecars.mjs --check
+
+      # The real cross-repository check. Reads the 17 sidecars from
+      # microsoft/azure-sql-database-container over HTTPS, needs no token
+      # because that repository is public, and FAILS rather than skips when it
+      # cannot see them. Before this existed, the claim that the two
+      # repositories agree was verified by a reviewer once and enforced by
+      # nothing, which is the same shape as several other green-while-checking-
+      # nothing failures found in this project.
+      #
+      # RED TODAY, ON PURPOSE. validation.target disagrees on three skills:
+      # azuresql-db-auth and azuresql-db-connections are 'both' here and
+      # 'container' upstream, and azuresql-db-feedback is 'none' here and
+      # 'container' upstream. Those are real divergences and a correction is in
+      # flight. They were NOT added to an exception list, because an exception
+      # list that outlives its reason is how this check would become the thing
+      # it replaced.
+      - name: Container sidecars agree with the product repository
+        run: node scripts/check-container-parity.mjs
 
       # Field ids in the issue form are what the feedback skill fills verbatim.
       - name: Feedback prefill contract

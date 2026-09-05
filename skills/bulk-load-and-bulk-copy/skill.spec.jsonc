@@ -4,8 +4,24 @@
   "domain": "data-movement",
   "value": ["corrects-a-wrong-assumption"],
   "correction": "Agents write BULK INSERT, OPENROWSET(BULK ...) and bcp against a local file path exactly as they would on SQL Server, then reach for the SQL Server minimal-logging playbook, TABLOCK, a BULK_LOGGED recovery model, large batches, to make a slow load fast, when in fact Azure SQL Database's server-side bulk load path only ever reads from Blob Storage, a local path is refused with Msg 12713 before the file is even checked for existence, and every load, minimally logged or not, is still capped by a fixed per-service-tier transaction log generation rate enforced by the log rate governor, which throttles ingestion no matter how the load is written.",
+  "value_probe": {
+    "gate": "The answer stages the file where the service can actually read it and loads from there, or drives the load from a client that streams the rows over the connection, and treats the throughput question as a service tier limit rather than as hint tuning.",
+    "task": "Our nightly job loads a 40 million row CSV into a staging table. On the old SQL Server box it ran like this and finished in about eleven minutes:\n\n```sql\nALTER DATABASE staging SET RECOVERY BULK_LOGGED;\nBULK INSERT dbo.stg_orders\nFROM 'D:\\feeds\\orders_20260901.csv'\nWITH (FORMAT = 'CSV', FIRSTROW = 2, TABLOCK, BATCHSIZE = 500000);\n```\n\nWe have just moved the database to Azure SQL Database and the same job does not work at all. The file is produced by an upstream system onto a file share that the job server mounts. Management wants the load back inside the same overnight window it used to fit in. Give us the load path we should be using and how to get the throughput back.",
+    "states": [
+      "The server side bulk load path on this service reads only from Azure Blob Storage, so the file has to be staged there before the engine can read it.",
+      "The path is rejected before the file is looked for, so this is not a permissions, share mount or missing file problem.",
+      "The bulk logged recovery model is not available on this service, so that half of the old recipe cannot be reproduced.",
+      "Log generation is capped per service tier by a governor, so ingestion rate is bounded by the tier no matter how the load statement is written."
+    ],
+    "refutes": [
+      "The statement will read from the local or mapped path once the service account permissions, the share mount or a credential are corrected.",
+      "Setting the recovery model to bulk logged and keeping TABLOCK will restore minimal logging and the old throughput on this service.",
+      "Throughput here is governed mainly by how the load statement is written, so a large enough batch size with the right hints will match the old server.",
+      "Copying the file to the machine the database runs on, or to a path visible to the engine, is a workable option on this service."
+    ]
+  },
   "posture": ["write", "provision"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "connect-from-python",

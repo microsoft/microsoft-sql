@@ -12,6 +12,22 @@
     "execute"
   ],
   "maturity": "preview",
+  "value_declaration": {
+    "rationale": "This skill's kernel is that two things every other engine has taught a migration tool are false here. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach Entity Framework Core migrations, SqlPackage usage and migration safety practice such as expand and contract, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted.",
+    "covers": [
+      "the engine not auto-creating a database, so a migration run fails on its first connection against a healthy engine and reads as a credentials fault",
+      "USE being refused with Msg 40508, so the tool cannot switch database context and the database is named in the connection string",
+      "the target-server and trust-server-certificate flags SqlPackage needs against the container's self-signed certificate",
+      "the native vector column type being usable from a migration on this build"
+    ],
+    "does_not_cover": [
+      "Entity Framework Core migrations and SqlPackage usage, which are publicly documented",
+      "migration safety practice such as expand and contract, which is ordinary material"
+    ],
+    "decided_by": "Carlos Robles",
+    "decided_on": "2026-09-04",
+    "expires_when": "the-container-reaches-public-preview"
+  },
   "applies_to": [
     "azure-sql-db-container"
   ],
@@ -20,6 +36,62 @@
     "assert": [
       "user database provisioned before migrating",
       "connection string targets the user database"
+    ],
+    "probes": [
+      {
+        "sql": "SELECT CAST(SERVERPROPERTY('EngineEdition') AS INT) AS engine_edition, CAST(SERVERPROPERTY('Edition') AS NVARCHAR(128)) AS edition;",
+        "expect": {
+          "rows": [
+            [
+              5,
+              "SQL Azure"
+            ]
+          ]
+        },
+        "why": "The premise of the whole skill: a migration is worth running here only because the local engine is the same engine the migration will meet in Azure. These two properties are the only thing that distinguishes it from the SQL Server image at run time. If they ever read differently, a migration that passes locally proves nothing about the cloud and the skill's opening claim is gone."
+      },
+      {
+        "sql": "USE master;",
+        "expect": {
+          "error": 40508
+        },
+        "why": "The rule the skill repeats in three places, made executable. Microsoft Learn documents error 40508, severity 16, 'USE statement is not supported to switch between databases. Use a new connection to connect to a different database.', and states the refusal applies when a database other than the current one is named, which is why this probe names master rather than the scratch database the session already sits in. A migration script carried over from SQL Server that opens with a USE will stop here, and this probe is what proves the skill is right to insist the database belongs in the connection string."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_migration_vec (id INT IDENTITY PRIMARY KEY CLUSTERED, embedding VECTOR(1536) NOT NULL);\nSELECT COUNT(*) AS vector_columns FROM sys.columns WHERE object_id = OBJECT_ID('dbo.probe_migration_vec') AND name = 'embedding';",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "The vectors section as a migration author meets it: the dimension is a literal in the DDL, and a migration that emits this column is accepted by the engine rather than failing partway through a run. The dimension is written as 1536 rather than something smaller because that is the size the body uses and the size a real embedding column will carry. This probe deliberately stops at the DDL, since the parameter-binding failure the body warns about belongs to a client driver and cannot be reproduced through an administrative batch."
+      },
+      {
+        "where": "host",
+        "cmd": "sqlpackage /Action:Publish /help:True | grep -q '^/TargetServerName:<string>$' && sqlpackage /Action:Publish /help:True | grep -q '^/TargetDatabaseName:<string>$' && sqlpackage /Action:Publish /help:True | grep -q '^/SourceFile:<string>$'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The three parameters that make the body's SqlPackage command line address the container rather than a cloud server, checked against the build's own help rather than remembered. Measured 2026-09-04 on SqlPackage 170.4.83.3, all three present in the Publish help. A renamed parameter here does not fail loudly in a useful way: SqlPackage rejects the whole invocation, and the reader is left comparing a command line against documentation for a different build."
+      },
+      {
+        "where": "host",
+        "cmd": "sqlpackage /Action:Publish /help:True | grep -q '^/TargetTrustServerCertificate:\\[True|False\\]$'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The one parameter in that command line that exists only because this is a container: the engine presents a self-signed certificate, so a publish that does not trust it fails on the handshake before it reaches any schema. Measured 2026-09-04 on 170.4.83.3, present in the Publish help with the True or False form. Probed separately from the three above because it is the parameter a reader is most likely to drop when adapting the line for the cloud, and the one whose absence produces the least recognisable error."
+      },
+      {
+        "where": "host",
+        "cmd": "dotnet ef database --help | grep -q '^  update'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The Entity Framework Core command the body prints is dotnet ef database update, and the tool is a separately installed global tool rather than part of the SDK, so its presence and the shape of its command tree are both real preconditions. Measured 2026-09-04 against Entity Framework Core .NET command-line tools 9.0.19, exit 0. This probe says nothing about whether the migration succeeds, only that the command the reader is handed exists on the machine they are on."
+      }
     ]
   },
   "triggering": {

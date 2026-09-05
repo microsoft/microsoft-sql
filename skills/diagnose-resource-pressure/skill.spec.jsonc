@@ -7,11 +7,29 @@
     "not-in-training-data"
   ],
   "correction": "Agents troubleshooting a slow or throttled Azure SQL Database reach for the readings that make sense against a single unshared engine, where the machine is the thing you measure. Azure SQL Database is a governed platform: every headline number is a percentage of a ceiling set by the service objective, and the view built to report those percentages, sys.dm_db_resource_stats, does not exist on the local Azure SQL Database container at all, raising Msg 208. The purchasing model is not guessable: dtu_limit is NULL on a vCore database and cpu_limit, the vCore count, is NULL on a DTU database, and on a DTU database the headline is not a column but Learn's formula avg_dtu_percent = MAX(avg_cpu_percent, avg_data_io_percent, avg_log_write_percent), with memory excluded because the data cache keeps avg_memory_usage_percent near 100 regardless of load. avg_cpu_percent and avg_instance_cpu_percent are percentages of two different limits and are not comparable with each other. Error 10928's 'request limit' wording names a worker limit rather than a connection count, kept only for backward compatibility, so Resource ID 1 is workers and Resource ID 2 is sessions, and MAXDOP multiplies workers per query far faster than session count does. MAXDOP itself is where a previous revision was wrong: it claimed sys.database_scoped_configurations reports 0 on Azure SQL Database while 8 applies invisibly underneath. Microsoft Learn contradicts that, setting the MAXDOP database-scoped configuration to 8 for each new single or elastic pool database since September 2020 and using that view as the way to determine it, so 8 in the cloud is the default, 0 in the cloud means the database predates the change, and 0 on the container is measured and is just the engine default. And the instance-level fallback is absent rather than restricted: sp_configure returns Msg 2812, could not find the stored procedure, not the option error Msg 15123 that would send a reader after a permission problem.",
+    "value_probe": {
+      "gate": "The answer measures the production database against the ceilings its service objective sets, refuses the laptop reading as evidence about the cloud database, and explains the number in the error message as something other than a count of open connections, before it says anything about changing the tier.",
+      "task": "Our production Azure SQL Database started timing out at peak yesterday and there are two things I cannot make sense of.\n\nFirst, I reproduced the workload against the Azure SQL Database container on my laptop, because I did not want to experiment in production. I tried:\n\n```sql\nSELECT TOP (20) * FROM sys.dm_db_resource_stats ORDER BY end_time DESC;\n```\n\nand it comes back as an invalid object name there, so I fell back to sys.dm_os_performance_counters, where the buffer cache hit ratio dips to about 94 percent under my load. Does that tell me production is short of memory and needs a bigger tier?\n\nSecond, the application log from the incident is full of 'The request limit for the database is 200 and has been reached'. Our connection pool is capped at forty connections and we run three application instances, so I cannot see how we would be anywhere near 200. This is a DTU based Standard database.\n\nWhat should I actually be measuring, and is scaling up the answer here?",
+      "states": [
+        "Every headline number on this platform is a percentage of a ceiling set by the service objective rather than an absolute measurement of a machine.",
+        "The limit named in that error counts the workers a query consumes rather than the connections the application opens, so a small pool can still reach it.",
+        "A query running in parallel consumes several workers at once, which is how the count grows far faster than the connection count does.",
+        "The view that reports those percentages is a cloud only surface, so its absence on the local container is expected rather than a permission or context problem.",
+        "The DTU headline is derived from the largest of the processor, data input output and log write percentages, and the memory percentage is not part of it."
+      ],
+      "refutes": [
+        "The 200 in that message is a limit on concurrent connections or sessions, so the pool must be opening more connections than the application thinks it is.",
+        "A buffer cache hit ratio measured against the local container is evidence about whether the production database is short of memory.",
+        "sys.dm_db_resource_stats is available on any Azure SQL Database engine including the local container, so its absence means a missing permission or the wrong database context.",
+        "A memory usage percentage near 100 on an Azure SQL Database means the database is out of memory and needs a larger tier.",
+        "sp_configure can be used on Azure SQL Database to inspect or change the instance level settings behind this."
+      ]
+    },
   "posture": [
     "read",
     "inspect"
   ],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": [
     "azure-sql-db",
     "azure-sql-db-container"

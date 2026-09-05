@@ -4,6 +4,22 @@
   "domain": "performance-and-diagnostics",
   "value": ["not-in-training-data", "multi-step-with-silent-failures"],
   "correction": "Agents port an Extended Events script from SQL Server onto Azure SQL Database almost unchanged: scoping the session ON SERVER, pointing an event_file target at a local path, omitting ACTION() clauses, and reaching for a system_health session this platform does not have. Several of the resulting failures are not errors. The session is created, starts, and reports itself healthy while capturing nothing useful, or nothing at all.",
+  "value_probe": {
+    "gate": "The answer produces a session that is scoped to the user database and carries the clauses that attribution needs, and it sends the reader neither to a built-in baseline session nor to a file path on the machine running the engine.",
+    "task": "We get a deadlock in our Azure SQL Database maybe twice a day and never while anyone is watching. I want to capture them over the next few days, along with the statement text and which application and which user was running it, so that I have something to look at on Monday morning. I have a script from our old on-premises server that used to do exactly this. Tell me what to actually run against this database, and how to read the results back afterwards.",
+    "states": [
+      "The catalog views and dynamic management views for these sessions carry a database prefix rather than a server one.",
+      "The attribution fields have to be requested explicitly, because an event carries only its own native fields.",
+      "A durable file target has to write to Azure Storage, with a credential named for the container.",
+      "A session can be created, started, and report itself healthy while capturing nothing useful."
+    ],
+    "refutes": [
+      "A built-in health session on this database already holds the recent deadlocks and can simply be read for them.",
+      "The session can be created at server scope the way the on-premises script does.",
+      "The durable file target can be pointed at a local path on the machine running the engine.",
+      "Adding the event on its own captures the statement text, the user name and the application name."
+    ]
+  },
   "posture": ["inspect", "read"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db"],

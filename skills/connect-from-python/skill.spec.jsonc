@@ -4,8 +4,24 @@
   "domain": "drivers-and-connectivity",
   "value": ["not-in-training-data", "changes-too-fast-to-memorize"],
   "correction": "Asked to connect Python to Azure SQL Database, an agent reaches for pyodbc and a platform-specific ODBC driver install, because for years that was the only answer; Microsoft now ships a first-party driver, mssql-python, that carries the driver binaries inside its own wheel so there is nothing to install at the operating system level, and that accepts Authentication=ActiveDirectoryDefault, a value the ODBC driver's own Authentication keyword does not offer at all.",
+  "value_probe": {
+    "task": "I have a FastAPI service that reads from a database in Azure. It uses pyodbc with the Microsoft ODBC Driver 18 for SQL Server, which is installed in the container image and works fine with a user name and password.\n\nWe are removing the password, so I changed the connection string to this:\n\n```python\ncnxn = pyodbc.connect(\n    'Driver={ODBC Driver 18 for SQL Server};'\n    'Server=tcp:ourserver.database.windows.net,1433;'\n    'Database=orders;'\n    'Authentication=ActiveDirectoryDefault;'\n    'Encrypt=yes;'\n)\n```\n\nIt fails instantly. Not after a timeout, instantly, and the message is about the connection string rather than about a login. I proved it is not the network by pointing the same call at a made up host on a closed port, and I get the identical failure just as fast. The azure-identity package is installed and `az login` works in that shell.\n\nWhat is going on, and what is the right way to make this service connect without a password from Python?",
+    "gate": "The answer explains that the driver named in this connection string does not accept that authentication value at all and rejects the string before opening a socket, and gives a passwordless route for Python that actually works, whether by supplying an access token to the driver or by using a driver that does accept the value.",
+    "states": [
+      "The failure happens during connection string validation, before any network connection is attempted, which is why an unreachable host produces the same immediate result.",
+      "The authentication value used here is not one this driver's Authentication keyword accepts, so no amount of identity or network configuration changes the outcome.",
+      "A passwordless connection on this driver path works by obtaining a token separately and handing it to the driver, rather than by naming an authentication mode in the string.",
+      "There is a first party Python driver that does accept this authentication value directly and requires no separately installed operating system driver."
+    ],
+    "refutes": [
+      "The authentication value used here is a valid keyword value for this ODBC driver, so the failure must lie in the identity, the network, the firewall, or the permissions.",
+      "Installing, upgrading, or reinstalling the operating system ODBC driver, or installing an extra Python package, makes this connection string valid.",
+      "The immediate failure indicates that no credential was found in the environment, and running an interactive sign in or setting identity environment variables would resolve it.",
+      "Adding a longer timeout, a different port, or a firewall rule is relevant to a failure that returns this quickly."
+    ]
+  },
   "posture": ["read", "write", "execute"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "connect-to-azure-sql",
