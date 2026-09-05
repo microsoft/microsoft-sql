@@ -31,6 +31,12 @@ Sourced from Microsoft Learn on 2026-09-03, and checked against sqlcmd 1.10.0 an
 `-b` sets a non-zero exit only at severity 11 and above. Without `-m-1` a severity 10 message prints
 its text with no `Msg` number, which is the class 47072, 47073 and 42101 belong to.
 
+**`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
+Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
+`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
+message at any `-m` value, so on that build those three numbers never appear at all, and `sys.messages` is the way to get them. `build-app-on-azure-sql` tells the two
+builds apart in one table.
+
 ```bash
 sqlcmd -S your-server.database.windows.net,1433 -d your-database -U your-login -P "$SQL_PASSWORD" \
   -N -l 30 -b -m-1 -Q "SELECT 1"
@@ -76,7 +82,8 @@ they do not agree.
 
 Take the tables as operative: they explain the symptom. Severity 10 becomes 0 on the way to
 the client, so a developer whose public network access was disabled reports a timeout and never sees
-`47073`. `-m-1` is what makes it visible.
+`47073`. `-m-1` on ODBC `sqlcmd` is what makes it visible. On go-sqlcmd 1.10.0 nothing does, so
+look the number up in `sys.messages` on a connection that works.
 
 ## 40615 and 40914 are the firewall, and no connection string fixes them
 

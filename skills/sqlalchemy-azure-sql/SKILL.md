@@ -215,6 +215,12 @@ Expect one row per table needing `implicit_returning=False`, none on a schema wi
 Keep `-m-1`: a severity 10 message otherwise prints with no `Msg` number, and `-b` will
 not fail on one.
 
+**`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
+Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
+`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
+message at any `-m` value, so on that build a severity 10 message prints with no number whether you keep the flag or not. `build-app-on-azure-sql` tells the two
+builds apart in one table.
+
 **Every model that needs the flag has it.** Print the other list and compare:
 
 ```python

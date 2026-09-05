@@ -229,6 +229,12 @@ manageability, never storage separation.
 Run the DDL through `sqlcmd` with `-m-1`, because message 1945 is **severity 10** and `-b` alone
 does not report severity 10 at all, so a migration that emitted it still exits 0:
 
+**`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
+Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
+`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
+message at any `-m` value, so on that build the `grep` below finds no message 1945 to report. `build-app-on-azure-sql` tells the two
+builds apart in one table.
+
 ```bash
 export SQLCMDPASSWORD='<password>'
 sqlcmd -S <server-name>.database.windows.net,1433 -d <database> -U <user> -C -b -m-1 \

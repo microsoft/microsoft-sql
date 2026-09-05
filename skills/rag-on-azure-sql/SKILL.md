@@ -276,6 +276,12 @@ means the deduplication key is wrong and re-runs are re-embedding unchanged text
 `-m-1` makes a severity 10 message print its number, and `-b` only sets a non-zero exit at severity
 11 and above, so `sqlcmd` exiting 0 says nothing about the four. Read the output file.
 
+**`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
+Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
+`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
+message at any `-m` value, so on that build a severity 10 message arrives with no number to read. `build-app-on-azure-sql` tells the two
+builds apart in one table.
+
 ## Do not
 
 - Do not assume the copy inherits the source's protection, and do not try to give it a policy of
