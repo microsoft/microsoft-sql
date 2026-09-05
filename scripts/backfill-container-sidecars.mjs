@@ -88,7 +88,9 @@ const AUTHORED = {
   },
   'azuresql-db-local-to-cloud': {
     posture: ['read', 'write', 'execute', 'provision'],
-    target: 'both',
+    target: 'container',
+    applies_to: ['azure-sql-db', 'azure-sql-db-container'],
+   
     correction:
       'Asked whether local code will work in Azure, an agent starts rewriting the data layer. It should not: the local container and Azure SQL Database are the same engine, so the code does not change and only the connection string does, including the switch from SQL auth locally to Microsoft Entra in the cloud.',
     implicit: ['will this code work unchanged in Azure?'],
@@ -205,34 +207,54 @@ const NEGATIVE = [
 ];
 
 // maturity, per skill, from the live probe lane's run of 2026-09-04 against the
-// container on build 12.0.2000.8, EngineEdition 5, Edition 'SQL Azure':
-// 101 of 101 probes passed, 17 of 17 skills ran, 0 skipped.
+// container on build 12.0.2000.8, EngineEdition 5, Edition 'SQL Azure'.
 //
 // This used to be the literal 'preview' for all 17, written when the sidecar
-// contract was invented and derived from nothing. It is now derived from what
-// ran. The ladder: draft means nothing has run that could contradict the skill,
-// preview means probes ran against a real engine and passed, ga means preview
-// plus a value measurement. No value measurement exists for any of these 17, so
-// none of them can reach ga today.
+// contract was invented and derived from nothing. Then it was derived from the
+// first live run, which left four at draft. All four are now preview, and not
+// one of them got there by having this value edited on its own.
 //
-// The four that stay at draft each failed a different part of the preview test,
-// and none of them failed a probe. They are held down because of what their
-// probes did not ask, not because of what they answered:
+// The ladder lives in the sibling lab azure-sql-skills-lab, in
+// docs/how-it-works.md section 6b, and is enforced there by
+// scripts/check-maturity-drift.mjs: draft means nothing has run that could
+// contradict the skill, preview means probes ran and passed AND at least one of
+// them opened a database connection, ga means preview plus a value measurement.
+// PRODUCT_RELEASE_STAGE below refuses ga on any of these while the product is a
+// private preview, whatever the ceiling says.
 //
-//   azuresql-db-local-to-cloud  declares target 'both' and ran only on the
-//                               container. No sidecar declares target 'cloud',
-//                               so nothing in the lane waits for a logical
-//                               server and the cloud half was never executed.
-//   azuresql-db-dab             all five probes run on the host. They measure
-//                               the Data API builder CLI on the machine that
-//                               ran them. No statement reached a database.
-//   azuresql-db-sidecar         two probes parse a Compose file on the host and
-//                               the third checks a binary is executable in the
-//                               image. Nothing was asked of the engine.
-//   azuresql-db-feedback        one probe, a live HTTPS redirect check. Real,
-//                               and the only claim here anything can settle,
-//                               but it is a network check and it covers almost
-//                               none of the skill.
+// What changed for the four, and it was a different thing each time:
+//
+//   azuresql-db-dab       had five probes and all five read what the CLI writes
+//                         into a file. It now carries three more that start the
+//                         tool against the scratch database and read rows back
+//                         over REST and over GraphQL, and one that points it at
+//                         a database nobody provisioned and asserts it never
+//                         serves. THE SKILL CHANGED, not the ladder.
+//   azuresql-db-sidecar   had two probes that parsed YAML and one that checked a
+//                         binary is executable in the image. It now carries two
+//                         that bring a real Compose stack up: one reads Docker's
+//                         own health log to show the container is Running while
+//                         the engine still refuses a login, and one logs in from
+//                         the app container by service name and fails to at
+//                         localhost. THE SKILL CHANGED.
+//   azuresql-db-feedback  has no engine surface at all, so engine probes were
+//                         the wrong instrument and no work on the skill would
+//                         have produced one. THE LADDER CHANGED: a skill may now
+//                         declare validation.target 'none' and be judged by the
+//                         instrument that fits it, which here is an HTTPS
+//                         redirect check. The declaration is read from the
+//                         skill's own body rather than believed, so it cannot
+//                         become a way out for a skill that does have a surface.
+//   azuresql-db-local-to-cloud
+//                         declared target 'both' and had only ever run on the
+//                         container. Carlos Robles decided on 2026-09-04 that no
+//                         cloud run is the right answer, because avoiding the
+//                         cloud for local development is the container's value
+//                         proposition. THE DECLARATION CHANGED: the target is
+//                         now 'container', which is what is measured and what
+//                         can be measured, applies_to still names the cloud, and
+//                         the skill body now says in as many words that the
+//                         cloud half is guidance rather than something run.
 //
 // These values must stay equal to the same field in
 // microsoft/azure-sql-database-container, which is where the probes live. That
@@ -243,18 +265,18 @@ const MATURITY = {
   'azuresql-db-ci': 'preview',
   'azuresql-db-connections': 'preview',
   'azuresql-db-container': 'preview',
-  'azuresql-db-dab': 'draft',
+  'azuresql-db-dab': 'preview',
   'azuresql-db-faq': 'preview',
-  'azuresql-db-feedback': 'draft',
+  'azuresql-db-feedback': 'preview',
   'azuresql-db-from-sql-server': 'preview',
   'azuresql-db-functions': 'preview',
   'azuresql-db-import': 'preview',
-  'azuresql-db-local-to-cloud': 'draft',
+  'azuresql-db-local-to-cloud': 'preview',
   'azuresql-db-rag': 'preview',
   'azuresql-db-scaffold': 'preview',
   'azuresql-db-schema-migration': 'preview',
   'azuresql-db-seed': 'preview',
-  'azuresql-db-sidecar': 'draft',
+  'azuresql-db-sidecar': 'preview',
   'azuresql-db-testing': 'preview',
 };
 
@@ -355,7 +377,7 @@ const DECLARATIONS = {
     "expires_when": "the-container-reaches-public-preview"
   },
   "azuresql-db-dab": {
-    "rationale": "This skill's kernel is what the Data API builder does and does not need from THIS engine, and one endpoint nobody asked for. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach Data API builder CLI usage, its configuration file shape, its REST and GraphQL path defaults, and API design generally, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted. Its maturity stays draft regardless, and not because of this argument. All five of its probes run the CLI on the host and no statement reaches a database, so the probe rung underneath value is unmet.",
+    "rationale": "This skill's kernel is what the Data API builder does and does not need from THIS engine, and one endpoint nobody asked for. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach Data API builder CLI usage, its configuration file shape, its REST and GraphQL path defaults, and API design generally, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted. Its maturity is preview, and not because of this argument: it reached that rung on 2026-09-04 when three probes were added that start the tool against a real database and read rows back, replacing a probe set that ran the CLI on the host and asked the engine nothing. The rung above, ga, is where this argument speaks, and PRODUCT_RELEASE_STAGE holds it below that while the product is a private preview.",
     "covers": [
       "the engine not auto-creating a database, so the tool starts and fails to reach one that was never provisioned",
       "this engine needing no change tracking and no feature enablement for this tool, unlike the event-driven path an agent reaches for",
@@ -386,7 +408,7 @@ const DECLARATIONS = {
     "expires_when": "the-container-reaches-public-preview"
   },
   "azuresql-db-feedback": {
-    "rationale": "This skill's kernel is project-specific routing: which of two issue templates a report belongs in and where it is filed. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach redacting a pasted connection string, asking before submitting, and how to write a good bug report, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted. Its maturity stays draft regardless, and not because of this argument. Its single probe is an HTTPS redirect check that covers almost none of the skill, so the probe rung underneath value is unmet.",
+    "rationale": "This skill's kernel is project-specific routing: which of two issue templates a report belongs in and where it is filed. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach redacting a pasted connection string, asking before submitting, and how to write a good bug report, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted. Its maturity is preview, and not because of this argument. This skill has no engine surface, so engine probes are the wrong instrument for it and no work on the skill would produce one. It declares validation.target 'none', which the ladder honours only for a body that makes no engine claim, and it is judged on the instrument that does fit it: an HTTPS redirect check on the short link every report it files travels on. That covers little of the skill and is said here rather than glossed over. The rung above, ga, is where this argument speaks, and PRODUCT_RELEASE_STAGE holds it below that while the product is a private preview.",
     "covers": [
       "the two distinct issue templates this product uses and the test that decides between them, which exists only in this project",
       "the aka.ms destination a report is filed to, which is project-specific and in no training data",
@@ -451,7 +473,7 @@ const DECLARATIONS = {
     "expires_when": "the-container-reaches-public-preview"
   },
   "azuresql-db-local-to-cloud": {
-    "rationale": "This skill's kernel is that the local engine and the cloud service are the same engine, which is the claim that makes the whole rewrite unnecessary. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach configuring a connection string per environment, deploying to Azure, and managed identity as a concept, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted. Its maturity stays draft regardless, and not because of this argument. It declares target both and ran only against the container, so the cloud half of its own claim has never executed and the probe rung underneath value is unmet.",
+    "rationale": "This skill's kernel is that the local engine and the cloud service are the same engine, which is the claim that makes the whole rewrite unnecessary. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach configuring a connection string per environment, deploying to Azure, and managed identity as a concept, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted. Its maturity is preview, and not because of this argument. It used to declare target both and had only ever run against the container. Carlos Robles decided on 2026-09-04 that no cloud run is the right answer, because avoiding the cloud for local development is the container's value proposition, so the target now says container, which is what is measured and what can be measured. The cloud audience is recorded in applies_to and the skill body says in as many words that the cloud half is guidance rather than something run. The rung above, ga, is where this argument speaks, and PRODUCT_RELEASE_STAGE holds it below that while the product is a private preview.",
     "covers": [
       "the local container being the same engine as the cloud service, EngineEdition 5 with Edition 'SQL Azure', so one data layer serves both",
       "USE refused with Msg 40508 and BACKUP refused with Msg 40510 locally exactly as in the cloud",
@@ -533,7 +555,7 @@ const DECLARATIONS = {
     "expires_when": "the-container-reaches-public-preview"
   },
   "azuresql-db-sidecar": {
-    "rationale": "This skill's kernel is what a healthcheck for THIS image has to invoke, and which image it is invoking it in. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach Compose file syntax, service naming, and reaching a container by service name rather than localhost, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted. Its maturity stays draft regardless, and not because of this argument. Two of its probes parse a Compose file on the host and the third checks that a binary is executable in the image, so nothing has been asked of the engine and the probe rung underneath value is unmet.",
+    "rationale": "This skill's kernel is what a healthcheck for THIS image has to invoke, and which image it is invoking it in. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach Compose file syntax, service naming, and reaching a container by service name rather than localhost, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted. Its maturity is preview, and not because of this argument: it reached that rung on 2026-09-04 when two probes were added that bring a real Compose stack up and put the engine behind it, replacing a probe set that parsed YAML and checked a binary is executable. The rung above, ga, is where this argument speaks, and PRODUCT_RELEASE_STAGE holds it below that while the product is a private preview.",
     "covers": [
       "the image being the Azure SQL Database engine and not mcr.microsoft.com/mssql/server",
       "sqlcmd living at /opt/mssql-tools18/bin/sqlcmd in this image, which is what a healthcheck must invoke and what a copied one gets wrong",
@@ -644,9 +666,12 @@ for (const [id, a] of Object.entries(AUTHORED)) {
     posture: a.posture,
     maturity: MATURITY[id],
     value_declaration: DECLARATIONS[id],
-    applies_to: a.applies_to ?? (a.target === 'both'
-      ? ['azure-sql-db', 'azure-sql-db-container']
-      : ['azure-sql-db-container']),
+    // WHO THE GUIDANCE IS FOR, WHICH IS NOT WHAT WAS MEASURED. This used to be
+    // derived from validation.target, so a skill whose guidance covers the cloud
+    // had to declare a cloud target it had never been run against, and three of
+    // them did. The two questions are now separate fields: applies_to is the
+    // audience, validation.target is the substrate the live lane runs it on.
+    applies_to: a.applies_to ?? ['azure-sql-db-container'],
     validation: { target: a.target, assert: a.assert },
     triggering: {
       explicit: [`Use the ${id} skill`],
