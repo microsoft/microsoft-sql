@@ -330,11 +330,9 @@ Expect exit `0`, `tenant isolation: ALL PASS` in the file, and no output from `g
 severity 16, above the severity 10 `-b` ignores, so a failed assertion does set a non-zero exit;
 `-m-1` puts every message in the file, including the `PRINT` naming which assertion went red.
 
-**`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
-Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
-`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
-message at any `-m` value, so on that build the `PRINT` lines still arrive but nothing carries a `Msg` number. `build-app-on-azure-sql` tells the two
-builds apart in one table.
+**`-m-1` is an ODBC `sqlcmd` instruction**, the 18.x build from `mssql-tools18`. Measured
+2026-09-05, go-sqlcmd 1.10.0 prints no `Msg` header on a severity 10 message at any `-m` value, so
+there the `PRINT` lines arrive with no number. `build-app-on-azure-sql` tells the builds apart.
 
 **Each failure was planted and watched going red**, which is the only evidence an assertion asserts
 anything:
