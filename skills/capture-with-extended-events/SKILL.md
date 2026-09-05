@@ -199,9 +199,12 @@ Three cases, and none of them raise an error at any point.
 - **No `ACTION()` clause.** Events fire and are counted, and every attribution column is `NULL`.
   Assertion 3 above is what catches it.
 - **`blocked_process_report`.** Its threshold is set with
-  `sp_configure 'blocked process threshold'`, an option Learn documents for SQL Server only. Here
-  that statement fails with
-  `Msg 40510, Statement 'CONFIG' is not supported in this version of SQL Server`, and
+  `sp_configure 'blocked process threshold'`, an option Learn documents for SQL Server only, and
+  **the two engines refuse it differently, so quote the one you are on.** Measured 2026-09-05 on a
+  real logical server: there is no `sp_configure` at all, qualified or not, and the answer is
+  `Msg 2812, Could not find stored procedure 'sp_configure'`. On the container the procedure exists
+  and refuses the statement instead, with
+  `Msg 40510, Statement 'CONFIG' is not supported in this version of SQL Server`. Either way
   `sys.database_scoped_configurations` has no equivalent key. Measured on the container: this event
   created, started and captured zero across a 28 second real lock wait. **The supported route to
   blocked process reports here is not an event session at all**: enable the `Blocks` diagnostic

@@ -38,7 +38,7 @@
       "an event_file target pointed at an https blob URL is accepted at CREATE and fails only at START, with error 25739 when no credential exists and 25602 when the target cannot initialise",
       "a database scoped credential is usable by an event_file target only when its name is exactly the blob container URL with no trailing slash",
       "the duration field is documented in microseconds for sql_statement_completed and rpc_completed and in milliseconds for wait_info and wait_completed",
-      "sp_configure 'blocked process threshold' fails with error 40510 on Azure SQL Database, so a blocked_process_report session has no threshold to cross and the supported source for that report is the Blocks resource log category",
+      "sp_configure 'blocked process threshold' cannot be set on Azure SQL Database, so a blocked_process_report session has no threshold to cross and the supported source for that report is the Blocks resource log category. The refusal differs by engine and the right one has to be quoted: a real logical server has no sp_configure at all and answers Msg 2812, while the container carries the procedure and answers Msg 40510",
       "the database-scoped session and memory limits are 100 started sessions and 128 MB per single database, and exceeding the memory limit raises error 25746 or 25747",
       "Azure SQL Database has no built-in system_health event session, so there is no baseline capture to fall back on and no master connection that reveals one"
     ],
@@ -58,7 +58,7 @@
         "why": "An event_file target pointed at a local path is rejected at CREATE, not merely left unwritten. Learn's error table gives 40538 as 'A valid URL beginning with https:// is required as value for any filepath specified' and the container measured that number on 2026-08-29. Probing at CREATE is the point, because the blob URL form is accepted at CREATE and fails only at START. Learn lists 25741 for the same condition, so a 25741 here means the product moved rather than the probe being wrong."
       },
       {
-        "sql": "CREATE EVENT SESSION probe_db_scope ON DATABASE\n  ADD EVENT sqlserver.sql_statement_completed\n  ADD TARGET package0.ring_buffer (SET max_memory = 4096);\nSELECT\n  (SELECT COUNT(*) FROM sys.database_event_sessions WHERE name = 'probe_db_scope') AS defined,\n  (SELECT COUNT(*) FROM sys.dm_xe_database_sessions WHERE name = 'probe_db_scope') AS started;",
+        "sql": "IF EXISTS (SELECT 1 FROM sys.database_event_sessions WHERE name = 'probe_db_scope')\n  DROP EVENT SESSION probe_db_scope ON DATABASE;\nCREATE EVENT SESSION probe_db_scope ON DATABASE\n  ADD EVENT sqlserver.sql_statement_completed\n  ADD TARGET package0.ring_buffer (SET max_memory = 4096);\nSELECT\n  (SELECT COUNT(*) FROM sys.database_event_sessions WHERE name = 'probe_db_scope') AS defined,\n  (SELECT COUNT(*) FROM sys.dm_xe_database_sessions WHERE name = 'probe_db_scope') AS started;",
         "expect": {
           "rows": [
             [
@@ -70,7 +70,7 @@
         "why": "One probe for the two claims that get read backwards. Learn states it directly: catalog views describe session definitions and return nothing about active sessions, while the DMVs return only started sessions. An agent reading the wrong one concludes the opposite of the truth about whether its capture is live. Measured on the container 2026-08-29."
       },
       {
-        "sql": "CREATE EVENT SESSION probe_actions ON DATABASE\n  ADD EVENT sqlserver.sql_statement_completed (\n    ACTION (sqlserver.sql_text, sqlserver.username, sqlserver.client_app_name)\n  )\n  ADD TARGET package0.ring_buffer (SET max_memory = 4096);\nSELECT COUNT(*) AS attached_actions\nFROM sys.database_event_session_actions AS a\nJOIN sys.database_event_sessions AS s ON s.event_session_id = a.event_session_id\nWHERE s.name = 'probe_actions';",
+        "sql": "IF EXISTS (SELECT 1 FROM sys.database_event_sessions WHERE name = 'probe_actions')\n  DROP EVENT SESSION probe_actions ON DATABASE;\nCREATE EVENT SESSION probe_actions ON DATABASE\n  ADD EVENT sqlserver.sql_statement_completed (\n    ACTION (sqlserver.sql_text, sqlserver.username, sqlserver.client_app_name)\n  )\n  ADD TARGET package0.ring_buffer (SET max_memory = 4096);\nSELECT COUNT(*) AS attached_actions\nFROM sys.database_event_session_actions AS a\nJOIN sys.database_event_sessions AS s ON s.event_session_id = a.event_session_id\nWHERE s.name = 'probe_actions';",
         "expect": {
           "rows": [
             [
@@ -81,7 +81,7 @@
         "why": "The ACTION() claim made executable. A session with no ACTION() clause fires, counts events and reports itself healthy while carrying no caller, application or statement text, and the event count is identical either way. Counting attached actions in the catalog view is the only cheap signal. Learn documents sys.database_event_session_actions as one row per action per event, joined to sys.database_event_sessions on event_session_id."
       },
       {
-        "sql": "CREATE EVENT SESSION probe_deadlock_capture ON DATABASE\n  ADD EVENT sqlserver.database_xml_deadlock_report\n  ADD TARGET package0.ring_buffer\n  WITH (STARTUP_STATE = ON, MAX_MEMORY = 4 MB);\nALTER EVENT SESSION probe_deadlock_capture ON DATABASE STATE = START;\nSELECT COUNT(*) AS started FROM sys.dm_xe_database_sessions WHERE name = 'probe_deadlock_capture';",
+        "sql": "IF EXISTS (SELECT 1 FROM sys.database_event_sessions WHERE name = 'probe_deadlock_capture')\n  DROP EVENT SESSION probe_deadlock_capture ON DATABASE;\nCREATE EVENT SESSION probe_deadlock_capture ON DATABASE\n  ADD EVENT sqlserver.database_xml_deadlock_report\n  ADD TARGET package0.ring_buffer\n  WITH (STARTUP_STATE = ON, MAX_MEMORY = 4 MB);\nALTER EVENT SESSION probe_deadlock_capture ON DATABASE STATE = START;\nSELECT COUNT(*) AS started FROM sys.dm_xe_database_sessions WHERE name = 'probe_deadlock_capture';",
         "expect": {
           "rows": [
             [
@@ -94,9 +94,9 @@
       {
         "sql": "EXEC sys.sp_configure N'blocked process threshold', 5;",
         "expect": {
-          "error": 40510
+          "error": 2812
         },
-        "why": "Why a blocked_process_report session creates, starts, reports healthy and captures nothing across a real 28 second lock wait: there is no threshold to cross, not a threshold set too high. Learn documents the blocked process threshold option for SQL Server only and gives 40510 as 'Statement %s is not supported in this version of SQL Server'; the container measured it naming CONFIG on 2026-08-29. Without this probe the empty ring buffer reads as a tuning problem."
+        "why": "Why a blocked_process_report session creates, starts, reports healthy and captures nothing across a real 28 second lock wait: there is no threshold to cross, not a threshold set too high. This probe expects Msg 2812, Could not find stored procedure, because validation.target here is cloud and that is what a real logical server answers, measured 2026-09-05 on sqllab200068e2: OBJECT_ID('sys.sp_configure') is NULL and both the qualified and unqualified names raise 2812. It expected 40510 until that run. 40510 is not wrong, it is the CONTAINER answer, measured 2026-08-29 naming CONFIG, and the two engines refuse this differently because one carries the procedure and the other does not. Red if a logical server ever grows an sp_configure, which would change the advice. Without this probe the empty ring buffer reads as a tuning problem."
       }
     ]
   },

@@ -46,7 +46,7 @@
     "azuresql-db-scaffold"
   ],
   "validation": {
-    "target": "cloud",
+    "target": "both",
     "setup": [
       "a subscription in which a logical server and database can be created",
       "a signed-in Microsoft Entra identity that can be made server administrator",

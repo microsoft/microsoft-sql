@@ -32,7 +32,7 @@
     "azuresql-db-ci"
   ],
   "validation": {
-    "target": "cloud",
+    "target": "both",
     "setup": [
       "a repository that can run workflows, with a workflow able to request an identity token",
       "an application identity or user-assigned identity in the directory that can hold a federated credential",
@@ -76,9 +76,42 @@
         "why": "Before deploying anything the action opens a sqlcmd connection to master purely to read the runner's address out of the failure, and for an identity-based connection string it builds that call with --authentication-method=ActiveDirectoryDefault, read from src/SqlUtils.ts at v2.4. The skill prints that command line for a reader to run locally. Measured 2026-09-03 against sqlcmd 1.10.0 on this host; the action ships go-sqlcmd 1.6.0 into the runner tool cache, so a flag that disappeared between those versions would break the reproduction rather than the pipeline."
       },
       {
-        "sql": "SELECT 'Validating connection from GitHub SQL Action' AS probe_text;",
-        "expect": { "rows": [["Validating connection from GitHub SQL Action"]] },
-        "why": "The literal statement the action sends as its firewall probe, quoted from src/SqlUtils.ts at v2.4 and reproduced in the skill body. It proves the statement a reader is told to paste is accepted by the engine and returns that exact text, so a failure of the real probe step is an authentication or network failure and never a bad statement. That distinction is the whole point of the section: the action reports every one of those failures as 'Failed to add firewall rule. Unable to detect client IP Address'."
+        "where": "host",
+        "engine": true,
+        "cmd": "set -eu\nd=$(mktemp -d); trap 'rm -rf \"$d\"' EXIT\nmkdir -p \"$d/db\"\ncat > \"$d/db/ShopDb.sqlproj\" <<'PROJ'\n<Project Sdk=\"Microsoft.Build.Sql/0.1.19-preview\">\n  <PropertyGroup>\n    <Name>ShopDb</Name>\n    <DSP>Microsoft.Data.Tools.Schema.Sql.SqlAzureV12DatabaseSchemaProvider</DSP>\n  </PropertyGroup>\n</Project>\nPROJ\ncat > \"$d/db/Product.sql\" <<'TBL'\nCREATE TABLE [dbo].[Product] ([ProductId] INT NOT NULL PRIMARY KEY, [Name] NVARCHAR(200) NOT NULL, [ListPrice] DECIMAL(10,2) NOT NULL);\nTBL\ndotnet build \"$d/db/ShopDb.sqlproj\" -p:NetCoreBuild=true >/dev/null\ntest -f \"$d/db/bin/Debug/ShopDb.dacpac\"\nsqlpackage /Action:Publish /TargetConnectionString:\"Server=tcp:localhost,${PROBE_PORT};Initial Catalog=${PROBE_DB};User ID=${PROBE_USER};Password=${PROBE_PASSWORD};Encrypt=True;TrustServerCertificate=True;\" /SourceFile:\"$d/db/bin/Debug/ShopDb.dacpac\" >/dev/null\nn=$(sqlcmd -S localhost,$PROBE_PORT -U \"$PROBE_USER\" -P \"$PROBE_PASSWORD\" -d \"$PROBE_DB\" -C -b -h -1 -W -Q \"SET NOCOUNT ON; SELECT COUNT(*) FROM sys.tables WHERE name = 'Product';\")\ntest \"$n\" = \"1\"",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "THE FIRST PROBE ON THIS SKILL THAT DEPLOYS ANYTHING. The four before it read help output: they prove the parameter names in the skill's command lines are real and prove nothing about whether the pipeline works. This runs the action's three steps in order against a live engine, using the exact argument list the skill prints: dotnet build the .sqlproj, then sqlpackage /Action:Publish /TargetConnectionString: /SourceFile:, then a query for the table. It also pins the output path the action GUESSES rather than asks for, bin/<configuration>/<project>.dacpac, which the skill calls out as a trap. Red if the SDK moves that path, if the publish is refused, or if the table is not in sys.tables afterwards. A green run here is the claim 'this pipeline deploys schema' with something behind it."
+      },
+      {
+        "where": "host",
+        "engine": true,
+        "cmd": "set -eu\nd=$(mktemp -d); trap 'rm -rf \"$d\"' EXIT\nmkdir -p \"$d/db\"\ncat > \"$d/db/ShopDb.sqlproj\" <<'PROJ'\n<Project Sdk=\"Microsoft.Build.Sql/0.1.19-preview\">\n  <PropertyGroup>\n    <Name>ShopDb</Name>\n    <DSP>Microsoft.Data.Tools.Schema.Sql.SqlAzureV12DatabaseSchemaProvider</DSP>\n  </PropertyGroup>\n</Project>\nPROJ\ncat > \"$d/db/Product.sql\" <<'TBL'\nCREATE TABLE [dbo].[Product] ([ProductId] INT NOT NULL PRIMARY KEY, [Name] NVARCHAR(200) NOT NULL, [ListPrice] DECIMAL(10,2) NOT NULL);\nTBL\ndotnet build \"$d/db/ShopDb.sqlproj\" -p:NetCoreBuild=true >/dev/null\nsqlpackage /Action:DeployReport /SourceFile:\"$d/db/bin/Debug/ShopDb.dacpac\" /TargetConnectionString:\"Server=tcp:localhost,${PROBE_PORT};Initial Catalog=${PROBE_DB};User ID=${PROBE_USER};Password=${PROBE_PASSWORD};Encrypt=True;TrustServerCertificate=True;\" /OutputPath:\"$d/after.xml\" >/dev/null\ntest -f \"$d/after.xml\"\ntest \"$(grep -c '<Operation ' \"$d/after.xml\" || true)\" = \"0\"",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The skill's own Check it worked step, which had never been run. It says to rerun DeployReport against the deployed database and expect grep -c '<Operation ' to be 0, because a publish that landed leaves the next report nothing to do. This asserts exactly that, against the database the previous probe published to. It also guards the parameter trap in the same section: /OutputPath is DeployReport's, while /DeployReportPath belongs to Publish, so the wrong flag writes no file at all. The test -f is there for that reason: without it a missing report would make grep -c print 0 and the probe would pass while measuring nothing, which is the exact green-that-means-nothing this lane exists to stop. Red if the publish left work behind, or if the report is not written."
+      },
+      {
+        "where": "host",
+        "engine": true,
+        "cmd": "set -eu\nd=$(mktemp -d); trap 'rm -rf \"$d\"' EXIT\nmkdir -p \"$d/db\"\ncat > \"$d/db/ShopDb.sqlproj\" <<'PROJ'\n<Project Sdk=\"Microsoft.Build.Sql/0.1.19-preview\">\n  <PropertyGroup>\n    <Name>ShopDb</Name>\n    <DSP>Microsoft.Data.Tools.Schema.Sql.SqlAzureV12DatabaseSchemaProvider</DSP>\n  </PropertyGroup>\n</Project>\nPROJ\ncat > \"$d/db/Product.sql\" <<'TBL'\nCREATE TABLE [dbo].[Product] ([ProductId] INT NOT NULL PRIMARY KEY, [Name] NVARCHAR(200) NOT NULL);\nTBL\ndotnet build \"$d/db/ShopDb.sqlproj\" -p:NetCoreBuild=true >/dev/null\nsqlcmd -S localhost,$PROBE_PORT -U \"$PROBE_USER\" -P \"$PROBE_PASSWORD\" -d \"$PROBE_DB\" -C -b -Q \"INSERT INTO dbo.Product (ProductId, Name, ListPrice) VALUES (1, N'a', 9.99);\" >/dev/null\nif sqlpackage /Action:Publish /SourceFile:\"$d/db/bin/Debug/ShopDb.dacpac\" /TargetConnectionString:\"Server=tcp:localhost,${PROBE_PORT};Initial Catalog=${PROBE_DB};User ID=${PROBE_USER};Password=${PROBE_PASSWORD};Encrypt=True;TrustServerCertificate=True;\" /p:BlockOnPossibleDataLoss=true > \"$d/out.txt\" 2>&1; then\n  echo \"the publish SUCCEEDED and it was supposed to be blocked\"; cat \"$d/out.txt\"; exit 1\nfi\ngrep -qi \"data loss\" \"$d/out.txt\"\nn=$(sqlcmd -S localhost,$PROBE_PORT -U \"$PROBE_USER\" -P \"$PROBE_PASSWORD\" -d \"$PROBE_DB\" -C -b -h -1 -W -Q \"SET NOCOUNT ON; SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Product') AND name = 'ListPrice';\")\ntest \"$n\" = \"1\"",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "/p:BlockOnPossibleDataLoss=true is the one deployment property the skill names, and arguments: is the input that carries it through to the command line. Nothing had ever checked that it blocks. The probe publishes a dacpac whose Product table has lost the ListPrice column, against a database where that column holds a row, and asserts three things: the publish exits non-zero, its output says data loss, and the column is STILL THERE afterwards. The last assertion is the one that matters. A refusal that had already dropped the column would be worse than no refusal, and an exit code alone cannot tell the two apart. Red if the property stops blocking, or if it blocks after the fact."
+      },
+      {
+        "sql": "BEGIN TRY\n  EXEC sp_executesql N'USE [master];';\n  SELECT -1 AS unreached;\nEND TRY\nBEGIN CATCH\n  SELECT ERROR_NUMBER() AS n;\nEND CATCH",
+        "expect": {
+          "rows": [
+            [
+              40508
+            ]
+          ]
+        },
+        "why": "Why the action opens TWO connections rather than one. The skill states the firewall probe runs 'against master first, the target database second', and the reason is that this engine refuses to switch database inside a session: USE raises Msg 40508. An agent that read that sentence as a stylistic choice would collapse the two calls into one connection with a USE and get a pipeline that fails after the login succeeds. The catch is narrow on purpose: it asserts the NUMBER, so a different failure, including a malformed batch, reports its own number and the probe goes red rather than passing on any error at all. Red if this engine ever allows USE."
       }
     ]
   },
