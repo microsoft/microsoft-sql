@@ -35,6 +35,62 @@
     "assert": [
       "answers from the documented limitation list",
       "links the live known-limitations page rather than reciting from memory"
+    ],
+    "probes": [
+      {
+        "sql": "SELECT CAST(SERVERPROPERTY('EngineEdition') AS int) AS engine_edition, CAST(SERVERPROPERTY('Edition') AS nvarchar(128)) AS edition;",
+        "expect": {
+          "rows": [
+            [
+              5,
+              "SQL Azure"
+            ]
+          ]
+        },
+        "why": "The first bucket in the skill's mental model, made executable: this is the Azure SQL Database engine and not the SQL Server image, which is the premise every other answer in the skill rests on. If this returns anything else, the four bucket sort is being applied to the wrong product."
+      },
+      {
+        "sql": "BACKUP DATABASE master TO DISK = N'/var/opt/mssql/data/probe_faq_backup.bak';",
+        "expect": {
+          "error": 40510
+        },
+        "why": "The most asked question in the skill, and one it answers with a specific number in three places: SKILL.md, references/faq.md and references/limitations.md all say Msg 40510. The database named is master rather than the scratch database because the statement filter refuses the statement before it resolves the name, and the skill's own claim is that this fails in every session."
+      },
+      {
+        "sql": "RESTORE DATABASE master FROM DISK = N'/var/opt/mssql/data/probe_faq_backup.bak';",
+        "expect": {
+          "error": 40510
+        },
+        "why": "The skill claims the same number for RESTORE as for BACKUP, and the two are worth separating because the answer people act on is the restore half: it is what somebody reaches for after losing a container. If RESTORE were merely failing because the file does not exist, this probe would report a file error instead, which is itself the signal that the statement is not being filtered."
+      },
+      {
+        "sql": "USE master;",
+        "expect": {
+          "error": 40508
+        },
+        "why": "The second most asked question, and the one whose answer is easiest to get half right. The refusal is a property of the session, not of the engine: this probe runs in the scratch user database and must fail, whereas the same statement on a master connection succeeds because master is a provisioning session. A pass here also confirms the runner is not accidentally connected to master, which would quietly invalidate the two probes above."
+      },
+      {
+        "sql": "CREATE USER probe_faq_contained_user WITH PASSWORD = 'Pr0be_Passw0rd!x';",
+        "expect": {
+          "error": 15007
+        },
+        "why": "The answer here is inverted from Azure SQL Database, which is what makes it worth a probe: in the cloud a contained user is the recommended shape, and on the container it fails, so the correct guidance is a server login plus a mapped user. Msg 15007 is stated in this skill's SKILL.md and again in references/faq.md, and was measured on the container rather than taken from documentation. The password in this probe is a throwaway for a user that never exists."
+      },
+      {
+        "sql": "ALTER DATABASE CURRENT SET CONTAINMENT = PARTIAL;",
+        "expect": {
+          "error": 12844
+        },
+        "why": "The obvious workaround for the refusal above, and it is also refused, which is why the skill's answer sends people to a login and a mapped user rather than to a database setting. The engine says Msg 12844, 'ALTER DATABASE statement failed; this functionality is not available in the current edition of SQL Server.' Measured on build 12.0.2000.8, EngineEdition 5, Edition 'SQL Azure'. This skill's SKILL.md and references/faq.md previously carried a different, unmeasured error number and were corrected on the same integration branch as this probe, so body and probe now agree. Without this probe the previous one invites the reader to try the containment setting and conclude the skill was simply missing a step."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_faq_bulk (col1 nvarchar(100) NULL);\nBULK INSERT dbo.probe_faq_bulk FROM '/var/opt/mssql/data/probe_faq_nonexistent.csv' WITH (FIELDTERMINATOR = ',', ROWTERMINATOR = '\\n');",
+        "expect": {
+          "error": 12713
+        },
+        "why": "A local file is not a valid source: the engine reads from Azure Blob Storage, so the loading answer for a laptop CSV is a client side tool and not BULK INSERT. Msg 12713 is stated in this skill's references/faq.md. The file deliberately does not exist, which is the point: the statement is refused for being local before anything tries to open it, so a file-not-found error here would mean the restriction has been lifted and the skill's answer needs rewriting."
+      }
     ]
   },
   "triggering": {

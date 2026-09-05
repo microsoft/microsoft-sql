@@ -10,6 +10,13 @@
 //
 //   node scripts/backfill-container-sidecars.mjs [--check]
 //
+// --check IS NOT A CROSS-REPOSITORY CHECK. It regenerates the 17 sidecars from
+// the literals below and compares the result against this repository. It never
+// opens microsoft/azure-sql-database-container, so it can be green while the
+// two repositories say different things. scripts/check-container-parity.mjs is
+// the one that actually reads the other repository. If you change MATURITY here
+// without changing it there, this check stays green and that one goes red.
+//
 // Sources:
 //   domain, value        data/catalog.json
 //   triggering.implicit  the pilot's eval/trigger-evals.md prompt set, which was
@@ -113,7 +120,14 @@ const AUTHORED = {
   },
   'azuresql-db-connections': {
     posture: ['read', 'write'],
-    target: 'both',
+    // validation.target and applies_to are taken from the product repository, which
+    // is where the probe lane that owes the run lives. Every probe here runs on the
+    // container; there is no cloud lane, so 'both' and 'none' both said something
+    // untrue about which runs are owed. applies_to is stated rather than derived
+    // from target, because a skill can be written for the cloud as well and still
+    // only be validated against the container.
+    target: 'container',
+    applies_to: ['azure-sql-db', 'azure-sql-db-container'],
     correction:
       'Retry gets treated as a production hardening step to add later. On this engine transient faults are expected behaviour rather than an exception, so retry with backoff and a bounded pool belong in the data layer from the first connection.',
     implicit: ['my app keeps dropping the SQL connection under load, add retry and pooling'],
@@ -121,7 +135,14 @@ const AUTHORED = {
   },
   'azuresql-db-auth': {
     posture: ['read', 'write', 'admin'],
-    target: 'both',
+    // validation.target and applies_to are taken from the product repository, which
+    // is where the probe lane that owes the run lives. Every probe here runs on the
+    // container; there is no cloud lane, so 'both' and 'none' both said something
+    // untrue about which runs are owed. applies_to is stated rather than derived
+    // from target, because a skill can be written for the cloud as well and still
+    // only be validated against the container.
+    target: 'container',
+    applies_to: ['azure-sql-db', 'azure-sql-db-container'],
     correction:
       'Asked for a least-privilege user, an agent writes CREATE USER ... WITH PASSWORD, which fails here with Msg 15007, and then tries SET CONTAINMENT = PARTIAL, which fails with Msg 12844. Contained users are not available: create a server login and map a database user to it.',
     implicit: ['my app connects as sa, set up a least-privilege database user instead'],
@@ -161,7 +182,13 @@ const AUTHORED = {
   },
   'azuresql-db-feedback': {
     posture: ['read'],
-    target: 'none',
+    // validation.target and applies_to are taken from the product repository, which
+    // is where the probe lane that owes the run lives. Every probe here runs on the
+    // container; there is no cloud lane, so 'both' and 'none' both said something
+    // untrue about which runs are owed. applies_to is stated rather than derived
+    // from target, because a skill can be written for the cloud as well and still
+    // only be validated against the container.
+    target: 'container',
     correction:
       'Told that something did not work, an agent says "file an issue" and leaves the user to it. A skill problem and a product problem use different templates, the report needs context the agent already has, and secrets in a pasted connection string would become world-readable, so the report is built, redacted, and never submitted without explicit confirmation.',
     implicit: ['the skill told my agent the wrong thing, how do I report it'],
@@ -208,7 +235,9 @@ const NEGATIVE = [
 //                               none of the skill.
 //
 // These values must stay equal to the same field in
-// microsoft/azure-sql-database-container, which is where the probes live.
+// microsoft/azure-sql-database-container, which is where the probes live. That
+// equality is not enforced here, because nothing here reads that repository.
+// scripts/check-container-parity.mjs enforces it.
 const MATURITY = {
   'azuresql-db-auth': 'preview',
   'azuresql-db-ci': 'preview',
@@ -295,8 +324,7 @@ const DECLARATIONS = {
     "covers": [
       "USE being refused with Msg 40508 locally exactly as in the cloud, so the database is named in the connection string",
       "which transient error numbers this engine actually carries in sys.messages, checked rather than recalled",
-      "which platform dynamic management views this engine exposes, so a local diagnostic is not written against one that is absent",
-      "the transport this engine reports, which decides what a local connection diagnostic can conclude"
+      "sys.dm_db_resource_stats and sys.dm_user_db_resource_governance being absent from this engine, so a local throttling diagnostic written against either does not run"
     ],
     "does_not_cover": [
       "connection pooling and retry with backoff as patterns, which are ordinary driver material",
@@ -445,7 +473,7 @@ const DECLARATIONS = {
       "the dimension floor this build enforces and the number it answers with, Msg 42266",
       "the dimension ceiling and the truncation behaviour this build actually has",
       "the vector index being refused against a table under row level security, with Msg 37579",
-      "exact and approximate vector search both building and running on this build, and the database scoped configuration they depend on"
+      "exact and approximate vector search both building and running on this build"
     ],
     "does_not_cover": [
       "chunking strategy, embedding model choice and prompt construction",
@@ -616,9 +644,9 @@ for (const [id, a] of Object.entries(AUTHORED)) {
     posture: a.posture,
     maturity: MATURITY[id],
     value_declaration: DECLARATIONS[id],
-    applies_to: a.target === 'both'
+    applies_to: a.applies_to ?? (a.target === 'both'
       ? ['azure-sql-db', 'azure-sql-db-container']
-      : ['azure-sql-db-container'],
+      : ['azure-sql-db-container']),
     validation: { target: a.target, assert: a.assert },
     triggering: {
       explicit: [`Use the ${id} skill`],
@@ -629,11 +657,55 @@ for (const [id, a] of Object.entries(AUTHORED)) {
   if (spec.validation.assert.length === 0) delete spec.validation.assert;
 
   const path = join(ROOT, id, 'skill.spec.jsonc');
-  const body = JSON.stringify(spec, null, 2) + '\n';
   if (check) {
-    if (!existsSync(path) || readFileSync(path, 'utf8') !== body) problems.push(`${path} is out of date`);
+    // FIELD-SCOPED, NOT BYTE-EXACT, AND THAT IS THE POINT.
+    //
+    // This compared the whole file until 2026-09-04. That made the generator the
+    // only thing allowed to put anything in a sidecar, so the 101 probes that
+    // earn these skills their maturity could not be carried here at all: the
+    // catalog published `preview` on 17 skills while carrying zero probes, which
+    // is the evidence for `preview` under this repository's own definition of the
+    // word. Duplicating 101 probes as literals in a generator would have been the
+    // other way to keep byte-exactness, and it would have created a second copy of
+    // the evidence to go stale.
+    //
+    // So this now checks the fields the generator actually authors, and says
+    // nothing about the rest. The rest is not unpoliced: check-container-parity.mjs
+    // reads the product repository, and a field in neither of its lists fails its
+    // run, so nothing crosses the two repositories unclassified.
+    if (!existsSync(path)) {
+      problems.push(`${path} does not exist`);
+    } else {
+      let onDisk;
+      try { onDisk = JSON.parse(readFileSync(path, 'utf8')); }
+      catch (e) { problems.push(`${path} will not parse: ${e.message}`); onDisk = null; }
+      if (onDisk) {
+        for (const field of Object.keys(spec)) {
+          if (field === 'validation') continue;
+          if (JSON.stringify(onDisk[field]) !== JSON.stringify(spec[field])) {
+            problems.push(`${path} ${field} is out of date against the literals in this file`);
+          }
+        }
+        for (const sub of Object.keys(spec.validation)) {
+          if (JSON.stringify(onDisk.validation?.[sub]) !== JSON.stringify(spec.validation[sub])) {
+            problems.push(`${path} validation.${sub} is out of date against the literals in this file`);
+          }
+        }
+      }
+    }
   } else {
-    writeFileSync(path, body);
+    // Writing is still whole-file, so a run without --check would DISCARD the
+    // probes carried from the product repository. Merge them back in rather than
+    // silently dropping the evidence half of every sidecar.
+    let carried = {};
+    if (existsSync(path)) {
+      try {
+        const onDisk = JSON.parse(readFileSync(path, 'utf8'));
+        if (onDisk.validation?.probes) carried = { probes: onDisk.validation.probes };
+      } catch { /* an unparseable file is replaced, which is what a backfill is for */ }
+    }
+    const merged = { ...spec, validation: { ...spec.validation, ...carried } };
+    writeFileSync(path, JSON.stringify(merged, null, 2) + '\n');
     written++;
   }
 }

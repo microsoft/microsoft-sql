@@ -34,6 +34,48 @@
     "target": "container",
     "assert": [
       "uses Data API Builder configuration rather than hand-written endpoints"
+    ],
+    "probes": [
+      {
+        "where": "host",
+        "cmd": "dab --version | grep -q '^Microsoft.DataApiBuilder 2\\.'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The precondition for every other probe here and for every command in the skill body. The skill tells a reader to install the CLI as a global dotnet tool and to use the latest 2.x, and the endpoint defaults asserted below are 2.x defaults. Measured 2026-09-04, exit 0 on 2.0.9+17ae3aa8414514918b627c777026efbc135a57e9. A 1.x build here means the Model Context Protocol claim in the body does not apply and the rest needs re-reading."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && cd \"$d\" && dab init --database-type mssql --connection-string \"@env('SQL_CONNECTION_STRING')\" --host-mode Development > /dev/null 2>&1 && grep -q '\"connection-string\": \"@env(.SQL_CONNECTION_STRING.)\"' dab-config.json && grep -q '\"mode\": \"development\"' dab-config.json",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Step 3 of the body, executed. It proves two separate claims in one run: the environment-variable indirection is written into the configuration verbatim rather than resolved at generation time, which is why no password ends up in the file, and the host-mode flag the skill passes produces the development host mode that the body says enables the Swagger surface and friendlier errors. Measured 2026-09-04 on 2.0.9. This probe opens no database connection, so it is honest about what it measures: the file the tool writes, not the API it later serves."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && cd \"$d\" && dab init --database-type mssql --connection-string \"@env('SQL_CONNECTION_STRING')\" --host-mode Development > /dev/null 2>&1 && grep -q '\"path\": \"/api\"' dab-config.json && grep -q '\"path\": \"/graphql\"' dab-config.json",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Every URL the body hands a reader in Step 4 is built on these two prefixes: the REST calls are written as /api/<Entity> and the GraphQL calls as /graphql. They are defaults, not flags the skill passes, so they are exactly the kind of claim that rots silently when a tool moves them. Measured 2026-09-04 on 2.0.9, both present in the generated configuration. If a build changes either default, every curl line in the body is wrong and nothing else would catch it."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && cd \"$d\" && dab init --database-type mssql --connection-string \"@env('SQL_CONNECTION_STRING')\" --host-mode Development > /dev/null 2>&1 && python3 -c \"import json,sys; c=json.load(open('dab-config.json'))['runtime']['mcp']; sys.exit(0 if c['enabled'] is True and c['path'] == '/mcp' else 1)\"",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The claim in the body that the Model Context Protocol endpoint is served from the same configuration file, at /mcp, and is enabled by default. It is the one fact in this skill a reader is most likely to disbelieve, because nobody asked for that endpoint and nothing in the startup output announces it. Measured 2026-09-04 on 2.0.9: dab init with no endpoint flags writes an mcp block with enabled true and path /mcp. This probe reads the parsed JSON rather than grepping, because /mcp and the enabled flag sit in separate lines that a text match could satisfy from the rest and graphql blocks."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && cd \"$d\" && dab init --database-type mssql --connection-string \"@env('SQL_CONNECTION_STRING')\" > /dev/null 2>&1 && dab add Book --source dbo.Books --source.type table --permissions \"anonymous:*\" > /dev/null 2>&1 && python3 -c \"import json,sys; e=json.load(open('dab-config.json'))['entities']['Book']; p=e['permissions'][0]; sys.exit(0 if e['source']['object'] == 'dbo.Books' and p['role'] == 'anonymous' and p['actions'][0]['action'] == '*' else 1)\"",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The exact command line the body prints for exposing a table, run to the end. It settles that the entity name and the source object are two different things that land in two different places, which is the detail the body calls out, and it makes visible what anonymous:* actually writes: one role named anonymous holding the wildcard action, which is unauthenticated full create, read, update and delete. That is why the body restricts it to local development. Measured 2026-09-04 on 2.0.9."
+      }
     ]
   },
   "triggering": {

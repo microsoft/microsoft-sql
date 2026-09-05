@@ -260,10 +260,17 @@
                 "minLength": 3,
                 "description": "A complete shell command line, for the claims that are about a tool rather than about the engine, such as whether bcp is present in the tools image and prints its banner with no live connection. This is the alternative to `sql`, never a companion to it."
               },
+              "where": {
+                "enum": [
+                  "container",
+                  "host"
+                ],
+                "description": "Which machine a `cmd` probe runs on. ABSENT MEANS `container`, and that default lives in eval/lib/probe.mjs rather than in a `default` keyword here, because this repository's schema validator refuses keywords it does not implement: a `default` in the schema would read as enforced when nothing reads it, and it matters more than it looks. `container` is the default and is right for a tool the engine image ships, such as bcp: the claim is that the image carries it. `host` is right for a client tool a developer installs separately, such as SqlPackage, which is not in the image and never will be. Five probes shipped on 2026-09-02 without this field and every one failed with `sqlpackage: command not found`, because they were written by running the tool on a laptop and then executed inside a container. Ignored for `sql` probes, which always run against the engine."
+              },
               "expect": {
                 "type": "object",
                 "additionalProperties": false,
-                "description": "Exactly one of the three below. Two of them together is a probe whose author had not decided what it measures, and the available schema keywords cannot forbid that, so the count is a review rule until a linter check lands.",
+                "description": "Exactly one of the four below. Two of them together is a probe whose author had not decided what it measures, and the available schema keywords cannot forbid that, so the count is a review rule until a linter check lands.",
                 "properties": {
                   "error": {
                     "type": "integer",
@@ -276,6 +283,10 @@
                   "succeeds": {
                     "const": true,
                     "description": "The statement must complete without error, and nothing is asserted about what came back. The weakest of the three. Worth using where the claim genuinely is that a statement is accepted, such as a scoped configuration the skill depends on still existing, and not worth using to pad a count."
+                  },
+                  "warning": {
+                    "type": "integer",
+                    "description": "A severity 10 message number the statement must emit while still succeeding. Use this when the engine's answer is a warning rather than a refusal, for example Msg 1945 on an index key wider than the limit. This needs sqlcmd's -m-1: without it a severity 10 message prints its text and no number, so nothing can see it, and -b never sets a non-zero exit below severity 11. A succeeds-probe reports any warning it saw rather than failing on it, so use this shape when the warning IS the claim."
                   }
                 }
               },

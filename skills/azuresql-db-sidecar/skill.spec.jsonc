@@ -37,6 +37,32 @@
       "app reaches the database by service name",
       "healthcheck present",
       "database provisioned by an init step"
+    ],
+    "probes": [
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && cd \"$d\" && printf 'services:\\n  sqldb:\\n    image: example/engine:latest\\n    platform: linux/amd64\\n    healthcheck:\\n      test: [\"CMD-SHELL\", \"/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \\\\\"$$MSSQL_SA_PASSWORD\\\\\" -C -b -l 2 -Q \\\\\"SELECT 1\\\\\" || exit 1\"]\\n      interval: 5s\\n      timeout: 10s\\n      retries: 30\\n      start_period: 30s\\n  sqldb-init:\\n    image: example/engine:latest\\n    platform: linux/amd64\\n    depends_on:\\n      sqldb:\\n        condition: service_healthy\\n    restart: \"no\"\\n  app:\\n    image: example/app:latest\\n    depends_on:\\n      sqldb:\\n        condition: service_healthy\\n      sqldb-init:\\n        condition: service_completed_successfully\\n' > compose.yaml && docker compose -f compose.yaml config > /dev/null",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The shape this skill emits, put in front of the parser that will read it. It asserts that every key the skill depends on is still accepted by the Compose Specification implementation the reader has: the platform override the x64-only image needs, a CMD-SHELL health check carrying the doubled dollar sign that keeps Compose from interpolating the password variable, and both depends_on conditions including service_completed_successfully for the init one-shot. Measured 2026-09-04 on the Docker Compose CLI on this host, exit 0. The image names are deliberately placeholders and no image is pulled, no container is created and no daemon is contacted: config only parses. If a future Compose release renames or drops one of these keys, the snippet the skill hands a reader stops parsing and this probe is the first thing that says so."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && cd \"$d\" && printf 'services:\\n  sqldb:\\n    image: example/engine:latest\\n  app:\\n    image: example/app:latest\\n    depends_on:\\n      sqldb:\\n        condition: service_finished_ok\\n' > bad.yaml && docker compose -f bad.yaml config > /dev/null 2>&1 && exit 1 || exit 0",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The half that stops the probe above from being vacuous. If Compose accepted any string as a depends_on condition, a green run there would prove only that the file is YAML. It does not: an invented condition name is rejected, measured 2026-09-04 on this host with exit 1 from the config parse. So the previous probe's green means the two condition values the skill actually uses are real ones, not merely well-formed text."
+      },
+      {
+        "where": "container",
+        "cmd": "test -x /opt/mssql-tools18/bin/sqlcmd",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Both the health check and the init one-shot invoke sqlcmd at this absolute path inside the engine image, and the init service does it by running a second copy of the engine image purely as a client. If the image ever stops carrying the tools at this path, the health check never turns healthy, the init service never runs, and the application waits on a gate that will not open, with nothing in the Compose output naming a missing binary. This is a container probe on purpose: the path does not exist on a developer's host and asserting it there would be the mistake that cost five probes a red run on 2026-09-02."
+      }
     ]
   },
   "triggering": {

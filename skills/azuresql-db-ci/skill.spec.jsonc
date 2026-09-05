@@ -38,6 +38,46 @@
       "registry credentials handled as secrets",
       "health check runs inside the container",
       "user database provisioned before tests"
+    ],
+    "probes": [
+      {
+        "sql": "SELECT CAST(SERVERPROPERTY('EngineEdition') AS INT) AS engine_edition, CAST(SERVERPROPERTY('Edition') AS NVARCHAR(128)) AS edition;",
+        "expect": {
+          "rows": [
+            [
+              5,
+              "SQL Azure"
+            ]
+          ]
+        },
+        "why": "The interception the skill exists for, made executable. The workflow is only worth writing if the service container is the Azure SQL Database engine rather than the SQL Server image, and these two properties are the only thing that tells them apart from inside a test run. If this ever returns 3 or 'Developer Edition', the pipeline is testing the wrong product and every other claim in this skill is beside the point."
+      },
+      {
+        "sql": "SELECT CAST(CASE WHEN DB_NAME() = 'master' THEN 1 ELSE 0 END AS INT) AS on_master;",
+        "expect": {
+          "rows": [
+            [
+              0
+            ]
+          ]
+        },
+        "why": "The skill's rule that tests run against the user database and never master, and the guard that makes the next probe mean something. A session that has landed on master would pass the USE probe below for the wrong reason, because master is a provisioning session where the Azure statement filter is not enforced. This probe fails first and says so."
+      },
+      {
+        "sql": "USE master;",
+        "expect": {
+          "error": 40508
+        },
+        "why": "The skill tells a reader to select the database in the connection string rather than switch with USE, and asserts the engine refuses the switch exactly as Azure SQL Database in the cloud does. Microsoft Learn documents error 40508, severity 16, 'USE statement is not supported to switch between databases. Use a new connection to connect to a different database.', and states the refusal applies when a database other than the current one is named, which is why this probe names master rather than the scratch database it is already connected to."
+      },
+      {
+        "where": "container",
+        "cmd": "test -x /opt/mssql-tools18/bin/sqlcmd",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The design the whole workflow rests on: the health check and the provisioning step both invoke sqlcmd at this absolute path inside the engine container, which is what lets the skill promise that the hosted runner needs no client tools of its own. If a future image drops the bundled tools or moves them, the health check never turns healthy and the job hangs until the retry budget runs out, with nothing in the log naming a missing binary. This is deliberately a container probe: the same path on the host does not exist and asserting it there would be the mistake that cost five probes a red run on 2026-09-02."
+      }
     ]
   },
   "triggering": {

@@ -37,6 +37,50 @@
     "assert": [
       "uses SqlPackage rather than RESTORE",
       "target database created on master first"
+    ],
+    "probes": [
+      {
+        "sql": "SELECT CAST(SERVERPROPERTY('EngineEdition') AS int) AS engine_edition, CAST(SERVERPROPERTY('Edition') AS nvarchar(128)) AS edition;",
+        "expect": {
+          "rows": [
+            [
+              5,
+              "SQL Azure"
+            ]
+          ]
+        },
+        "why": "The self-check the skill puts in front of every other instruction. Engine edition 5 with edition 'SQL Azure' is the Azure SQL Database engine; the SQL Server image mcr.microsoft.com/mssql/server returns different values, so any other answer means the lane ran against the wrong engine and every probe below it is measuring something else."
+      },
+      {
+        "sql": "USE master;",
+        "expect": {
+          "error": 40508
+        },
+        "why": "The skill states that in a user-database session USE returns Msg 40508, exactly as in Azure SQL Database in the cloud, and that the fix is always to select the database in the connection string. Every probe here runs against a scratch user database, which is the session where the Azure statement filter is enforced. If this ever succeeds, the filter is not being applied to the lane's session and the skill's central connection-model rule has stopped being true locally."
+      },
+      {
+        "sql": "DECLARE @stmt nvarchar(max) = N'RESTORE DATABASE ' + QUOTENAME(DB_NAME()) + N' FROM DISK = ''/var/opt/mssql/data/probe_restore.bak''';\nEXEC (@stmt);",
+        "expect": {
+          "error": 40510
+        },
+        "why": "This skill exists because there is no restore path on this engine, and an agent's first instinct is a .bak file. The azuresql-db-container skill records BACKUP and RESTORE as unsupported in any session with Msg 40510, the number that refuses a whole statement rather than one option of a supported one, and matching Azure SQL Database in the cloud. The database name is built from DB_NAME() so the refusal is measured against the scratch database this lane holds. If this ever stops being 40510, the recommendation to reach for SqlPackage stops being forced and the skill should say so."
+      },
+      {
+        "cmd": "SqlPackage /version",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "SqlPackage is a host tool, installed with dotnet tool install -g microsoft.sqlpackage, and the skill's import commands are written to run on the developer's machine against the mapped host port. Declaring host here is the point of the probe: five probes elsewhere in this corpus shipped without the field and every one failed with command not found, because they were written by running the tool on a laptop and then executed inside a container. A red here means the lane's host has no SqlPackage installed, which is a finding about the lane rather than about the engine."
+      },
+      {
+        "cmd": "test ! -e /opt/sqlpackage",
+        "where": "container",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "references/sqlpackage-import.md states plainly that the container image does not ship SqlPackage and that the simplest supported path is to install it on the host. This is the container half of that claim, and it is evidence rather than proof: a future image could ship the tool at some other path and this probe would still pass. Read a red here as the image having gained a bundled SqlPackage, which would make the reference's container-based fallback section wrong in a useful direction."
+      }
     ]
   },
   "triggering": {
