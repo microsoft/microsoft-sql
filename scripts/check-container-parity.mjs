@@ -37,20 +37,29 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-// The product repository, and the ref that currently carries the sidecars.
+// The product repository, and the ref that carries the sidecars.
 //
-// PROVENANCE, AND HOW STALENESS SURFACES. The sidecars are not on the product
-// repository's main branch yet: they arrive there when pull requests 151 and
-// 152 merge, and this ref moves to 'main' on the same day. Until then the ref
-// is a live branch rather than a commit SHA, deliberately. A pinned SHA would
-// turn this into a snapshot comparison that goes green forever while the
-// product repository moves underneath it, which is the same defect one step
-// removed. A branch ref cannot go stale silently: it either resolves to
-// whatever the product repository says today, or it 404s and this script goes
-// red and names the ref it could not find.
+// PROVENANCE, AND HOW STALENESS SURFACES. The ref is a live branch rather than
+// a commit SHA, deliberately. A pinned SHA would turn this into a snapshot
+// comparison that goes green forever while the product repository moves
+// underneath it, which is the same defect one step removed. A branch ref cannot
+// go stale silently: it either resolves to whatever the product repository says
+// today, or it 404s and this script goes red and names the ref it could not
+// find.
+//
+// REPOINTED TO main ON 2026-09-04, WHICH IS THE DESIGN WORKING. This was pinned
+// to the integration branch value-declaration-17 while pull requests 151, 152
+// and 154 were open, with a note saying it moves to main the day they merge.
+// They merged as 7268a41, all 17 sidecars with their 101 probes and 17 value
+// declarations are on main, and the branch was left in place afterwards, so the
+// fetch would have kept resolving to a snapshot of an already-merged branch
+// rather than to what the product repository says today. That is exactly the
+// silent staleness the branch ref exists to prevent, and only a repoint stops
+// it. main is a branch and not a tag, so the same reasoning holds: it moves when
+// the product repository moves, and it cannot be deleted out from under this.
 const SOURCE = {
   repo: 'microsoft/azure-sql-database-container',
-  ref: 'value-declaration-17',
+  ref: 'main',
   // In the product repository the sidecars live at skills/<id>/skill.spec.jsonc,
   // the same relative layout as here.
   dir: 'skills',
@@ -106,9 +115,25 @@ const POLICY = {
   },
 };
 
-// validation.target is compared as a path rather than a whole-object compare,
-// because validation also carries assert here and probes there.
-const VALIDATION_SUBFIELDS = { target: 'mustMatch', assert: 'mayDiffer', probes: 'mayDiffer' };
+// validation is compared subfield by subfield rather than as a whole object,
+// because it also carries `assert`, which the two repositories are migrating away
+// from at different speeds.
+//
+// probes MOVED FROM mayDiffer TO mustMatch ON 2026-09-04, and this is a ruling
+// rather than a tidy-up. It sat in mayDiffer for one reason: this catalog carried
+// no probes at all, so nothing could have matched. That is the defect that was
+// then measured. All 101 probes lived only in the product repository while this
+// catalog published the `maturity` those probes earned, and `maturity` is
+// mustMatch. Under this repository's own definition of the word, `preview` MEANS
+// validation.probes is non-empty and every probe in it ran and passed. So the
+// catalog was publishing a claim whose stated evidence it did not carry, which is
+// the same shape as a check that is green while verifying nothing. The 17 were
+// resynced on 2026-09-04 and all 101 probes are here now. Enforcing them from the
+// same day is what stops that being a one-off act somebody has to remember to
+// repeat: the evidence for a field that must match has to match too, or the next
+// probe added upstream drifts out of this catalog in silence exactly as the last
+// hundred did.
+const VALIDATION_SUBFIELDS = { target: 'mustMatch', assert: 'mayDiffer', probes: 'mustMatch' };
 
 const args = process.argv.slice(2);
 const flagIndex = args.indexOf('--product-repo');
@@ -155,8 +180,8 @@ async function loadFromLocal(base) {
       `${absent.length} of ${ids.length} sidecars are missing from the product checkout at ${base}:`,
       ...absent.map((p) => `  x ${p}`),
       '',
-      'The sidecars are not on the product repository main branch yet. Check out',
-      `${SOURCE.ref} in that clone, or unset the path to fetch that ref over HTTPS.`,
+      `The sidecars are on ${SOURCE.ref} in the product repository. Check out`,
+      `${SOURCE.ref} in that clone and pull, or unset the path to fetch that ref over HTTPS.`,
     ]);
   }
   return { out, origin: `local checkout ${base}` };
@@ -187,8 +212,8 @@ async function loadFromGitHub() {
       'see the other repository is the defect it was written to remove.',
       '',
       'Likely causes, in order:',
-      `  - the ref ${SOURCE.ref} was deleted or renamed, most likely because the`,
-      '    pull requests merged. Repoint SOURCE.ref in this script to main.',
+      `  - the ref ${SOURCE.ref} was deleted or renamed. Repoint SOURCE.ref in this`,
+      '    script at the branch the product repository carries the sidecars on.',
       '  - no network egress on this runner. Give the job a local checkout of the',
       '    product repository and set AZURE_SQL_CONTAINER_REPO to it.',
       '  - the product repository stopped being public, which would need a token here.',
@@ -278,7 +303,11 @@ for (const id of ids) {
     const av = a.validation?.[sub], bv = b.validation?.[sub];
     if (cls !== 'mustMatch') continue;
     if (canon(av) !== canon(bv)) {
-      errors.push(`${id}: validation.${sub} differs and must match. catalog ${JSON.stringify(av)}, product ${JSON.stringify(bv)}`);
+      // firstDiff, not a whole-value dump. validation.probes is now mustMatch and
+      // a skill carries up to twelve probes with a paragraph of prose each, so
+      // dumping both sides prints tens of thousands of characters and hides the
+      // one line that differs.
+      errors.push(`${id}: validation.${sub} differs and must match, at ${firstDiff(av, bv)}`);
     }
   }
 }
@@ -287,7 +316,11 @@ for (const id of ids) {
 
 console.log(`Compared ${ids.length} container sidecars in ${ROOT}/ against ${origin}.`);
 console.log('');
-console.log('Must match:   ' + Object.keys(POLICY.mustMatch).join(', ') + ', and both sides must carry a non-empty correction.');
+const mustMatchValidation = Object.entries(VALIDATION_SUBFIELDS)
+  .filter(([, cls]) => cls === 'mustMatch')
+  .map(([sub]) => `validation.${sub}`);
+console.log('Must match:   ' + [...Object.keys(POLICY.mustMatch).filter((f) => f !== 'validation.target'), ...mustMatchValidation].join(', ')
+  + ', and both sides must carry a non-empty correction.');
 console.log('May differ:   ' + Object.keys(POLICY.mayDiffer).join(', '));
 console.log('Unreconciled: ' + Object.keys(POLICY.unreconciled).join(', ') + '  (reported, not enforced)');
 
