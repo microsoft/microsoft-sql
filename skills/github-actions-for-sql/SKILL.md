@@ -257,12 +257,33 @@ a deploy job that never appears is a `needs:` that never released.
 ```bash
 sqlpackage /Action:DeployReport /SourceFile:"./db/bin/Debug/ShopDb.dacpac" \
   /TargetConnectionString:"<the same connection string>" /OutputPath:after.xml
-grep -c "<Operation " after.xml
+test -f after.xml || { echo "no report was written"; exit 1; }
+grep -c "<Operation " after.xml || true
 ```
 
 Expect `0`. A publish that landed leaves the next deploy report nothing to do, and any count above
 zero names an object the run did not apply. `/OutputPath` is the DeployReport parameter;
-`/DeployReportPath` belongs to Publish, so the wrong flag writes no report at all.
+`/DeployReportPath` belongs to Publish, so the wrong flag writes no report at all, which is what
+the `test -f` is for: a missing report makes the count `0` as well, and without that line the check
+reports a clean deployment when it measured nothing.
+
+**`|| true` is not decoration, and it is the reason this check used to fail on success.** `grep -c`
+prints `0` and **exits 1** when it selects no lines. A GitHub Actions `run:` block is `bash -e`, so
+the step goes red on precisely the outcome you want. Measured 2026-09-05 against a real logical
+server: after a clean publish the report was
+`<DeploymentReport ...><Alerts /></DeploymentReport>`, `grep -c` printed `0`, and the exit code was
+`1`.
+
+**Expect it to be slow, and do not read slow as hung.** On a Basic tier database, measured the same
+day, publishing a single three-column table took **3 minutes 16 seconds** and the DeployReport
+after it took **2 minutes 50 seconds**. DacFx compares the whole model, so the floor is set by the
+tier rather than by the size of the change. While it runs, `sys.dm_exec_sessions` shows a
+`DacFx Deploy` session, which is how to tell a working deployment from a stalled one.
+
+**One line in a successful publish reads like a failure.** Between `Updating database (Start)` and
+`Creating Table`, a project built from the default template prints
+`'QUERY_STORE=OFF' is not supported in this version of SQL Server.` The publish continues and exits
+zero. It is not an error and there is nothing to fix.
 
 ```bash
 az sql server firewall-rule list -g <resource group> -s <server> --query "[].name" -o tsv

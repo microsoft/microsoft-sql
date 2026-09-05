@@ -79,15 +79,29 @@ Read back after the blocking episode finished:
 `execution_count` for the target was also `0`, and the session was present in
 `sys.dm_xe_database_sessions` throughout. The usual fix, setting the threshold, is not available:
 
+On a **real logical server**, measured 2026-09-05 on `sqllab200068e2`, Basic tier, there is no
+`sp_configure` to call at all:
+
+```output
+EXEC sys.sp_configure N'blocked process threshold', 5;
+Msg 2812, Level 16, State 62
+Could not find stored procedure 'sys.sp_configure'.
+```
+
+`OBJECT_ID('sys.sp_configure')` is `NULL` there, and the unqualified name answers the same way.
+
+On the **container** the procedure exists and refuses the statement instead:
+
 ```output
 EXEC sp_configure 'blocked process threshold';
 Msg 40510, Level 16, State 1
 Statement 'CONFIG' is not supported in this version of SQL Server.
 ```
 
-and `sys.database_scoped_configurations` has no row matching `%BLOCK%` or `%THRESHOLD%`. Learn
-corroborates it: the `blocked process threshold` option is documented for SQL Server only, and
-40510 is in the error table with exactly that message. The event is not hard to trigger here, there
+Both are refusals and they are not the same refusal, so an agent matching on `40510` will not
+recognise the cloud one. `sys.database_scoped_configurations` has no row matching `%BLOCK%` or
+`%THRESHOLD%` on either. Learn corroborates the option itself: `blocked process threshold` is
+documented for SQL Server only, and 40510 is in the error table with exactly that message. The event is not hard to trigger here, there
 is no exposed control to trigger it with.
 
 Learn also names the supported route on Azure SQL Database, which is not an event session: the

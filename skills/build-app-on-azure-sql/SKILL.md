@@ -34,7 +34,7 @@ The three things that section does are the three things that fail silently:
 
 | Prerequisite | How it fails |
 |---|---|
-| A firewall rule covering the client address | Changes to security settings carry a **five minute** latency, so the first run fails after the rule was created correctly. Network address translation also means the address the client connects from is often not the one in its own network configuration |
+| A firewall rule covering the client address | Learn documents a latency of **up to** five minutes on security setting changes. **Measured 2026-09-05 it was immediate**, so do not plan around a five minute wait and do not read a refusal as a rule that has not landed yet: see [how long a rule really takes](#how-long-a-firewall-rule-really-takes). Network address translation also means the address the client connects from is often not the one in its own network configuration |
 | A Microsoft Entra administrator on the logical server | Passwordless auth is simply off. The failure arrives at connect time as a login failure, which reads as a wrong credential |
 | A database user for the deployed identity | Nothing at deploy time reports it missing. The application returns a server error, and its code is correct |
 
@@ -66,12 +66,60 @@ string: it owns the switch-to-keyword mapping, encryption, retry and pool sizing
 
 Two facts decide what to do when the rule looks right and the connection still fails:
 
-- The five minute latency is a **cache**. `DBCC FLUSHAUTHCACHE` on the user database forces a
-  refresh rather than waiting. It does not apply to `master`, and it needs the admin account or
-  `KILL DATABASE CONNECTION`.
+- The five minute latency is a **cache**, and it is a ceiling rather than a wait to plan around.
+  `DBCC FLUSHAUTHCACHE` on the user database forces a refresh rather than waiting. It needs the
+  admin account or `KILL DATABASE CONNECTION`, and it needs a connection that already works, so it
+  cannot rescue the connection the firewall is refusing.
 - A rule from `0.0.0.0` to `0.0.0.0` is the documented special case meaning Azure-internal traffic,
   not a wildcard for the internet, and any virtual machine in Azure may then attempt to connect.
   `deploy-app-to-azure` owns what the first-party templates put there.
+
+### How long a firewall rule really takes
+
+Learn says security setting changes take **up to** five minutes. Up to is the whole sentence, and
+this skill used to repeat the ceiling as the expected case and tell readers the first run would
+fail because of it. It does not.
+
+Measured 2026-09-05 against a Basic tier database on a logical server in `eastus2`, over three
+trials in both directions. Each trial deleted the rule admitting the client and polled until the
+connection was refused, then created it again and polled until the connection succeeded, with the
+clock started the instant the `az` control-plane call returned and a poll every two seconds.
+
+| Trial | Rule removed, until refused | Rule created, until admitted |
+|---|---|---|
+| 1 | 1.0 s | 0.8 s |
+| 2 | 0.8 s | 0.9 s |
+| 3 | 0.8 s | 0.9 s |
+
+Every poll in every trial found the change already in effect on the **first** attempt, so the real
+figure is below the measurement floor: one Entra `sqlcmd` login, about 0.8 s. Read the table as
+"not more than a second", not as "about a second".
+
+What this changes in practice. **A connection refused straight after `az sql server firewall-rule
+create` returned is very unlikely to be a rule that has not propagated yet, so do not wait five
+minutes and try again.** Check the address first: network address translation means the address the
+server sees is often not the one the client believes it has, and the refusal message names the
+address the server saw.
+
+```output
+Cannot open server 'example' requested by the login. Client with IP address '203.0.113.7' is not
+allowed to access the server.  ...  It may take up to five minutes for this change to take effect.
+```
+
+That trailing sentence is part of the server's own message and is where the expectation comes from.
+It is a ceiling in the message too.
+
+**One trap worth knowing before you diagnose a firewall at all.** On a server with Entra-only
+authentication, a SQL authentication attempt is refused for being SQL authentication, before the
+firewall is consulted:
+
+```output
+Login failed for user 'someone'. Reason: Azure Active Directory only authentication is enabled.
+```
+
+That message appears whether the address is allowed or not, so a SQL-auth connection test cannot
+tell you anything about the firewall on such a server. Test with the Entra login the application
+will actually use.
 
 The third prerequisite cannot be checked until something is deployed, so it is in **Check it worked**
 below.
