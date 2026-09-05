@@ -81,7 +81,8 @@ Apps read **one** env var, `SQL_CONNECTION_STRING` (replace `1433` with the `HOS
 Server=localhost,1433;Database=appdb;User Id=sa;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true
 ```
 
-Use `User Id=` / `Password=` / `Database=` (NOT `Uid=` / `Pwd=`). For sqlcmd use `-C` to trust
+House style spells the keywords `User Id=` / `Password=` / `Database=`; `Uid=` / `Pwd=` are
+documented SqlClient synonyms and work too. For sqlcmd use `-C` to trust
 the self-signed cert. For Prisma (NestJS / Next.js) the same instance is also expressed as a
 `sqlserver://` URL in `DATABASE_URL` (see snippets).
 
@@ -110,8 +111,10 @@ docker exec -i sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "YourSt
 
 Native `VECTOR(n)` column type and `VECTOR_DISTANCE('cosine', a, b)`. Insert with
 `CAST(CAST(? AS NVARCHAR(MAX)) AS VECTOR(n))` where **n is a LITERAL, never a bind parameter** (a parameter dimension
-fails with "Incorrect syntax near '@P3'"). `CREATE VECTOR INDEX` (DiskANN) is still in
-development; use full-scan top-k for now.
+fails with "Incorrect syntax near '@P3'"). `CREATE VECTOR INDEX` (DiskANN) **works on this image**, measured, and the Known
+limitations page has not caught up. It needs `SET QUOTED_IDENTIFIER ON` and at least 100 rows with
+non-null vectors (`Msg 42266` below that). Full-scan top-k stays exact and stays the right choice
+for a small table. The `azuresql-db-rag` skill carries the rules the index imposes.
 
 ## Validation rules
 

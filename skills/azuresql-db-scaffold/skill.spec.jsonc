@@ -39,6 +39,38 @@
       "uses the Azure SQL Database container image",
       "creates the user database",
       "connection string targets the user database, not master"
+    ],
+    "probes": [
+      {
+        "sql": "SELECT CAST(SERVERPROPERTY('EngineEdition') AS INT) AS engine_edition, CAST(SERVERPROPERTY('Edition') AS NVARCHAR(128)) AS edition;",
+        "expect": {
+          "rows": [
+            [
+              5,
+              "SQL Azure"
+            ]
+          ]
+        },
+        "why": "The identity check the skill tells the reader to run once the scaffold is up, and the only thing that distinguishes a correct scaffold from one pointed at the SQL Server image. The skill's central interception is worthless if these two properties do not read this way, because then the scaffold has quietly wired the project to a different product."
+      },
+      {
+        "sql": "USE master;",
+        "expect": {
+          "error": 40508
+        },
+        "why": "One of the three facts the skill says bites every scaffold. Microsoft Learn documents error 40508, severity 16, 'USE statement is not supported to switch between databases. Use a new connection to connect to a different database.', and states the refusal applies when a database other than the current one is named, which is why this probe names master rather than the scratch database the session is already in. If this ever succeeds the skill's advice to put the database in the connection string loses its reason."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_scaffold_vec (id INT IDENTITY PRIMARY KEY CLUSTERED, embedding VECTOR(3) NOT NULL);\nINSERT INTO dbo.probe_scaffold_vec (embedding) VALUES (CAST(CAST(N'[1,0,0]' AS NVARCHAR(MAX)) AS VECTOR(3)));\nSELECT CAST(CASE WHEN VECTOR_DISTANCE('cosine', embedding, CAST(CAST(N'[0,1,0]' AS NVARCHAR(MAX)) AS VECTOR(3))) = 1 THEN 1 ELSE 0 END AS INT) AS orthogonal FROM dbo.probe_scaffold_vec;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "The vector section of this skill in one statement: the native VECTOR column type exists with a literal dimension in the DDL, the double cast through NVARCHAR(MAX) that the skill prescribes for inserts is accepted, and VECTOR_DISTANCE with the cosine metric is available. Two orthogonal unit vectors have cosine distance exactly 1, so the comparison returns an integer and does not turn the probe into a float equality argument. If the type or the function is not present, a scaffold that generates an embedding column produces a schema the engine will reject at migration time."
+      }
     ]
   },
   "triggering": {

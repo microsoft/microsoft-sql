@@ -13,7 +13,7 @@ Database container. Use this when auditing a project for migration.
 
 ## Identity and connection
 
-| Aspect | Box image | Azure SQL Database container |
+| Aspect | SQL Server image | Azure SQL Database container |
 |---|---|---|
 | Image | `mcr.microsoft.com/mssql/server` | `sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest` |
 | Registry | public (mcr) | private preview; `docker login sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io` first |
@@ -34,7 +34,7 @@ Database container. Use this when auditing a project for migration.
 
 ## Changes behavior
 
-| Behavior | Box image | Azure SQL Database container | What to do |
+| Behavior | SQL Server image | Azure SQL Database container | What to do |
 |---|---|---|---|
 | Database creation | apps often auto-create or use a pre-created DB | engine does NOT auto-create on connect | `CREATE DATABASE appdb` on a master connection first |
 | Switching DBs | `USE appdb` works | a user-database session returns `Msg 40508` on `USE`, exactly as in the cloud; a `master` connection is a provisioning session where the filter is not enforced, so `USE` appears to work there | select DB in the connection string (`Database=appdb` / `-d appdb`); avoid `USE`; use `master` for provisioning only |
@@ -60,7 +60,10 @@ remove or replace every usage.
 
 - Native `VECTOR(n)` column type and `VECTOR_DISTANCE('cosine', a, b)` for
   embedding search. Insert with `CAST(CAST(? AS NVARCHAR(MAX)) AS VECTOR(n))` where `n` is a literal,
-  never a bind parameter. `CREATE VECTOR INDEX` (DiskANN) is still in
-  development; use a full-scan top-k query for now.
+  never a bind parameter. `CREATE VECTOR INDEX` (DiskANN) **works on this
+  image**, measured, and the Known limitations page has not caught up. It needs
+  `SET QUOTED_IDENTIFIER ON` and at least 100 rows with non-null vectors
+  (`Msg 42266` below that). Full-scan top-k stays exact and stays the right
+  choice for a small table.
 - Behavior matches Azure SQL Database, so local dev catches Azure-specific
   differences before deployment.

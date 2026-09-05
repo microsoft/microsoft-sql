@@ -29,7 +29,17 @@
     "azure-sql-db-container"
   ],
   "validation": {
-    "target": "none"
+    "target": "container",
+    "probes": [
+      {
+        "cmd": "sh -c 'curl -fsS -o /dev/null -w \"%{redirect_url}\" \"https://aka.ms/sql-agent-skills-feedback?title=PROBE&labels=PROBE\" | grep -q \"issues/new?template=skill_feedback.yml$\"'",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The one claim in this skill an engine of any kind can settle, and the reason it is worth a probe is that being wrong about it fails silently: the user opens a form, sees it empty, and has no way to know a filled report was dropped on the way. Measured on 2026-09-04, aka.ms/sql-agent-skills-feedback answers 301 to https://github.com/microsoft/azure-sql-database-container/issues/new?template=skill_feedback.yml, with title and labels gone. The grep anchors on the end of the redirect target, so the probe fails both if a query string survives, which would mean the skill's prohibition is now unnecessary, and if the short link is ever repointed at a different template, which would misroute every report this skill files. It runs on the host because it is a link, not a database: nothing about it involves the engine, and the container has no reason to carry curl."
+      }
+    ]
   },
   "triggering": {
     "explicit": [
