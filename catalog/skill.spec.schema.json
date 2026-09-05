@@ -224,7 +224,7 @@
             "both",
             "none"
           ],
-          "description": "Which substrate lane 4 runs this against."
+          "description": "Which substrate lane 4 runs this against, and with it which instrument decides `maturity`. `container` and `both` have an engine, so `preview` requires at least one probe that opened a database connection: a `sql` probe, or a `cmd` probe carrying `engine: true`. `cloud` has no lane yet, so its probes are always deferred. `none` DECLARES THAT THE SKILL HAS NO ENGINE SURFACE, which is the one route past the engine requirement, and it is checked rather than believed: scripts/check-maturity-drift.mjs reads the skill's own SKILL.md and FAILS the declaration if the body names an engine message number, reads SERVERPROPERTY, carries T-SQL or runs a query with sqlcmd. A skill that tells a reader what the engine does has an engine surface whatever this field says. Such a skill is then judged by whatever instrument does fit it, which for azuresql-db-feedback is an HTTPS redirect, and it can reach `preview` on that."
         },
         "setup": {
           "type": "array",
@@ -283,6 +283,10 @@
                 "type": "string",
                 "minLength": 30,
                 "description": "What this probe proves, and why it is worth a round trip against a live engine. A probe that cannot say why it exists is a probe nobody will maintain. When the number it asserts changes under some future engine build, this sentence is what tells the next reader whether the probe was wrong or the product moved, so name the measurement it came from where the skill has one."
+              },
+              "engine": {
+                "const": true,
+                "description": "`cmd` probes only, and only where the command genuinely opens a database connection. `sql` probes run against the scratch database by construction and must NOT carry this field. It exists because `preview` requires engine evidence and nothing in a shell command's shape says whether it contacted an engine: `dab --version` and a `dab start` that serves rows out of the scratch database are both `cmd`. The claim is checked, not taken: scripts/check-maturity-drift.mjs fails a probe that declares it and whose body carries neither a credential nor the PROBE_PORT the lane hands a host probe, because a probe that opens a connection has to say who it is connecting as. That does not catch every lie and is not meant to; it catches the one that matters, which is a decorative probe relabelled to clear a gate."
               }
             }
           }

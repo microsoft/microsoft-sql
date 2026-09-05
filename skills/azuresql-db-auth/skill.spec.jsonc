@@ -34,7 +34,7 @@
     "azure-sql-db-container"
   ],
   "validation": {
-    "target": "both",
+    "target": "container",
     "assert": [
       "uses CREATE LOGIN plus CREATE USER FOR LOGIN",
       "application does not connect as sa"

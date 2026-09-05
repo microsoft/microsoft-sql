@@ -31,7 +31,7 @@
     "azure-sql-db-container"
   ],
   "validation": {
-    "target": "both",
+    "target": "container",
     "assert": [
       "retry with backoff present",
       "pool bounded explicitly"
