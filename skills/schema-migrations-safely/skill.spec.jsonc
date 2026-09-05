@@ -22,7 +22,7 @@
     ]
   },
   "posture": ["read", "write"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "sql-database-projects",
@@ -157,6 +157,49 @@
           ]
         },
         "why": "The fix section 5 recommends, run wrong. sp_getapplock with @LockOwner = 'Transaction' outside an explicit transaction does not raise: it returns -999, the code the skill lists as 'a bad call', and a runner that checks only for an exception carries on with no lock at all, which is the exact eight-instances-all-applied failure the lock was added to prevent. Measured 2026-09-04. The probe asserts the number rather than a refusal because the whole hazard is that nothing is refused."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_dup (id int NOT NULL);\nGO\nALTER TABLE dbo.probe_mig_dup ADD region nvarchar(20) NULL;\nALTER TABLE dbo.probe_mig_dup ADD region nvarchar(20) NULL;",
+        "expect": {
+          "error": 2705
+        },
+        "why": "What the guard the previous probes require is actually guarding against, which none of them measure: the unguarded ADD is not quietly idempotent underneath the wrapper, the second one is refused. Measured 2026-09-05 on the container at EngineEdition 5: Msg 2705, 'Column names in each table must be unique.' That is what makes the hand-written catalog check load-bearing rather than decorative, and it is also the asymmetry section 7 turns on: an unguarded expand step re-run is loud, a guarded one is silent, and a contract step is silent either way. Red if a repeated ADD succeeds, which would make the guard cosmetic and the loud-versus-silent argument wrong."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_name (id int NOT NULL, a int NOT NULL DEFAULT 0);\nGO\nALTER TABLE dbo.probe_mig_name DROP CONSTRAINT DF_probe_mig_name_a;",
+        "expect": {
+          "error": 3728
+        },
+        "why": "Why the skill tells an author to resolve a default constraint out of sys.default_constraints rather than naming it literally. An inline unnamed DEFAULT gets an engine-generated name carrying an unguessable hash suffix, so the conventional name a script writes by hand matches nothing and the contract step fails in whichever environment it meets first. Measured 2026-09-05: Msg 3728, \"'DF_probe_mig_name_a' is not a constraint.\" Distinct from the Msg 5074 probe above, which measures the drop being blocked by a default that IS there; this one measures a name that is not. Red if the engine ever names an inline default predictably, which would make the lookup unnecessary."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_mig_wide (id int IDENTITY(1,1) NOT NULL PRIMARY KEY, pad char(4000) NOT NULL, pad2 char(3000) NOT NULL);\nGO\nINSERT INTO dbo.probe_mig_wide (pad, pad2) SELECT TOP 500 'x', 'y' FROM sys.all_objects;\nGO\nDECLARE @before bigint = (SELECT SUM(used_page_count) FROM sys.dm_db_partition_stats WHERE object_id = OBJECT_ID('dbo.probe_mig_wide') AND index_id IN (0, 1));\nALTER TABLE dbo.probe_mig_wide DROP COLUMN pad;\nDECLARE @after bigint = (SELECT SUM(used_page_count) FROM sys.dm_db_partition_stats WHERE object_id = OBJECT_ID('dbo.probe_mig_wide') AND index_id IN (0, 1));\nSELECT CASE WHEN @after = @before THEN 'unchanged' WHEN @after < @before THEN 'reclaimed' ELSE 'grew' END AS space;",
+        "expect": {
+          "rows": [
+            [
+              "unchanged"
+            ]
+          ]
+        },
+        "why": "DROP COLUMN is a metadata operation and the space the dropped data occupied is not returned, which is the fact the next probe depends on and the reason a contract step is not free even though it is fast. Measured 2026-09-05 on the container: the same page count before and after dropping a char(4000) column across 500 rows. Red if the engine reclaims the pages, which would mean the row width is not still committed and the refusal the next probe asserts would stop happening."
+      },
+      {
+        "sql": "ALTER TABLE dbo.probe_mig_wide ADD pad char(4000) NOT NULL DEFAULT 'z';",
+        "expect": {
+          "error": 1701
+        },
+        "why": "Rollback is not the inverse of the change, made executable, and the sharpest argument in the skill for skipping a deployment rather than running a down script. The column the previous probe dropped cannot be added back, because its space was never reclaimed and the minimum row size would exceed the page. Measured 2026-09-05: Msg 1701, a minimum row size over the 8060 maximum, for a column that no longer exists in the table. It runs against the table the previous probe left behind on purpose, because the state, not the statement, is the claim. Red if the re-add succeeds, which would make a down script a viable rollback here."
+      },
+      {
+        "sql": "SELECT CASE WHEN OBJECT_DEFINITION(OBJECT_ID('dbo.probe_mig_depv')) LIKE '%oldc%' THEN 'stale' ELSE 'updated' END AS view_definition;",
+        "expect": {
+          "rows": [
+            [
+              "stale"
+            ]
+          ]
+        },
+        "why": "The mechanism behind the Msg 207 probe above, kept separate because the two are read at different times and by different people. After sp_rename the dependent view's stored definition still names the old column, so nothing in the catalog was rewritten and nothing was warned about, and an author who checks that the rename 'worked' by opening the view is reading text that no longer compiles. Measured 2026-09-05 against the fixture the sp_rename probe leaves behind. Red if the definition is rewritten by the rename, which would mean the catalog does track the change and only a compiled plan was stale."
       }
     ]
   },

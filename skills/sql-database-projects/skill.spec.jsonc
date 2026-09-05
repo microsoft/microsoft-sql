@@ -21,7 +21,7 @@
     ]
   },
   "posture": ["read", "write", "execute"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "schema-migrations-safely",
@@ -109,6 +109,14 @@
           "succeeds": true
         },
         "why": "The three publish options the skill tells a reader to leave alone, checked against the build's own help rather than remembered. Measured 2026-09-04 on SqlPackage 170.4.83.3: AllowIncompatiblePlatform False, BlockOnPossibleDataLoss True, DropObjectsNotInSource False. The defaults are the claim, not the options: the skill's advice is 'leave it there' three times over, and that advice is only correct while there is what it says it is. A changed default is exactly the kind of thing nobody notices, because a pipeline that stops blocking on data loss reports success."
+      },
+      {
+        "where": "host",
+        "cmd": "pw=\"${LAB_SA_PASSWORD:-Str0ng!Lab_Passw0rd_2026}\"\nsrv=\"localhost,$PROBE_PORT\"\nd=$(mktemp -d) && cd \"$d\"\ndotnet new sqlproj -n LossDb -o LossDb -tp SqlAzureV12 >/dev/null 2>&1 || { echo \"template failed\"; exit 1; }\nprintf 'CREATE TABLE [dbo].[Keep] ([Id] INT NOT NULL PRIMARY KEY, [Payload] NVARCHAR(50) NOT NULL);\\n' > LossDb/Keep.sql\nprintf 'IF NOT EXISTS (SELECT 1 FROM [dbo].[Keep]) INSERT INTO [dbo].[Keep] ([Id], [Payload]) VALUES (1, N'\"'\"'irreplaceable'\"'\"');\\n' > LossDb/Script.PostDeployment.sql\nsed -i.bak 's#</Project>#<ItemGroup><PostDeploy Include=\"Script.PostDeployment.sql\" /></ItemGroup></Project>#' LossDb/LossDb.sqlproj\ndotnet build LossDb -v q --nologo >/dev/null 2>&1 || { echo \"build 1 failed\"; exit 1; }\nsqlpackage /Action:Publish /SourceFile:LossDb/bin/Debug/LossDb.dacpac /TargetServerName:\"$srv\" /TargetDatabaseName:\"$PROBE_DB\" /TargetUser:sa /TargetPassword:\"$pw\" /TargetTrustServerCertificate:True >log1 2>&1 || { echo \"publish 1 failed\"; tail -5 log1; exit 1; }\nprintf 'CREATE TABLE [dbo].[Keep] ([Id] INT NOT NULL PRIMARY KEY);\\n' > LossDb/Keep.sql\nrm -f LossDb/Script.PostDeployment.sql\ndotnet new sqlproj -n LossDb2 -o LossDb2 -tp SqlAzureV12 >/dev/null 2>&1\nprintf 'CREATE TABLE [dbo].[Keep] ([Id] INT NOT NULL PRIMARY KEY);\\n' > LossDb2/Keep.sql\ndotnet build LossDb2 -v q --nologo >/dev/null 2>&1 || { echo \"build 2 failed\"; exit 1; }\nsqlpackage /Action:Publish /SourceFile:LossDb2/bin/Debug/LossDb2.dacpac /TargetServerName:\"$srv\" /TargetDatabaseName:\"$PROBE_DB\" /TargetUser:sa /TargetPassword:\"$pw\" /TargetTrustServerCertificate:True >log2 2>&1 && { echo \"the drop was published with data in the column\"; exit 1; }\ngrep -qi \"data loss\" log2 || { echo \"it failed, but not for data loss:\"; tail -5 log2; exit 1; }\nsqlpackage /Action:Publish /SourceFile:LossDb2/bin/Debug/LossDb2.dacpac /TargetServerName:\"$srv\" /TargetDatabaseName:\"$PROBE_DB\" /TargetUser:sa /TargetPassword:\"$pw\" /TargetTrustServerCertificate:True /p:BlockOnPossibleDataLoss=False >log3 2>&1 || { echo \"the override did not publish:\"; tail -5 log3; exit 1; }\ngrep -q \"Successfully published database\" log3 || { echo \"no success line under the override\"; tail -5 log3; exit 1; }\nexit 0",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The claim that costs data, run end to end against a live engine rather than read off a help screen. The probe above asserts that BlockOnPossibleDataLoss defaults to True; this one asserts what that default does. A dacpac carrying a column and a post-deployment script that seeds a row is published into the lane's scratch database, then a second dacpac built from a model with that column removed is published at the defaults: SqlPackage refuses it naming possible data loss and exits non-zero. The same dacpac published with /p:BlockOnPossibleDataLoss=False prints 'Successfully published database' and exits 0, having dropped the column and the row in it. Measured 2026-09-05 against the container with SqlPackage 170.4.83.3. It has three separate ways to go red, the first publish failing, the blocked publish succeeding and the override publish failing, so a change in either the deployment plan or the engine's ALTER behaviour is caught rather than absorbed. It replaces an earlier version that published to a database that did not exist: the container answers CREATE DATABASE with Msg 42019, a timeout it reports while doing the work anyway, and SqlPackage reads that as a failed deployment, so the publish-creates-the-database claim is not settleable in this lane."
       }
     ]
   },

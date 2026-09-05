@@ -34,7 +34,7 @@
     "connect-to-azure-sql"
   ],
   "validation": {
-    "target": "cloud",
+    "target": "both",
     "setup": [
       "an Azure SQL Database with a table that has a primary key",
       "a function app on the isolated worker model with the Azure SQL extension referenced"
@@ -48,7 +48,7 @@
     ],
     "probes": [
       {
-        "sql": "CREATE TABLE dbo.probe_ct_two_step (Id int NOT NULL PRIMARY KEY, title nvarchar(50) NOT NULL);\nALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);\nGO\nSELECT (SELECT COUNT(*) FROM sys.change_tracking_databases WHERE database_id = DB_ID()) AS database_tracked,\n       (SELECT COUNT(*) FROM sys.change_tracking_tables WHERE object_id = OBJECT_ID('dbo.probe_ct_two_step')) AS table_tracked;",
+        "sql": "CREATE TABLE dbo.probe_ct_two_step (Id int NOT NULL PRIMARY KEY, title nvarchar(50) NOT NULL);\nIF NOT EXISTS (SELECT 1 FROM sys.change_tracking_databases WHERE database_id = DB_ID())\n    EXEC(N'ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);');\nGO\nSELECT (SELECT COUNT(*) FROM sys.change_tracking_databases WHERE database_id = DB_ID()) AS database_tracked,\n       (SELECT COUNT(*) FROM sys.change_tracking_tables WHERE object_id = OBJECT_ID('dbo.probe_ct_two_step')) AS table_tracked;",
         "expect": {
           "rows": [
             [
@@ -60,7 +60,7 @@
         "why": "The skill's first claim made executable: enabling change tracking at the database level does NOT enable it on any table. One row in sys.change_tracking_databases and zero in sys.change_tracking_tables is the exact state a developer is in when they run the ALTER DATABASE from Microsoft Learn, stop there, and then cannot work out why the SQL trigger listener never starts. Re-running the ALTER DATABASE is a no-op, so this probe does not care what order it runs in."
       },
       {
-        "sql": "ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);\nGO\nCREATE TABLE dbo.probe_ct_enabled (Id int NOT NULL PRIMARY KEY, title nvarchar(50) NOT NULL);\nALTER TABLE dbo.probe_ct_enabled ENABLE CHANGE_TRACKING;\nGO\nSELECT (SELECT COUNT(*) FROM sys.change_tracking_tables WHERE object_id = OBJECT_ID('dbo.probe_ct_enabled')) AS table_tracked,\n       CAST(CASE WHEN CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID('dbo.probe_ct_enabled')) IS NOT NULL THEN 1 ELSE 0 END AS int) AS listener_reads_a_version;",
+        "sql": "IF NOT EXISTS (SELECT 1 FROM sys.change_tracking_databases WHERE database_id = DB_ID())\n    EXEC(N'ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);');\nGO\nCREATE TABLE dbo.probe_ct_enabled (Id int NOT NULL PRIMARY KEY, title nvarchar(50) NOT NULL);\nALTER TABLE dbo.probe_ct_enabled ENABLE CHANGE_TRACKING;\nGO\nSELECT (SELECT COUNT(*) FROM sys.change_tracking_tables WHERE object_id = OBJECT_ID('dbo.probe_ct_enabled')) AS table_tracked,\n       CAST(CASE WHEN CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID('dbo.probe_ct_enabled')) IS NOT NULL THEN 1 ELSE 0 END AS int) AS listener_reads_a_version;",
         "expect": {
           "rows": [
             [
@@ -72,11 +72,18 @@
         "why": "The other half of the same claim, and the one that proves the fix works: once BOTH statements have run, the table appears in sys.change_tracking_tables and CHANGE_TRACKING_MIN_VALID_VERSION returns a version rather than null. That function is what the SQL trigger listener calls at startup, and Microsoft Learn documents it as returning null when change tracking is off for the database, the object id is invalid, or permission to the table is insufficient. A non-null version here is the listener's own precondition, measured directly instead of inferred from a host log."
       },
       {
-        "sql": "ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);\nGO\nCREATE TABLE dbo.probe_ct_no_pk (Id int NOT NULL, title nvarchar(50) NOT NULL);\nGO\nALTER TABLE dbo.probe_ct_no_pk ENABLE CHANGE_TRACKING;",
+        "sql": "IF NOT EXISTS (SELECT 1 FROM sys.change_tracking_databases WHERE database_id = DB_ID())\n    EXEC(N'ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);');\nGO\nCREATE TABLE dbo.probe_ct_no_pk (Id int NOT NULL, title nvarchar(50) NOT NULL);\nGO\nALTER TABLE dbo.probe_ct_no_pk ENABLE CHANGE_TRACKING;",
+        "expect": {
+          "error": 4997
+        },
+        "why": "The primary key prerequisite, which the skill states and which is otherwise only visible as a listener that quietly never starts. THE NUMBER HERE WAS WRONG UNTIL IT WAS MEASURED. It read Msg 22119, taken from Microsoft Learn's 22000 to 22999 error table rather than from a run, and the first live run of this probe returned Msg 4997 instead. Both messages exist on the engine and they are not the same claim: 4997 is 'Change tracking requires a primary key on the table. Create a primary key on the table before enabling change tracking' and is what a table with NO primary key gets, which is the case this probe builds; 22119 is 'requires a primary key constraint on the table to be enabled. Enable the primary key constraint' and is what a table whose primary key index has been disabled gets. Both measured 2026-09-05 on the container at build 18.0.226_4_147, the second by creating a nonclustered primary key and running ALTER INDEX ... DISABLE against it, and both read back from sys.messages. The next probe asserts the disabled-constraint half so the pair stays distinguishable."
+      },
+      {
+        "sql": "IF NOT EXISTS (SELECT 1 FROM sys.change_tracking_databases WHERE database_id = DB_ID())\n    EXEC(N'ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);');\nGO\nCREATE TABLE dbo.probe_ct_disabled_pk (Id int NOT NULL CONSTRAINT pk_probe_ct_disabled_pk PRIMARY KEY NONCLUSTERED, title nvarchar(50) NOT NULL);\nGO\nALTER INDEX pk_probe_ct_disabled_pk ON dbo.probe_ct_disabled_pk DISABLE;\nGO\nALTER TABLE dbo.probe_ct_disabled_pk ENABLE CHANGE_TRACKING;",
         "expect": {
           "error": 22119
         },
-        "why": "The primary key prerequisite, which the skill states and which is otherwise only visible as a listener that quietly never starts. Msg 22119, 'Cannot enable change tracking on table. Change tracking requires a primary key constraint on the table to be enabled', is listed in the Microsoft Learn error table for 22000 to 22999. The number is the assertion because message text is a moving target across builds; if a future build renumbers it, this probe is what says the product moved rather than the skill being wrong."
+        "why": "The other half of the primary key prerequisite, and the reason the probe above had the wrong number for two weeks. A table that HAS a primary key whose index has been disabled is refused with Msg 22119, 'Change tracking requires a primary key constraint on the table to be enabled', which is a different sentence and a different repair from the Msg 4997 a table with no primary key gets. Measured 2026-09-05 on the container. It is worth its own round trip because the two are one letter apart in a reader's memory and the fix differs: create a key, versus rebuild an index that already exists. A disabled primary key is not a hypothetical here, it is what a large index rebuild leaves behind if it fails partway."
       },
       {
         "sql": "CREATE TABLE dbo.probe_out_upsert (Id int NOT NULL PRIMARY KEY, title nvarchar(50) NOT NULL);\nINSERT INTO dbo.probe_out_upsert (Id, title) VALUES (1, N'first');\nMERGE dbo.probe_out_upsert AS t\nUSING (SELECT * FROM OPENJSON(N'[{\"Id\":1,\"title\":\"second\"}]') WITH (Id int, title nvarchar(50))) AS s\nON t.Id = s.Id\nWHEN MATCHED THEN UPDATE SET t.title = s.title\nWHEN NOT MATCHED THEN INSERT (Id, title) VALUES (s.Id, s.title);\nSELECT COUNT(*) AS row_count, MAX(title) AS title FROM dbo.probe_out_upsert;",
@@ -91,7 +98,7 @@
         "why": "The output binding's upsert, written the way the binding writes it. Microsoft Learn states the output bindings use the T-SQL MERGE statement, and that the unsupported NTEXT, TEXT and IMAGE column types fail because they are incompatible with OPENJSON, which names both halves of the generated statement. Writing a row whose primary key already exists therefore updates it: one row back holding the second title, not a duplicate key error. An agent that reports this as a create has reported an overwrite."
       },
       {
-        "sql": "ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);\nGO\nCREATE TABLE dbo.probe_perm_todo (Id int NOT NULL PRIMARY KEY, title nvarchar(50) NOT NULL);\nALTER TABLE dbo.probe_perm_todo ENABLE CHANGE_TRACKING;\nCREATE USER probe_binding_identity WITHOUT LOGIN;\nALTER ROLE db_datareader ADD MEMBER probe_binding_identity;\nALTER ROLE db_datawriter ADD MEMBER probe_binding_identity;\nGO\nEXECUTE AS USER = 'probe_binding_identity';\nGO\nSELECT HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'CREATE TABLE') AS can_create_table,\n       HAS_PERMS_BY_NAME('dbo.probe_perm_todo', 'OBJECT', 'SELECT') AS can_select,\n       HAS_PERMS_BY_NAME('dbo.probe_perm_todo', 'OBJECT', 'VIEW CHANGE TRACKING') AS can_view_change_tracking;\nGO\nREVERT;",
+        "sql": "IF NOT EXISTS (SELECT 1 FROM sys.change_tracking_databases WHERE database_id = DB_ID())\n    EXEC(N'ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);');\nGO\nCREATE TABLE dbo.probe_perm_todo (Id int NOT NULL PRIMARY KEY, title nvarchar(50) NOT NULL);\nALTER TABLE dbo.probe_perm_todo ENABLE CHANGE_TRACKING;\nCREATE USER probe_binding_identity WITHOUT LOGIN;\nALTER ROLE db_datareader ADD MEMBER probe_binding_identity;\nALTER ROLE db_datawriter ADD MEMBER probe_binding_identity;\nGO\nEXECUTE AS USER = 'probe_binding_identity';\nGO\nSELECT HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'CREATE TABLE') AS can_create_table,\n       HAS_PERMS_BY_NAME('dbo.probe_perm_todo', 'OBJECT', 'SELECT') AS can_select,\n       HAS_PERMS_BY_NAME('dbo.probe_perm_todo', 'OBJECT', 'VIEW CHANGE TRACKING') AS can_view_change_tracking;\nGO\nREVERT;",
         "expect": {
           "rows": [
             [
