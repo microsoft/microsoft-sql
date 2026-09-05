@@ -4,8 +4,26 @@
   "domain": "performance-and-diagnostics",
   "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
   "correction": "Asked to diagnose blocking or read a deadlock on Azure SQL Database, an agent treats two different diagnostic failures as the same kind of problem and gets both wrong. The first is a genuine permission artifact: an ordinary login with no VIEW DATABASE STATE grant sees only its own session in sys.dm_exec_requests, sys.dm_os_waiting_tasks and sys.dm_tran_locks and misses a real blocking chain running between two other logins, with no error at all, and granting that one database-scoped permission to the same login, with no other change, made the whole chain visible. The second looks identical from the outside but is not a permission problem at all: sys.dm_xe_sessions, sys.server_event_sessions and sys.dm_xe_session_targets raise Invalid object name (Msg 208) in a user database, and GRANT VIEW SERVER STATE changed nothing, because there is no server-scoped Extended Events surface to grant past. An agent reads that Msg 208 as a context bug and goes looking for a system_health session to read a deadlock out of. Microsoft Learn states there is no built-in system_health session in Azure SQL Database and that event sessions there are always database-scoped, so unless somebody created a session on sqlserver.database_xml_deadlock_report before the deadlock happened, the graph is gone and no grant, no reconnect and no master will recover it. The local container does carry a master with a system_health session, which is exactly how this skill shipped the wrong answer between 2026-08-29 and 2026-09-03: the run was correct and the substrate was never named. A second correction rides along: on Basic, S0, S1 and elastic pool databases, VIEW DATABASE STATE is not the grant that makes the chain visible either, and ##MS_ServerStateReader## is.",
+    "value_probe": {
+      "gate": "The answer separates the two failures instead of treating them as one problem: the empty blocking result is what the connected login is permitted to see and is fixed by granting the right database scoped permission to it, while the missing graph from yesterday is neither a permission nor a connection context problem and cannot be recovered, so the remedy is a capture created before the next one happens.",
+      "task": "Our checkout runs against an Azure SQL Database in the cloud, a General Purpose database and not the local container. It hangs for about thirty seconds under load and then some requests fail. I connected with the application's own login and ran:\n\n```sql\nSELECT session_id, blocking_session_id, wait_type, wait_time\nFROM sys.dm_exec_requests\nWHERE blocking_session_id <> 0;\n```\n\nIt returns nothing at all, every time, while the application is visibly stuck. sys.dm_tran_locks only ever shows my own session and sys.dm_os_waiting_tasks comes back empty too.\n\nWe also had two deadlock errors in the application log yesterday at 14:05 and I want to see what they were fighting over. A colleague told me to read the graph out of the built in diagnostic session, but sys.dm_xe_sessions comes back as an invalid object name, so I assumed I was connected to the wrong database and I have not got any further.\n\nWhat do I do, for both of these?",
+      "states": [
+        "A login without the relevant database scoped state permission sees only its own sessions in those views, and is told nothing about the rows it cannot see.",
+        "The empty result is therefore not evidence that no blocking is happening.",
+        "The invalid object name is not a connection context problem and is not fixed by connecting somewhere else or by granting a server scoped permission.",
+        "A deadlock graph for something that has already happened is gone unless a capture was already running when it happened.",
+        "Catching the next occurrence means creating a database scoped capture in advance of it."
+      ],
+      "refutes": [
+        "The invalid object name for the Extended Events views means the query was run against the wrong database, and running it from master will return the sessions.",
+        "Azure SQL Database has a built in, always running diagnostic session that retains recent deadlock graphs, so yesterday's graph can still be read out of it.",
+        "Granting VIEW SERVER STATE is what makes the Extended Events views resolve on this database.",
+        "Seeing only your own session in the request and lock views means nothing is blocking, so the delay must be in the application or the network.",
+        "The deadlock graph can be recovered after the fact from an error log, a default trace or the database's own history."
+      ]
+    },
   "posture": ["inspect"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "diagnose-slow-query",

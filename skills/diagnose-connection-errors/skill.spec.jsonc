@@ -4,8 +4,24 @@
   "domain": "drivers-and-connectivity",
   "value": ["changes-too-fast-to-memorize", "multi-step-with-silent-failures"],
   "correction": "Shown a failed connection to Azure SQL Database, an agent reads every error as a credential or connection-string problem and starts editing the connection string, when the error number already names the layer that rejected it and that layer is usually in front of the login rather than behind it: 40615 is a missing IP firewall rule and 40914 the same refusal from a virtual network rule, neither of which any connection string can fix, 42101 and 47073 mean public network access is turned off, 40532 is the gateway refusing before a database was reached at all and is not the login failure it reads as, 47072 is a TLS version the server will not accept, and a certificate-chain failure is a client trust store problem that trusting the server certificate hides rather than fixes. The failures carrying no SQL number at all are the ones most often given up on as unknown, when their message text is the whole diagnosis.",
+  "value_probe": {
+    "task": "Our platform team moved one of our services onto new networking last night. Since then every attempt from that service to reach its database in Azure fails. The same code, the same image and the same configuration still work from a developer laptop and from our older environment.\n\nThis is the whole of what the application logs:\n\n```\nA connection was successfully established with the server, but then an error occurred during the pre-login handshake. (provider: TCP Provider, error: 0)\n```\n\nThere is no SQL error number anywhere in it. Our support ticket has been open for a day. In that time we have rotated the database password twice, recreated the application's database user, lengthened the connection timeout, and added and removed several connection string settings. None of it changed the message by a single character.\n\nThe team is now arguing that the message is too generic to work with and we should escalate and wait. Before we do that, tell me what this message is actually telling us and what we should check next.",
+    "gate": "The answer reads the message as a failure occurring in front of the login, on the network path or during protocol negotiation, and directs the investigation at the network layer and at what the two ends will negotiate, while stating plainly that no credential change and no connection string edit can affect it.",
+    "states": [
+      "The failure occurs before any credential is exchanged, so the password, the database user and their permissions cannot be the cause.",
+      "The absence of a SQL error number means the connection was terminated by something between or in front of the two endpoints rather than refused by the database engine.",
+      "The message identifies a specific stage of the connection and is therefore diagnosable, not a generic unknown fault.",
+      "The change in networking is the first thing to examine, since the same code succeeds unchanged from another network."
+    ],
+    "refutes": [
+      "A message of this kind with no error number carries no usable diagnostic information, so the only remaining options are to escalate, wait, or retry indefinitely.",
+      "This is a credential or connection string problem, so rotating the password, recreating the database user, or adjusting connection string settings is a reasonable next step.",
+      "Lengthening the connection timeout addresses this failure, because the connection is being cut off before it has had time to complete.",
+      "The database or the server is unavailable, and the right response is to wait for the service to recover."
+    ]
+  },
   "posture": ["read", "inspect"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "connect-to-azure-sql",

@@ -4,6 +4,22 @@
   "domain": "apis-and-application-patterns",
   "value": ["multi-step-with-silent-failures", "corrects-a-wrong-assumption"],
   "correction": "Asked to build an application on Azure SQL Database, an agent starts inside the application: it picks a stack, writes a data layer, and puts a SQL user name and password in configuration. Every first-party Azure SQL Database quickstart starts outside the application instead, with three server-side prerequisites that no code can substitute for: a firewall rule covering the client address, a Microsoft Entra administrator on the logical server, and, once the application is deployed, a database user for its managed identity created from a connection that is itself authenticated with Microsoft Entra ID. All three fail silently. The firewall rule takes up to five minutes to take effect, so the first run can fail after the rule was created correctly; the missing Entra admin surfaces as a login failure that reads as a bad credential; and the missing database user surfaces only after deployment, as a server error from an application whose code is correct. The same start-inside-the-code reflex then hand-writes CRUD that Data API builder would generate, and carries the quickstart's create-the-table-at-startup step into a real application, which is the one part of that sample code Microsoft explicitly labels as testing only.",
+  "value_probe": {
+    "gate": "The answer puts the server-side prerequisites ahead of the application code, so that by the time the first request runs the client address is admitted, a Microsoft Entra administrator exists on the logical server, and the deployed application's identity has a database user of its own.",
+    "task": "I have a working Node API on my laptop talking to a local database, and it needs to be running in Azure this week, on App Service, with a new Azure SQL Database behind it. Give me the order of operations, from an empty resource group to the first successful request that reads a row. I would rather not debug this at two in the morning, so be specific about the steps that fail without a clear error, and tell me what I should check after each one.",
+    "states": [
+      "A database user for the application's identity has to be created from a connection that is itself authenticated with Microsoft Entra ID.",
+      "The first connection can fail after a correct firewall rule was added, because the rule takes several minutes to take effect.",
+      "A missing Microsoft Entra administrator on the logical server surfaces as a login failure that reads like a bad credential.",
+      "The work that has to happen outside the application code comes first and no code can substitute for it."
+    ],
+    "refutes": [
+      "Putting an administrator login and password in the application's configuration is the normal way to connect a deployed application.",
+      "Granting the application's managed identity a role on the Azure resource is enough, with no step run inside the database itself.",
+      "Creating the tables from application startup code is a reasonable pattern for a real application.",
+      "A connection failure straight after adding a firewall rule proves the rule itself is wrong."
+    ]
+  },
   "posture": ["read", "write", "provision"],
   "maturity": "draft",
   "applies_to": ["azure-sql-db"],

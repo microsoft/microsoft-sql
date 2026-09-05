@@ -5,8 +5,26 @@
   "domain": "operate-and-recover",
   "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
   "correction": "Asked to recover an Azure SQL Database, an agent trained on the boxed engine reaches for RESTORE DATABASE ... WITH REPLACE, BACKUP DATABASE, RESTORE HEADERONLY or ALTER DATABASE ... SET RECOVERY, and none of that surface exists on the service. Measured 2026-08-29 against a live engine reporting EngineEdition 5 and Edition 'SQL Azure': BACKUP DATABASE, BACKUP LOG, RESTORE DATABASE, RESTORE HEADERONLY, RESTORE FILELISTONLY and RESTORE VERIFYONLY are each refused with Msg 40510, sys.sp_get_database_backup_policy does not exist at all, failing with Msg 2812, and ALTER DATABASE ... SET RECOVERY is refused with Msg 40517, so the family has no exception. Microsoft Learn says it plainly: you recover using the portal, PowerShell, the Azure CLI or the REST API, and you can't use Transact-SQL. The second wrong belief compounds the first. Learn again: you can't overwrite an existing database during restore. Every restore, point-in-time, geo or long-term, creates a new database under the name given at restore time, and moving that database to where the application connects, by rename or by a connection string change, is a step the developer performs. Nothing does it automatically and nothing warns when it is skipped, so the failure surfaces later as a connection error blamed on the application. The third belief the skill corrects is about reach: point-in-time restore is same-server only, geo-restore is same-subscription only and needs Geo or GeoZone backup storage configured beforehand, and deleting the logical server takes its databases and their point-in-time backups with it, leaving long-term retention as the only surviving route.",
+  "value_probe": {
+    "gate": "The answer recovers to a new database from the service's own automatic backups using a control plane tool, and names the explicit cutover that puts the application onto it, without proposing a T-SQL restore or an overwrite of the live database.",
+    "task": "At about 09:40 this morning a deploy script ran against the wrong environment and emptied four tables in our production Azure SQL Database. The application is still up and still taking writes into other tables. We want the state as of 09:35 back, and we want the application reading the recovered data by end of day.\n\nOur runbook says to take the most recent backup and put it back over the top of the live database. One of the team also wants to switch the database into a mode that keeps more log around so that this is easier to deal with next time, and someone else has suggested we recover onto a different server in another subscription so it stays isolated while we check it.\n\nI have the portal, the Azure CLI and a SQL client open in front of me. Walk me through exactly what to do, in order.",
+    "states": [
+      "Recovery on this service is driven from the portal, PowerShell, the Azure CLI or the REST API, and not from T-SQL at all.",
+      "Every restore produces a new database under the name given at restore time, and nothing overwrites the existing one.",
+      "Putting the application onto the recovered data is a manual step, by rename or by changing the connection string, that nothing performs and nothing warns about when it is skipped.",
+      "The recovery model option is refused on this service, while the ALTER DATABASE statement itself remains valid for other options.",
+      "A point in time restore lands on the same logical server, so recovering onto a different server or subscription is a different route with its own prerequisites."
+    ],
+    "refutes": [
+      "RESTORE DATABASE, or some other T-SQL restore statement, is the way to recover this database.",
+      "A restore can overwrite the live database in place, so the application keeps working with no further step once it finishes.",
+      "The recovery model of the database can be changed to retain more log for easier recovery next time.",
+      "A point in time restore can be directed at a different logical server or a different subscription.",
+      "ALTER DATABASE is rejected wholesale on this service, so no option of that statement is usable."
+    ]
+  },
   "posture": ["read", "provision", "admin"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db"],
   "related": [
     "provision-azure-sql-db",

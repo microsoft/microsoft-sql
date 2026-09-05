@@ -4,8 +4,24 @@
   "domain": "drivers-and-connectivity",
   "value": ["not-in-training-data", "corrects-a-wrong-assumption"],
   "correction": "Agents treat Microsoft Entra authentication in .NET as a connection string setting alone, writing Authentication=Active Directory Default against a single Microsoft.Data.SqlClient package reference; since version 7.0 the core package no longer carries the Entra dependencies, confirmed in the restored graph for 7.0.2, so it registers zero authentication providers and every Active Directory mode has nothing to resolve to until Microsoft.Data.SqlClient.Extensions.Azure is added as a second package reference. Which failure a developer sees depends on the server, because the provider is looked up during the login exchange rather than before it: a server offering Microsoft Entra authentication produces ArgumentException, Cannot find an authentication provider, at Open time, while the local Azure SQL Database container refuses the login first and returns SqlException 18456, measured on 2026-08-28, which is a subject for diagnose-connection-errors rather than for this skill. The package rule is a property of the dependency graph and holds on both, so a local run is not where the exception reproduces and is not evidence that the extension package can be skipped.",
+  "value_probe": {
+    "task": "Our .NET 8 background worker talks to a database in Azure using Microsoft.Data.SqlClient directly. There is no ORM, we open a SqlConnection and run commands. The project file has exactly one database package in it:\n\n```xml\n<ItemGroup>\n  <PackageReference Include=\"Microsoft.Data.SqlClient\" Version=\"7.0.2\" />\n</ItemGroup>\n```\n\nSecurity asked us to stop shipping a password, so we changed the connection string from a user name and password to this:\n\n```\nServer=tcp:ourserver.database.windows.net,1433;Database=orders;Authentication=Active Directory Default;Encrypt=True;\n```\n\nIt compiles. It restores. The moment the worker calls OpenAsync in Azure it throws before anything reaches the database, and the exception is complaining that it cannot find something it needs rather than reporting a login failure. Reverting the connection string to the user name and password makes it work again, so the server and the network are fine.\n\nAn engineer has spent two days checking that the worker's identity exists and has been granted access on the database side. What is actually wrong, and what do we change?",
+    "gate": "The answer identifies that the project is missing a package the driver needs for the Active Directory authentication modes to resolve to anything, and adds that second package reference, rather than only editing the connection string or making further changes on the database and identity side.",
+    "states": [
+      "The base driver package on its own registers no authentication provider for the Active Directory modes, so the connection string value has nothing to resolve to.",
+      "The fix is a second package reference added to the project, not a change to the connection string.",
+      "The provider is resolved during the login exchange, which is why the failure appears at connection open time and not at startup or at build time.",
+      "The identity work already done on the database side is necessary but is not what is failing here."
+    ],
+    "refutes": [
+      "A single reference to the base data provider package is all that is needed for the Active Directory authentication modes to work, and no additional package is required.",
+      "The failure means the application identity has not been created as a database user or has not been granted the right database role.",
+      "The connection string keyword is spelled wrong, or a different Active Directory mode value should be substituted to make it work.",
+      "Downgrading or upgrading the single existing package to a different version restores the Active Directory modes without adding anything else."
+    ]
+  },
   "posture": ["read", "write", "execute"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "connect-to-azure-sql",

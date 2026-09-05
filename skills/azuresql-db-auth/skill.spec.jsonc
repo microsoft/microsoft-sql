@@ -5,7 +5,7 @@
   "value": [
     "not-in-training-data"
   ],
-  "correction": "Asked for a least-privilege user, an agent writes CREATE USER ... WITH PASSWORD, which fails here with Msg 15007, and then tries SET CONTAINMENT = PARTIAL, which fails with Msg 12824. Contained users are not available: create a server login and map a database user to it.",
+  "correction": "Asked for a least-privilege user, an agent writes CREATE USER ... WITH PASSWORD, which fails here with Msg 15007, and then tries SET CONTAINMENT = PARTIAL, which fails with Msg 12844. Contained users are not available: create a server login and map a database user to it.",
   "posture": [
     "read",
     "write",

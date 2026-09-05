@@ -4,8 +4,26 @@
   "domain": "data-movement",
   "value": ["not-in-training-data", "multi-step-with-silent-failures"],
   "correction": "Agents treat the dacpac and bacpac extensions as what decides what moves, when what actually decides it is which SqlPackage action ran and which property was set: Extract and Publish carry schema only by default, Export and Import always carry schema plus every base table's row data, and Extract can be told, with ExtractAllTableData, to fold row data into a file still named and shaped like a schema-only dacpac. Agents also read a completed publish or import as proof the database is now backed up, when Azure SQL Database has no BACKUP or RESTORE T-SQL and neither bacpac nor dacpac is a supported recovery mechanism. Agents assume Import behaves like Publish, when Import refuses outright, with error SQL71659, against any target database that already holds a single user object, while Publish diffs an existing target and reruns safely; both actions create the target database when it does not exist and the connected principal has permission to create one, so the difference between them is the refusal, not the creation. Finally, agents export a live database without scanning it first, when a database still carrying Windows-authenticated users, server-login-mapped users or leftover Service Broker permissions fails export with SQL71627 only after schema extraction has already run, discarding the whole attempt rather than the offending object.",
+  "value_probe": {
+    "gate": "The answer chooses the action by what actually has to move and by whether the target already holds objects, checks the source for principals the target cannot carry before the long running step, and separates this copy operation from the question of what the database's real backup is.",
+    "task": "We need a copy of our production Azure SQL Database in a brand new database on our development server, schema and data both, and we want to repeat it every Monday morning. I produced a file from production last week and now I want to lay it down on the development side.\n\nThree things I am unsure about. The development database does not exist yet, so do I have to go and create an empty one first? On the second Monday that database will already have last week's tables in it, so will the same command just put the new copy over the top? And our runbook currently names this weekly file as the backup of record for the application database, which I would like to confirm before the audit next month.\n\nAlso, last week's run against production failed part of the way through, complaining about a user, after it had already been going for twenty minutes. Tell me the sequence to use.",
+    "states": [
+      "What decides whether row data travels is which action was run and which properties were set, not the file's name or extension.",
+      "The action that always carries data refuses a target that already holds any user object, so the second Monday needs a fresh target or the action that diffs an existing one.",
+      "The target database is created automatically when it is absent and the connected principal is allowed to create one, so creating an empty database first is not required.",
+      "Neither of these file types is a supported recovery mechanism for this service, so the runbook should name the service's own automatic backups instead.",
+      "A principal the target cannot honour fails the export only after schema extraction has already run, discarding the whole attempt, so the source should be scanned for such principals first."
+    ],
+    "refutes": [
+      "The target database has to exist before the operation runs, because the tool will not create a database that is absent.",
+      "The file extension is what determines whether row data is included in the file.",
+      "A schema and data file of this kind is a supported backup and recovery mechanism for an Azure SQL Database.",
+      "The data carrying import can be re-run against a target that already contains user objects and will overwrite or merge them.",
+      "The failure naming a user is a transient fault or a permissions problem on the tool's own connection, so retrying will get past it."
+    ]
+  },
   "posture": ["read", "write", "execute"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "sql-database-projects",
@@ -32,27 +50,32 @@
     ],
     "probes": [
       {
+        "where": "host",
         "cmd": "sqlpackage /version:True",
         "expect": { "succeeds": true },
         "why": "Every command in this skill is a SqlPackage command, so the tool being installed and able to print its build number with no database in reach is the precondition for all of them. Measured 2026-09-02, exit 0, build 170.4.83.3."
       },
       {
+        "where": "host",
         "cmd": "sqlpackage /Action:Extract /help:True | grep -q '^/p:ExtractAllTableData=(BOOLEAN .False.)$'",
         "expect": { "succeeds": true },
         "why": "The property this skill turns on, checked to exist for the Extract action and to default to False, out of the build's own help. Measured 2026-09-02 on 170.4.83.3. If a future build renames it or changes the default, the claim that a dacpac is schema only until this is set stops being true, and this probe goes red first."
       },
       {
+        "where": "host",
         "cmd": "sqlpackage /Action:Export /help:True | grep -q '^/p:IgnoreUserLoginMappings=' && exit 1 || exit 0",
         "expect": { "succeeds": true },
         "why": "The asymmetry the skill routes on: Extract can be told to drop user-to-login mappings and Export cannot, so a database that fails export can still be extracted. Measured 2026-09-02 on 170.4.83.3, the property is absent from the Export help. This probe is deliberately the negative, because the skill's advice becomes wrong the day Export gains it."
       },
       {
+        "where": "host",
         "cmd": "sqlpackage /Action:Extract /help:True | grep -q '^/p:IgnoreUserLoginMappings=(BOOLEAN .False.)$'",
         "expect": { "succeeds": true },
         "why": "The positive half of the same pair, so a red run on the previous probe can be told apart from SqlPackage renaming or dropping the property everywhere. Measured 2026-09-02 on 170.4.83.3."
       },
       {
-        "cmd": "sqlpackage /Action:Export /TargetFile:/tmp/probe-sqlpackage.bacpac /SourceServerName:127.0.0.1,1 /SourceDatabaseName:probe /p:ExportAllTableData=true 2>&1 | grep -q \"is not a valid argument for the 'Export' action\"",
+        "where": "host",
+        "cmd": "sqlpackage /Action:Export /TargetFile:/tmp/probe-sqlpackage.bacpac /SourceServerName:127.0.0.1,$PROBE_PORT /SourceDatabaseName:$PROBE_DB /p:ExportAllTableData=true 2>&1 | grep -q \"is not a valid argument for the 'Export' action\"",
         "expect": { "succeeds": true },
         "why": "An invented property is refused by name before any connection is opened, which is what makes a property claim checkable for free. Measured 2026-09-02 on 170.4.83.3: exit 1 and that message, with no connection line in the output, against a port nothing is listening on. This is the probe shape that gives the catalog a cheap way to fail a made-up flag."
       },

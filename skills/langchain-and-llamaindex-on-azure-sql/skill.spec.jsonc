@@ -8,12 +8,31 @@
     "changes-too-fast-to-memorize"
   ],
   "correction": "Agents wire LangChain or LlamaIndex to Azure SQL Database by pointing a SQLAlchemy URL at it and taking the framework defaults, believing the framework knows the dialect and that its stated read-only, table-scoping and no-DML guardrails are enforced. Measured on 2026-08-28 by installing the packages, reading the shipped prompts and running every statement against an Azure SQL Database engine (langchain 1.3.18, langchain-community 0.4.2, langchain-classic 1.0.8, langchain-sqlserver 1.0.1, llama-index-core 0.14.24), four things are wrong at once. First, SQLDatabase.dialect is the literal string mssql and the agent prompt SQL_PREFIX, together with the hub prompt langchain-ai/sql-agent-system-prompt that the toolkit's own docstring recommends, still says to always limit the query to at most top_k results with no T-SQL branch; the per-dialect prompt that says TOP exists only on the legacy chain path, and LlamaIndex has no per-dialect prompt at all. The resulting failure misdirects: SELECT ... FROM t LIMIT 10 returns Msg 102 Incorrect syntax near '10' rather than near LIMIT, because T-SQL parses LIMIT as a table alias, and the sql_db_query_checker tool the agent is told to call before every query lists eight common mistakes of which dialect pagination is not one, so the repair loop edits the number and retries. Second, langchain-sqlserver creates its table with PRIMARY KEY NONCLUSTERED, leaving a heap that refuses CREATE VECTOR INDEX with Msg 42254, and the package contains no VECTOR_SEARCH and no WITH APPROXIMATE anywhere, so every retrieval is an exact full scan for the life of the table. Third, LlamaIndex ships no Azure SQL Database vector store at all, so an agent installs a neighbouring package for a different database. Fourth, include_tables scopes only what the model is told about and a query against an excluded table still returned a row, the no-DML instruction is a sentence in a prompt while db.run committed an INSERT and a CREATE and DROP pair, and sample_rows_in_table_info defaults to 3 so the schema tool puts three real rows of live data into the prompt. Being wrong costs retry loops the model cannot diagnose from the error it is given, a retrieval path that cannot be indexed without rebuilding the table, a numeric metadata filter that throws Msg 8115 arithmetic overflow at read time because the framework casts to NUMERIC(10, 2), and a tool surface that hands whatever the login can do to any text that reaches the model.",
+  "value_probe": {
+    "gate": "The answer puts every fix outside the model's behaviour: T-SQL aware prompting or dialect handling for the row cap, a change to the table's structure for the index refusal, and the login's own grants for the safety boundary, rather than more prompt wording and more retries.",
+    "task": "We pointed a LangChain SQL agent at our Azure SQL Database through a SQLAlchemy URL and gave it the standard toolkit. It answers simple questions fine, but as soon as a question needs a row cap it produces a query ending in LIMIT 10 and the database returns Incorrect syntax near '10'. The agent then changes the number and tries again, forever, and the checker tool it is told to call first never flags it.\n\nSeparately we used the vector store integration for that same database to hold about 900000 chunks. Retrieval is exact and slow, and when I tried to add the index that is supposed to speed that up the database refused it.\n\nWe also told our security team this setup is safe because we passed include_tables so it only sees three tables and the prompt says it is read only. Please explain the retry loop, the retrieval problem, and whether that safety claim holds.",
+    "states": [
+      "The dialect the framework reports is correct while the shipped agent prompt still asks for LIMIT, so the error originates in the prompt rather than in a missing or wrong dialect.",
+      "The syntax error points at the number instead of the offending keyword, which is why the retry loop can never diagnose itself.",
+      "The table the vector store integration creates is a heap because its primary key is nonclustered, which is why the index is refused.",
+      "The integration's retrieval path is an exact full scan and offers no approximate form, so it stays a scan for the life of the table.",
+      "Scoping the table list limits only what the model is told about, not what a query the model writes is able to reach.",
+      "The read only or no DML instruction is prompt text rather than a permission, so the real boundary has to come from what the login is granted."
+    ],
+    "refutes": [
+      "The framework detects the dialect and emits T-SQL row limiting, so the LIMIT clause is a model slip that better prompting or the query checker will resolve.",
+      "Passing include_tables prevents the agent from querying tables outside the list, so the omitted tables are genuinely inaccessible.",
+      "The read only instruction in the shipped prompt is enforced, so the agent cannot insert, update, create or drop anything.",
+      "LlamaIndex ships a vector store for Azure SQL Database that can be used directly.",
+      "The table the vector store integration creates supports the approximate index as it stands, with no change to the table."
+    ]
+  },
   "posture": [
     "read",
     "write",
     "execute"
   ],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": [
     "azure-sql-db",
     "azure-sql-db-container"

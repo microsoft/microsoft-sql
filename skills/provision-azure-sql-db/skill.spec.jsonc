@@ -4,6 +4,21 @@
   "domain": "provisioning-and-local-dev",
   "value": ["not-in-training-data", "changes-too-fast-to-memorize"],
   "correction": "Asked to create an Azure SQL database, an agent writes a plausible az sql db create and stops there, producing a database nothing can reach: it omits the firewall rule, which is a separate command that az sql db create has no flag for, and it fills the free offer's exhaustion behavior from the documented value BillForUsage, which the CLI rejects because the only accepted values are AutoPause and BillOverUsage. The third thing it gets wrong is a release behind rather than invented: Microsoft Entra server principals, Entra logins created with CREATE LOGIN FROM EXTERNAL PROVIDER in the virtual master database, are generally available on Azure SQL Database, so a plan that offers a contained database user as the only way to give an identity access misses the principal that server roles attach to, and neither shape is an az command.",
+  "value_probe": {
+    "gate": "The result is a database that a client on the author's own machine can actually reach, so admitting that client address is a step of its own with its own command, rather than something the database creation is assumed to cover.",
+    "task": "Please give me the exact commands to stand up a new Azure SQL Database on the free monthly amount, and a connection string I can use from my laptop straight afterwards. When the free amount for the month is used up I want the database to stop rather than start charging us. Later I also need to give our deployment identity access to it, so tell me what that takes as well. Copy and paste ready, and say what each command is for.",
+    "states": [
+      "Admitting a client address is a separate command, with no flag for it on the database creation command.",
+      "Microsoft Entra logins created in the virtual master database are available on this service and are what server roles attach to.",
+      "The accepted values for the free offer's exhaustion behaviour have to be read from the tool rather than from the documentation."
+    ],
+    "refutes": [
+      "Creating the database with the Azure CLI is by itself enough for a client on the developer's machine to connect to it.",
+      "BillForUsage is an accepted value for the behaviour when the free monthly amount is exhausted.",
+      "A contained database user is the only way to give a Microsoft Entra identity access to the database.",
+      "Command line help text can be trusted for the accepted values of a flag."
+    ]
+  },
   "posture": ["read", "write", "provision"],
   "maturity": "preview",
   "applies_to": ["azure-sql-db"],

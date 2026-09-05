@@ -4,8 +4,24 @@
   "domain": "tsql-correctness-and-patterns",
   "value": ["corrects-a-wrong-assumption"],
   "correction": "Asked for SQL against Azure SQL Database, an agent writes statements that succeed and return the wrong answer. Comparing a nullable column with = or <> or NOT IN is three-valued logic, not two: WHERE status = @p finds nothing when @p is NULL, WHERE status <> 'shipped' silently drops every row whose status is NULL, and NOT IN over a subquery holding one NULL returns the empty set rather than a set short by one. Aggregates skip nulls, so AVG divides by the non-null count and COUNT(v) disagrees with COUNT(*), and measured on 2026-09-03 against EngineEdition 5 through sqlcmd -I -m-1 the engine says nothing at all about it: message 8153 is defined in sys.messages at severity 10 and was never raised, while Microsoft Learn's SET ANSI_WARNINGS page states a warning is generated. Integer division truncates because / returns the higher-precedence operand's type. ISNULL returns the type of its FIRST argument and converts the second into it, so ISNULL over an NVARCHAR(3) silently returns 'abc' where COALESCE returns 'abcdef'. A string declared with no length is one character, and thirty in a cast. And QUOTED_IDENTIFIER is decided at parse time, so the same double-quoted text is a string literal in one session and an identifier in another: the ODBC and OLE DB drivers set it ON at connect, the container's own sqlcmd leaves it OFF. The second failure is the loud one, PostgreSQL and MySQL syntax under a T-SQL name, and the third is overcorrecting into syntax a decade old when the engine has shipped the ANSI double pipe operator, IS NOT DISTINCT FROM, GREATEST and STRING_AGG.",
+    "value_probe": {
+      "gate": "The answer explains all three wrong results as consequences of how the engine evaluates comparisons and aggregates when a column holds no value, and returns rewritten queries that produce the intended numbers. An answer that blames the data or the application, or that corrects only one of the three, has not reached it.",
+      "task": "Our order dashboard on Azure SQL Database disagrees with itself and nobody is getting an error message. dbo.orders has id, customer_id, status and discount_pct, and dbo.cancelled_orders has order_id. Three things are wrong.\n\nThe \"not shipped\" tile runs:\n\n```sql\nSELECT COUNT(*) FROM dbo.orders WHERE status <> 'shipped';\n```\n\nIt returns 4180. The table has 9000 rows and the shipped tile returns 3100, so 1720 orders are in neither tile.\n\nThe active order list runs:\n\n```sql\nSELECT * FROM dbo.orders WHERE id NOT IN (SELECT order_id FROM dbo.cancelled_orders);\n```\n\nIt returns zero rows, and only about forty orders have ever been cancelled.\n\nAnd `SELECT AVG(discount_pct) FROM dbo.orders` does not agree with `SELECT SUM(discount_pct) / COUNT(*) FROM dbo.orders`.\n\nExplain what is happening in each case and give me the corrected queries.",
+      "states": [
+        "A comparison against a column with no value evaluates to unknown rather than true, so the filter excludes the row instead of keeping it.",
+        "The second query returns nothing because the subquery contains at least one row with no value, which makes the predicate unknown for every candidate row.",
+        "The average and the manual sum over row count differ because the aggregate skips rows with no value while the row count does not.",
+        "The engine accepts all three statements and returns a wrong answer rather than reporting anything to the client."
+      ],
+      "refutes": [
+        "Azure SQL Database raises a warning to the client when an aggregate eliminates rows that hold no value, so this discrepancy would already have been visible in the query output.",
+        "NOT IN and NOT EXISTS return the same rows over a subquery whose column can hold no value, so that rewrite is a matter of style rather than correctness.",
+        "An inequality comparison already includes rows whose column holds no value, so the first tile is counting correctly and the missing 1720 rows must have been deleted or filtered somewhere else.",
+        "The rows are missing because of a collation difference, a data type mismatch or an implicit conversion in the WHERE clause."
+      ]
+    },
   "posture": ["read", "write"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "design-azure-sql-schema",

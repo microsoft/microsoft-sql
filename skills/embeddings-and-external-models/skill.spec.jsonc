@@ -4,8 +4,28 @@
   "domain": "ai-vector-and-rag",
   "value": ["not-in-training-data", "corrects-a-wrong-assumption", "changes-too-fast-to-memorize", "multi-step-with-silent-failures"],
   "correction": "Agents believe CREATE EXTERNAL MODEL is the step that proves an embedding endpoint works, and they believe a database scoped credential's name is a label. Both are wrong, and measured on 2026-08-28 against a live Azure SQL Database, the local Azure SQL Database container and a real Azure OpenAI deployment created for the run, the DDL accepted an http location, a domain no allowlist permits, a credential whose name can never match and a deployment that does not exist, all of it succeeding and appearing in sys.external_models. Every one of those failures arrives at the first AI_GENERATE_EMBEDDINGS wearing the name of an object rather than the rule that was broken: the credential name has to be a URL prefix of the model's LOCATION or the call fails with Msg 31630 saying the credential cannot be used, which reads as a broken secret; a managed identity credential without SECRET '{\"resourceid\":\"https://cognitiveservices.azure.com\"}' fails with Msg 33047 about failing to decrypt a secret, which reads as a master key problem; a missing EXECUTE ON EXTERNAL MODEL grant fails with Msg 15151 saying the model does not exist, which reads as a missing object. MODEL_TYPE = EMBEDDINGS is the only value that exists, so the generation half of a pipeline cannot live in the engine. AI_GENERATE_CHUNKS supports only chunk_type = FIXED, as an unquoted keyword, sized in characters and splitting mid word. AI_GENERATE_EMBEDDINGS is one serial HTTP round trip per row, measured at 295 ms for one call and 8963 ms elapsed for a 25 row UPDATE, so the set based statement an agent writes first is a multi hour transaction. And Azure SQL Database only calls hosts on a fixed allowlist, refusing everything else with Msg 31612 before DNS, including the resource manager and Cosmos DB endpoints, while the container enforces no allowlist at all and happily returns HTTP 200 from a public non-Azure host. Being wrong costs deployment that passes every gate and fails on the first row of the first ingest, hours spent regenerating a key that was never the problem, an ingest that holds one transaction open for the length of the corpus, and a pipeline proved locally that is refused by policy on its first cloud run.",
+  "value_probe": {
+    "gate": "The answer locates the failure in the relationship between the credential's name and the model's LOCATION rather than in the contents of the secret, and reworks the ingest into bounded batches instead of one whole corpus statement.",
+    "task": "We are adding search to a document store on Azure SQL Database and we want the engine itself to do the embedding so there is no extra service to operate. All of this ran clean:\n\n```sql\nCREATE DATABASE SCOPED CREDENTIAL [AzureOpenAICred]\n  WITH IDENTITY = 'HTTPEndpointHeaders', SECRET = '{\"api-key\":\"REDACTED\"}';\n\nCREATE EXTERNAL MODEL DocEmbedder\n  WITH (LOCATION = 'https://our-aoai.openai.azure.com/openai/deployments/text-embedding-3-large/embeddings?api-version=2024-06-01',\n        API_FORMAT = 'Azure OpenAI',\n        MODEL_TYPE = EMBEDDINGS,\n        MODEL = 'text-embedding-3-large',\n        CREDENTIAL = [AzureOpenAICred]);\n```\n\nThe model shows up in sys.external_models, but the first ingest run fails saying the credential cannot be used. We have already rotated the key twice and it made no difference. The plan for tonight was to chunk each document at 500 characters with 50 of overlap and then run the whole 60000 row corpus in a single UPDATE while nobody is working.\n\nTell us what is wrong and what the ingest should actually look like.",
+    "states": [
+      "The credential's name has to be a URL prefix of the model's LOCATION, which is why this particular call is refused.",
+      "Creating the external model validates nothing about the endpoint, the deployment or the credential, so every one of these mistakes surfaces at the first embedding call rather than at deployment.",
+      "The failure message names an object rather than the rule that was broken, which is why rotating the key was never going to help.",
+      "The overlap argument is a percentage of the chunk size rather than a number of characters, so 50 with a chunk size of 500 does not overlap fifty characters.",
+      "Embedding is one serial round trip per row, so a whole corpus statement is a single very long transaction and the work has to be batched.",
+      "The chosen model emits more numbers per row than a vector column can hold, so it cannot be stored as one vector column."
+    ],
+    "refutes": [
+      "A database scoped credential's name is an arbitrary label, so this failure is a bad, expired or wrongly pasted key.",
+      "The overlap argument is a character count, so 50 with a chunk size of 500 gives a fifty character overlap.",
+      "A model emitting 3072 numbers per row can be stored directly in an Azure SQL Database vector column.",
+      "Successful creation of the external model proves the endpoint, the deployment and the credential are correct and reachable.",
+      "Embedding the whole corpus in one set based UPDATE is fine because the engine issues the calls in parallel.",
+      "The engine can be pointed at any embedding endpoint that is reachable over the internet, with no restriction on the host."
+    ]
+  },
   "posture": ["read", "write", "execute", "admin"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "vector-search-azure-sql",

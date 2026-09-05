@@ -4,8 +4,26 @@
   "domain": "ai-vector-and-rag",
   "value": ["not-in-training-data", "corrects-a-wrong-assumption", "changes-too-fast-to-memorize"],
   "correction": "Agents write similarity search on Azure SQL Database as SELECT TOP (k) ... ORDER BY VECTOR_DISTANCE('cosine', embedding, @q) and believe a vector index accelerates it. Measured on 2026-08-28 against a live Azure SQL Database carrying a current DiskANN index, and reproduced identically on the local Azure SQL Database container, that query compiles to a Clustered Index Scan with a per row Compute Scalar and never touches the index; only SELECT TOP (N) WITH APPROXIMATE over VECTOR_SEARCH ordered by the distance column produces a Vector Index Seek. Every wrong shape returns the correct rows and raises nothing, including WITH APPROXIMATE against a table that has no vector index at all, so the mistake passes every test at development scale and appears in production only as latency and compute burn on every single query, on a table that will keep growing. The older TOP_N parameter that most published examples still show now fails outright with Msg 42274. The second half of the correction is that a vector column is not an ordinary column: it cannot be a key, a CHECK or DEFAULT constraint, a statistics target, a partition key or a persisted computed column, it cannot be compared, sorted, grouped, deduplicated, aggregated or carried across a UNION, its dimension cannot be changed by ALTER COLUMN even on an empty table, the ceiling is 1998 dimensions so a 3072 dimension embedding model does not fit, and the index it needs refuses to build under 100 rows and then blocks TRUNCATE TABLE, ALTER INDEX and data-tier package import for the life of the table. Two further beliefs a model states unprompted are wrong and are corrected here. It says a DiskANN vector index cannot be built on the local Azure SQL Database container; the same index over the same 140 rows built on the container in 145 ms and in the cloud in 276 ms, and approximate search returned the same rows from both, measured in rag-local-with-container's parity reference. It also says PREVIEW_FEATURES = ON is a prerequisite for creating a vector index; it is not. The index builds without it and nobody runs ALTER DATABASE SCOPED CONFIGURATION, which is the whole claim. The setting's value on the container is not worth reading and not worth asserting: measured 2026-09-03, six freshly created databases on one container read 0, 1, 0, 1, 1, 1, while model and master both read 0. Microsoft Learn documents OFF as the default, scopes the requirement to the boxed engine, and its own CREATE VECTOR INDEX example calls the setting not needed for Azure SQL Database.",
+  "value_probe": {
+    "gate": "The answer identifies the shape of the query itself as the reason the index is never read, and gives a retrieval form that does read it, instead of proposing statistics, service tier, hardware or an index rebuild as the remedy.",
+    "task": "Our product catalog on Azure SQL Database has about 4 million rows in dbo.products, each carrying a 1536 dimension embedding in a column called embedding. We followed a tutorial and created the index that is supposed to make these lookups fast, and it built without complaining. Search still takes several seconds, and the elapsed time creeps up every week as rows are added. This is what the API runs:\n\n```sql\nSELECT TOP (10) product_id, name\nFROM dbo.products\nORDER BY VECTOR_DISTANCE('cosine', embedding, @query);\n```\n\nTwo other things are on the plan for next quarter and I want to know now if they are going to work. We want to move to a larger embedding model that emits 3072 numbers per row, and we want to stop storing duplicate rows by putting a UNIQUE constraint across (tenant_id, embedding). Tell us why the search is still slow and whether those two plans hold up.",
+    "states": [
+      "The query as written never reads the index and scans every row, so the index it built is doing nothing for this statement.",
+      "The wrong shape returns correct rows and raises no error, so the problem is invisible in testing and shows up only as latency and compute cost.",
+      "A vector column has a hard ceiling on its declared dimension that a 3072 number model exceeds, so that model cannot be stored in one such column.",
+      "A vector column cannot be part of a unique constraint, a primary key or any index key, so deduplicating on it is not available.",
+      "The declared dimension of an existing vector column cannot be changed by ALTER COLUMN, even when the table holds no rows."
+    ],
+    "refutes": [
+      "The query as written does use the vector index, so the remaining latency is a statistics, hardware, service tier or index maintenance problem.",
+      "Turning PREVIEW_FEATURES on with ALTER DATABASE SCOPED CONFIGURATION is a prerequisite before a vector index can be created on Azure SQL Database.",
+      "A vector column can participate in a unique constraint or a primary key, so constraining the embedding column will deduplicate the rows.",
+      "An embedding of 3072 dimensions fits in an Azure SQL Database vector column, so the model swap needs nothing beyond widening the declared dimension.",
+      "The dimension of an existing vector column can be altered in place as long as the table is empty."
+    ]
+  },
   "posture": ["read", "write", "execute"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "rag-on-azure-sql",

@@ -4,8 +4,25 @@
   "domain": "schema-and-orm",
   "value": ["not-in-training-data", "corrects-a-wrong-assumption", "changes-too-fast-to-memorize"],
   "correction": "Agents author a Prisma schema for Azure SQL Database as though it were the PostgreSQL connector, reaching for Json, enum and scalar list fields the connector rejects outright and leaving String at its default 1000 character Unicode mapping, which is 2000 bytes and so over the index key limit, so a unique constraint migrates with nothing but a warning and fails much later on a real insert; and having watched prisma migrate dev succeed against a local database they assume it will work in the cloud, when Prisma refuses to create a shadow database on Azure SQL Database at all and stops with a dedicated error.",
+  "value_probe": {
+    "gate": "The answer keeps the reader on a release that actually contains the connector for this database, and gives a migration workflow that works against the cloud database rather than the one that only works against a local one.",
+    "task": "I am starting a TypeScript service against Azure SQL Database and I want the schema and the migrations handled by the same ORM we already use on our PostgreSQL projects. I need a model with a JSON payload column, a status field with a fixed set of values, a list of tags, and an email column that has to be unique. Give me the install commands, the schema file and the migration workflow to use, and tell me anything that will work on my machine and then not work against the cloud database.",
+    "states": [
+      "The version installed has to be pinned, because the tag that installs by default is a release candidate for the next major.",
+      "The default string mapping is wide enough to exceed the index key limit, and the failure arrives later at insert time.",
+      "The cloud database refuses the automatic creation of the temporary database the development migration command needs.",
+      "A JSON payload becomes a string column, a fixed set of values becomes a lookup table, and a list becomes a child table."
+    ],
+    "refutes": [
+      "Installing the ORM without pinning a version gives a release that supports this database.",
+      "A JSON column type, an enum and a list of scalar values are all available on this connector.",
+      "The development migration command that works against a local database works the same way against Azure SQL Database.",
+      "A string field left at its default length is safe to put a unique constraint on.",
+      "The connection URL for this connector is an ordinary URI like the other connectors take."
+    ]
+  },
   "posture": ["read", "write", "execute", "provision"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "connect-from-typescript-and-node",

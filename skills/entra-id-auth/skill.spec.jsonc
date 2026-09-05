@@ -4,8 +4,24 @@
   "domain": "identity-and-access",
   "value": ["multi-step-with-silent-failures", "corrects-a-wrong-assumption", "changes-too-fast-to-memorize"],
   "correction": "Agents present Microsoft Entra ID setup for an application identity as a linear sequence of commands that either succeed or report an error, when the sequence carries steps that succeed while achieving nothing and one error whose text names the wrong component. Msg 33134 reads 'Principal could not be resolved', which sends the agent to check the principal name, but the principal is almost always correct and the actual fault is that the logical server has no identity holding Microsoft Graph read permission. That fault only appears when a service principal rather than a signed-in user runs CREATE USER, so the same statement works by hand and fails in a pipeline. Agents also assume any administrator can create the Entra database user, when a SQL authenticated connection cannot create one at all, and that CREATE USER FROM EXTERNAL PROVIDER run against master helps an application that connects to a user database, when the statement adds the user to whichever database the connection is on and reports success either way. Finally they invent per driver authentication keywords, most often by writing ActiveDirectoryDefault into an ODBC connection string, which has no such value. The whole class surfaces later as a login failure, 18456 naming a token-identified principal or 4060 refusing the database the login asked for, and an agent reading those as a network or connection-string fault edits the one place that cannot fix them.",
+  "value_probe": {
+    "task": "I run the local Azure SQL Database container for development. I started it with nothing but the licence acceptance and an administrator password, no other environment variables.\n\nOur deployment pipeline creates database users for application identities, and I want to test that step locally before it runs for real. So I connected as the administrator and ran exactly this, on its own, as the only thing in the batch:\n\n```sql\nCREATE USER [orders-api] WITH SID = 0x28C1D9A6E63D4B4CA0BF25F0C97F86F3, TYPE = E;\n```\n\nThe engine refuses it, and the message tells me that this statement has to be the only statement in the batch. It is the only statement in the batch. I have tried it in a fresh session with nothing before it, I have tried separating everything with GO, and I have tried running it through EXEC with the text in a variable. Same refusal every time. A plain CREATE USER with a password is accepted in the same session, so my connection and my permissions are fine.\n\nWhat is this actually telling me, and what do I need to do to test this step?",
+    "gate": "The answer attributes the refusal to the engine having no Microsoft Entra configuration rather than to the shape or contents of the batch, and directs the reader either to configure the container for Microsoft Entra or to test this step against a database in Azure, instead of rewriting the statement.",
+    "states": [
+      "The message text names the wrong cause; the batch is genuinely correct and no rearrangement of it will help.",
+      "The engine is refusing because it has no Microsoft Entra configuration, so it cannot create an external principal of any kind.",
+      "The acceptance of a password based user in the same session proves the permissions and the connection are not involved.",
+      "Testing this step requires either configuring the container for Microsoft Entra or running it against an engine that already has that configuration."
+    ],
+    "refutes": [
+      "The refusal is about batch structure, so separating the statements with a batch separator, moving the statement into its own batch, or wrapping it in dynamic execution will resolve it.",
+      "The statement is syntactically wrong, the security identifier is malformed, or the wrong user type letter was used, and correcting the syntax will make it succeed.",
+      "The administrator connection lacks a permission needed to create this user, and granting a server level permission or connecting as a different administrator will fix it.",
+      "The identity named does not exist in the directory, so the engine could not resolve it and refused."
+    ]
+  },
   "posture": ["provision", "admin", "execute"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "connect-to-azure-sql",
