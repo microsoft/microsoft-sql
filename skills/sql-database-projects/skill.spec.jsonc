@@ -4,8 +4,24 @@
   "domain": "schema-change-and-cicd",
   "value": ["not-in-training-data", "corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
   "correction": "Asked for a SQL database project for Azure SQL Database, an agent runs `dotnet new sqlproj`, accepts the template's default target platform, and reads a green `dotnet build` as proof the schema is valid for Azure SQL Database. It is not. With the default target the build accepts statements Azure SQL Database has never supported and reports zero errors, and the refusal arrives only at publish, where SqlPackage stops during deployment plan generation and exits 1, so the cost is a release that fails after the artifact was built and handed on. Setting the target platform to SqlAzureV12 turns that same statement into build error SQL70015, which is necessary and is then over-read: the correct target platform does not validate a call to a server feature Azure SQL Database does not have, which stays warning SQL71502 and reaches the database intact, and it does not validate pre and post deployment scripts at all, which no parser reads and which run outside the deployment transaction even when IncludeTransactionalScripts is set, so a script that fails leaves the schema changes already applied and committed. The expensive one is silent and lands after a successful deploy: the SDK never globs a `.refactorlog` file, so unless it is declared as a RefactorLog item the build succeeds without it and the publish plans a column drop and add instead of a rename, which BlockOnPossibleDataLoss blocks until somebody sets it to False to get the pipeline green, at which point the publish prints `Successfully published database`, exits 0, and the column's data is gone.",
+  "value_probe": {
+    "gate": "The build itself is made to refuse what the target database will refuse, and a rename is carried explicitly by the project rather than inferred at deployment time from the changed schema.",
+    "task": "Our schema lives in a database project in the repository and CI builds it on every pull request. Two things happened last month that I need to stop happening again. A build that was green failed at deployment time against our Azure database. And a change that was meant to rename a column ended with the new column empty in production, while the deployment reported success and exited zero. Both went through review and nobody caught either one. What should I change about the project and about the pipeline?",
+    "states": [
+      "The project's target platform has to name the cloud service, or statements that service rejects will build without error.",
+      "The record of a rename has to be declared as an item in the project, or the build succeeds without it and the deployment plans a drop and an add.",
+      "A correct target platform still does not validate calls to server features that are absent here, which stay warnings and reach the database.",
+      "Pre and post deployment scripts are not parsed by the build and run outside the deployment transaction."
+    ],
+    "refutes": [
+      "A green build of the database project means the schema is valid for Azure SQL Database.",
+      "Renaming a column in the project produces a rename at deployment time, so the data in it is not at risk.",
+      "Turning off the block on possible data loss is a reasonable way to get a blocked deployment through.",
+      "A deployment that prints success and exits zero has preserved the data in the columns it changed."
+    ]
+  },
   "posture": ["read", "write", "execute"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "schema-migrations-safely",
@@ -93,6 +109,14 @@
           "succeeds": true
         },
         "why": "The three publish options the skill tells a reader to leave alone, checked against the build's own help rather than remembered. Measured 2026-09-04 on SqlPackage 170.4.83.3: AllowIncompatiblePlatform False, BlockOnPossibleDataLoss True, DropObjectsNotInSource False. The defaults are the claim, not the options: the skill's advice is 'leave it there' three times over, and that advice is only correct while there is what it says it is. A changed default is exactly the kind of thing nobody notices, because a pipeline that stops blocking on data loss reports success."
+      },
+      {
+        "where": "host",
+        "cmd": "pw=\"${LAB_SA_PASSWORD:-Str0ng!Lab_Passw0rd_2026}\"\nsrv=\"localhost,$PROBE_PORT\"\nd=$(mktemp -d) && cd \"$d\"\ndotnet new sqlproj -n LossDb -o LossDb -tp SqlAzureV12 >/dev/null 2>&1 || { echo \"template failed\"; exit 1; }\nprintf 'CREATE TABLE [dbo].[Keep] ([Id] INT NOT NULL PRIMARY KEY, [Payload] NVARCHAR(50) NOT NULL);\\n' > LossDb/Keep.sql\nprintf 'IF NOT EXISTS (SELECT 1 FROM [dbo].[Keep]) INSERT INTO [dbo].[Keep] ([Id], [Payload]) VALUES (1, N'\"'\"'irreplaceable'\"'\"');\\n' > LossDb/Script.PostDeployment.sql\nsed -i.bak 's#</Project>#<ItemGroup><PostDeploy Include=\"Script.PostDeployment.sql\" /></ItemGroup></Project>#' LossDb/LossDb.sqlproj\ndotnet build LossDb -v q --nologo >/dev/null 2>&1 || { echo \"build 1 failed\"; exit 1; }\nsqlpackage /Action:Publish /SourceFile:LossDb/bin/Debug/LossDb.dacpac /TargetServerName:\"$srv\" /TargetDatabaseName:\"$PROBE_DB\" /TargetUser:sa /TargetPassword:\"$pw\" /TargetTrustServerCertificate:True >log1 2>&1 || { echo \"publish 1 failed\"; tail -5 log1; exit 1; }\nprintf 'CREATE TABLE [dbo].[Keep] ([Id] INT NOT NULL PRIMARY KEY);\\n' > LossDb/Keep.sql\nrm -f LossDb/Script.PostDeployment.sql\ndotnet new sqlproj -n LossDb2 -o LossDb2 -tp SqlAzureV12 >/dev/null 2>&1\nprintf 'CREATE TABLE [dbo].[Keep] ([Id] INT NOT NULL PRIMARY KEY);\\n' > LossDb2/Keep.sql\ndotnet build LossDb2 -v q --nologo >/dev/null 2>&1 || { echo \"build 2 failed\"; exit 1; }\nsqlpackage /Action:Publish /SourceFile:LossDb2/bin/Debug/LossDb2.dacpac /TargetServerName:\"$srv\" /TargetDatabaseName:\"$PROBE_DB\" /TargetUser:sa /TargetPassword:\"$pw\" /TargetTrustServerCertificate:True >log2 2>&1 && { echo \"the drop was published with data in the column\"; exit 1; }\ngrep -qi \"data loss\" log2 || { echo \"it failed, but not for data loss:\"; tail -5 log2; exit 1; }\nsqlpackage /Action:Publish /SourceFile:LossDb2/bin/Debug/LossDb2.dacpac /TargetServerName:\"$srv\" /TargetDatabaseName:\"$PROBE_DB\" /TargetUser:sa /TargetPassword:\"$pw\" /TargetTrustServerCertificate:True /p:BlockOnPossibleDataLoss=False >log3 2>&1 || { echo \"the override did not publish:\"; tail -5 log3; exit 1; }\ngrep -q \"Successfully published database\" log3 || { echo \"no success line under the override\"; tail -5 log3; exit 1; }\nexit 0",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The claim that costs data, run end to end against a live engine rather than read off a help screen. The probe above asserts that BlockOnPossibleDataLoss defaults to True; this one asserts what that default does. A dacpac carrying a column and a post-deployment script that seeds a row is published into the lane's scratch database, then a second dacpac built from a model with that column removed is published at the defaults: SqlPackage refuses it naming possible data loss and exits non-zero. The same dacpac published with /p:BlockOnPossibleDataLoss=False prints 'Successfully published database' and exits 0, having dropped the column and the row in it. Measured 2026-09-05 against the container with SqlPackage 170.4.83.3. It has three separate ways to go red, the first publish failing, the blocked publish succeeding and the override publish failing, so a change in either the deployment plan or the engine's ALTER behaviour is caught rather than absorbed. It replaces an earlier version that published to a database that did not exist: the container answers CREATE DATABASE with Msg 42019, a timeout it reports while doing the work anyway, and SqlPackage reads that as a failed deployment, so the publish-creates-the-database claim is not settleable in this lane."
       }
     ]
   },
