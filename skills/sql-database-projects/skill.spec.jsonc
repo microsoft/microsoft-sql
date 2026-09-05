@@ -52,6 +52,64 @@
       "BlockOnPossibleDataLoss is left on, and any request to turn it off is answered with what would be dropped",
       "whether objects present in the database and absent from the project are meant to be dropped is decided explicitly, because the default leaves them in place",
       "code analysis results are read as warnings that do not fail a build until a rule or the whole set is escalated"
+    ],
+    "probes": [
+      {
+        "where": "host",
+        "cmd": "dotnet new sqlproj --help 2>&1 | tr -s '[:space:]' ' ' | grep -q 'SqlAzureV12' && dotnet new sqlproj --help 2>&1 | tr -s '[:space:]' ' ' | grep -q 'Default: Sql170'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The premise of this skill's first correction: the template offers the Azure SQL Database platform and does not choose it. Measured 2026-09-04 on Microsoft.Build.Sql.Templates 2.2.0, where --target-platform lists ten values and prints 'Default: Sql170'. Both halves are asserted together because either one moving invalidates the section: if SqlAzureV12 disappears the skill's instruction cannot be followed, and if the default ever becomes SqlAzureV12 the whole build-green-publish-red story stops being true and the skill should say so rather than keep warning about it."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && cd \"$d\" && dotnet new sqlproj -n QueueDb -o QueueDb >/dev/null 2>&1 && printf 'CREATE QUEUE [dbo].[OrderQueue];\\n' > QueueDb/OrderQueue.sql && dotnet build QueueDb -v q --nologo >/dev/null 2>&1 && unzip -p QueueDb/bin/Debug/QueueDb.dacpac model.xml | grep -q 'DspName=\"Microsoft.Data.Tools.Schema.Sql.Sql170DatabaseSchemaProvider\"'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The top row of the target-platform table, and the reason the failure is expensive: CREATE QUEUE is a statement Azure SQL Database has never supported, and under the template default the build accepts it, reports zero errors and ships a dacpac. The probe then reads the platform out of the built package rather than out of the project file, because the value inside model.xml is the one SqlPackage compares against the server. Measured 2026-09-04 on .NET SDK 8.0.421. It goes red if the build ever rejects the statement under the default target, which would mean the artifact can no longer be built green and handed on, or if the package stops declaring its provider where the skill's check reads it."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && cd \"$d\" && dotnet new sqlproj -n QueueDb -o QueueDb -tp SqlAzureV12 >/dev/null 2>&1 && printf 'CREATE QUEUE [dbo].[OrderQueue];\\n' > QueueDb/OrderQueue.sql && dotnet build QueueDb -v q --nologo 2>&1 | grep -q \"Build error SQL70015: Statement 'CREATE QUEUE' is not supported for the targeted platform.\"",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The second row of the same table, and it has to be a separate probe because the claim is a difference between two builds of identical source. Under SqlAzureV12 the same file is a build error naming the statement, SQL70015, measured 2026-09-04 with the full message text asserted rather than the code alone so a renumbering and a rewording are both visible. If this ever passes the build, the target platform stops being the thing that catches an unsupported statement and the skill's central instruction has no effect."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && cd \"$d\" && dotnet new sqlproj -n RefDb -o RefDb -tp SqlAzureV12 >/dev/null 2>&1 && printf 'CREATE PROCEDURE [dbo].[DoWork] AS SELECT 1 FROM dbo.NoSuchTable;\\n' > RefDb/DoWork.sql && dotnet build RefDb -v q --nologo 2>&1 | grep -q 'Build warning SQL71502' && dotnet build RefDb -t:Rebuild -v q --nologo >/dev/null 2>&1 && ! dotnet build RefDb -t:Rebuild -v q --nologo -p:TreatTSqlWarningsAsErrors=true >/dev/null 2>&1",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The over-reading this skill exists to stop: setting the correct target platform does not make an unresolved reference an error. The same source builds green with SQL71502 as a warning and fails once TreatTSqlWarningsAsErrors is set, measured 2026-09-04. Both halves are in one probe because the claim is the contrast, and a probe asserting only the warning would stay green on a build where warnings had silently become fatal. The middle rebuild is deliberate: the skill records that dotnet build skips work on an up-to-date project, so each half is forced to actually run."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && cd \"$d\" && dotnet new sqlproj -n PostOnly -o PostOnly -tp SqlAzureV12 >/dev/null 2>&1 && printf 'INSERT INTO dbo.NoSuchTable (id) VALUES (1);\\n' > PostOnly/Script.PostDeployment.sql && sed -i.bak 's#</Project>#<ItemGroup><PostDeploy Include=\"Script.PostDeployment.sql\" /></ItemGroup></Project>#' PostOnly/PostOnly.sqlproj && dotnet build PostOnly -v q --nologo 2>&1 | tr -s '[:space:]' ' ' | grep -q '0 Warning(s) 0 Error(s)' && unzip -l PostOnly/bin/Debug/PostOnly.dacpac | grep -q 'postdeploy.sql'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Deployment scripts ride in the package and are read by nothing. The identical statement that produces SQL71502 inside a stored procedure produces zero warnings and zero errors in a post-deployment script, and the file is still carried into the dacpac as postdeploy.sql, measured 2026-09-04. That gap is why a publish can fail after the schema change has already committed. The probe asserts both the silence and the presence, because silence alone would also be the result of the script having been dropped from the build entirely, which is a different and equally important failure the skill warns about."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && cd \"$d\" && dotnet new sqlproj -n Before -o Before -tp SqlAzureV12 >/dev/null 2>&1 && dotnet new sqlproj -n After -o After -tp SqlAzureV12 >/dev/null 2>&1 && printf 'CREATE TABLE [dbo].[Product] ([Id] INT NOT NULL PRIMARY KEY, [Name] NVARCHAR(50) NULL);\\n' > Before/Product.sql && printf 'CREATE TABLE [dbo].[Product] ([Id] INT NOT NULL PRIMARY KEY, [ProductName] NVARCHAR(50) NULL);\\n' > After/Product.sql && printf '<?xml version=\"1.0\" encoding=\"utf-8\"?>\\n<Operations Version=\"1.0\" xmlns=\"http://schemas.microsoft.com/sqlserver/dac/Serialization/2012/02\">\\n<Operation Name=\"Rename Refactor\" Key=\"8a3c8a1e-1c6e-4c3d-9b1a-2f9e6b7d0a11\" ChangeDateTime=\"01/01/2026 00:00:00\">\\n<Property Name=\"ElementName\" Value=\"[dbo].[Product].[Name]\" />\\n<Property Name=\"ElementType\" Value=\"SqlSimpleColumn\" />\\n<Property Name=\"ParentElementName\" Value=\"[dbo].[Product]\" />\\n<Property Name=\"ParentElementType\" Value=\"SqlTable\" />\\n<Property Name=\"NewName\" Value=\"ProductName\" />\\n</Operation>\\n</Operations>\\n' > After/After.refactorlog && dotnet build Before -v q --nologo >/dev/null 2>&1 && dotnet build After -v q --nologo >/dev/null 2>&1 && ! unzip -l After/bin/Debug/After.dacpac | grep -q refactor.xml && sqlpackage /Action:DeployReport /SourceFile:After/bin/Debug/After.dacpac /TargetFile:Before/bin/Debug/Before.dacpac /TargetDatabaseName:ShopDb /OutputPath:undeclared.xml >/dev/null 2>&1 && grep -q '<Alert Name=\"DataIssue\"' undeclared.xml && grep -q 'data loss could occur' undeclared.xml && sed -i.bak 's#</Project>#<ItemGroup><RefactorLog Include=\"After.refactorlog\" /></ItemGroup></Project>#' After/After.sqlproj && dotnet build After -t:Rebuild -v q --nologo >/dev/null 2>&1 && unzip -l After/bin/Debug/After.dacpac | grep -q refactor.xml && sqlpackage /Action:DeployReport /SourceFile:After/bin/Debug/After.dacpac /TargetFile:Before/bin/Debug/Before.dacpac /TargetDatabaseName:ShopDb /OutputPath:declared.xml >/dev/null 2>&1 && grep -q '<Alerts />' declared.xml && grep -q '<Operation Name=\"Rename\"' declared.xml",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The claim this whole skill is built around, and the only one that costs data. The refactorlog sitting on disk is not the refactorlog being used: with the file present but undeclared the build says nothing, the package carries no refactor.xml, and the deployment plan is an Alter carrying a DataIssue alert reading 'data loss could occur'. Declaring it as a RefactorLog item puts refactor.xml in the package and turns the plan into a Rename with an empty Alerts element. Measured 2026-09-04 against SqlPackage 170.4.83.3, DeployReport reading dacpac against dacpac so no server is involved. It is long because the claim is a difference and both sides have to be built to see it. Red means either the silent-when-undeclared behaviour changed, which would be good news the skill should carry, or the RefactorLog item type no longer works, which would mean the skill's only safe rename path is gone."
+      },
+      {
+        "where": "host",
+        "cmd": "sqlpackage /Action:Publish /help:True | grep -qx '/p:AllowIncompatiblePlatform=(BOOLEAN .False.)' && sqlpackage /Action:Publish /help:True | grep -qx '/p:BlockOnPossibleDataLoss=(BOOLEAN .True.)' && sqlpackage /Action:Publish /help:True | grep -qx '/p:DropObjectsNotInSource=(BOOLEAN .False.)'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The three publish options the skill tells a reader to leave alone, checked against the build's own help rather than remembered. Measured 2026-09-04 on SqlPackage 170.4.83.3: AllowIncompatiblePlatform False, BlockOnPossibleDataLoss True, DropObjectsNotInSource False. The defaults are the claim, not the options: the skill's advice is 'leave it there' three times over, and that advice is only correct while there is what it says it is. A changed default is exactly the kind of thing nobody notices, because a pipeline that stops blocking on data loss reports success."
+      }
     ]
   },
   "triggering": {
