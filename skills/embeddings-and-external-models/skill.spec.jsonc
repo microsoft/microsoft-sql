@@ -25,7 +25,7 @@
     ]
   },
   "posture": ["read", "write", "execute", "admin"],
-  "maturity": "ga",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "vector-search-azure-sql",
@@ -157,7 +157,79 @@
               },
               "why": "Which embedding model can be chosen at all, settled before a single call is made. Microsoft Learn's vector data type page states the maximum is 1998 dimensions, and its Azure OpenAI model table gives text-embedding-3-large an output of 3072, so the highest scoring model does not fit its default output into any column this engine can declare. The fix is PARAMETERS '{\"dimensions\":1536}' on the external model. Msg 2717 is the merged vector-search-azure-sql skill's measurement of the same refusal at 1999 dimensions, run against a real engine on 2026-09-03; that skill owns the column and this probe asserts only the consequence for model choice."
         }
-  ]
+  ,
+          {
+            "sql": "EXEC sp_configure 'show advanced options', 1;",
+            "expect": {
+              "error": 2812
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The remedy this skill names for Msg 31644 cannot be typed where a reader is connected. sp_configure is not callable from a user database at all, which is the first thing a reader hits and is NOT the number this skill printed until 2026-09-06. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE EXTERNAL MODEL probe_em_apiformat WITH (LOCATION = N'https://example.com/x', API_FORMAT = N'NotAFormat', MODEL_TYPE = EMBEDDINGS, MODEL = N'text-embedding-3-small');",
+            "expect": {
+              "error": 46508
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. API_FORMAT takes a listed value and an unlisted one is refused at DDL time rather than at call time, so a typo here never reaches an endpoint. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "EXEC sp_invoke_external_rest_endpoint @url = N'https://10.0.0.5/x', @method = 'GET';",
+            "expect": {
+              "error": 31624
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A private address is closed off, which is half of why a locally hosted model cannot be reached from the container. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "IF NOT EXISTS (SELECT 1 FROM sys.symmetric_keys WHERE name = '##MS_DatabaseMasterKey##') CREATE MASTER KEY ENCRYPTION BY PASSWORD = 'Str0ng!Lab_Passw0rd_2026';\nGO\nCREATE DATABASE SCOPED CREDENTIAL [https://probe.example.com] WITH IDENTITY = 'HTTPEndpointHeaders', SECRET = '{\"Authorization\":\"Bearer k\"}';\nGO\nCREATE EXTERNAL MODEL probe_em_cred WITH (LOCATION = N'https://probe.example.com/x', API_FORMAT = N'Azure OpenAI', MODEL_TYPE = EMBEDDINGS, MODEL = N'text-embedding-3-small', CREDENTIAL = [https://probe.example.com]);\nGO\nDROP DATABASE SCOPED CREDENTIAL [https://probe.example.com];",
+            "expect": {
+              "error": 46556
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A credential a model still uses cannot be dropped, so a teardown script has to drop the model first. The whole fixture is built here rather than assumed, so the probe is about the ordering rule and not about leftover state. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE USER probe_em_low WITHOUT LOGIN;\nGO\nEXECUTE AS USER = 'probe_em_low';\nEXEC sp_invoke_external_rest_endpoint @url = N'https://example.com/';\nREVERT;",
+            "expect": {
+              "error": 8189
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. EXECUTE ANY EXTERNAL ENDPOINT is a separate grant, so a user who can read the table still cannot call out. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "IF NOT EXISTS (SELECT 1 FROM sys.symmetric_keys WHERE name = '##MS_DatabaseMasterKey##') CREATE MASTER KEY ENCRYPTION BY PASSWORD = 'Str0ng!Lab_Passw0rd_2026';\nGO\nCREATE EXTERNAL MODEL probe_em_perm WITH (LOCATION = N'https://example.com/x', API_FORMAT = N'Azure OpenAI', MODEL_TYPE = EMBEDDINGS, MODEL = N'text-embedding-3-small');\nGO\nCREATE USER probe_em_exec WITHOUT LOGIN;\nGO\nEXECUTE AS USER = 'probe_em_exec';\nDECLARE @v vector(1536) = AI_GENERATE_EMBEDDINGS(N'probe' USE MODEL probe_em_perm);\nREVERT;",
+            "expect": {
+              "error": 15151
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Without EXECUTE ON EXTERNAL MODEL the model appears not to exist, which is the permission failure that reads as a missing object and sends a developer looking in the wrong place. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE USER probe_em_ddl WITHOUT LOGIN;\nGO\nEXECUTE AS USER = 'probe_em_ddl';\nCREATE EXTERNAL MODEL probe_em_denied WITH (LOCATION = N'https://example.com/x', API_FORMAT = N'Azure OpenAI', MODEL_TYPE = EMBEDDINGS, MODEL = N'text-embedding-3-small');\nREVERT;",
+            "expect": {
+              "error": 262
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Creating a model needs CREATE EXTERNAL MODEL, which db_datawriter does not carry. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "EXEC sp_configure 'show advanced options', 1;\nRECONFIGURE;",
+            "expect": {
+              "error": 40510
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. THE CORRECTION. Connected to a user database the previous probe shows sp_configure is not there; connected here it runs and stages the value without complaint. RECONFIGURE is the statement that refuses, so the staged value never takes effect and nothing says so. This skill attributed Msg 40510 to sp_configure until 2026-09-06, which sends a reader looking at the wrong statement. This probe runs against the scratch database the lane creates, so if sp_configure ever becomes callable there this goes red on the wrong number rather than passing quietly. It goes red if the statement succeeds, or fails with any other number."
+          }
+    ,
+          {
+            "sql": "SELECT * FROM sys.dm_external_model_stats;",
+            "expect": {
+              "error": 208
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The parallelism view this skill tells a reader to size against does not exist on the container, so a plan that reads it locally and expects the cloud's answer is reading nothing. The skill's rule is to size parallelism in the cloud or not at all. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_em_dim (id int, v vector(3) NOT NULL);\nGO\nINSERT INTO dbo.probe_em_dim VALUES (1, N'[1,2,3,4]');",
+            "expect": {
+              "error": 42204
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The one loud failure in this surface, asserted through the engine rule it rests on rather than through a live model call: a value whose length does not match the declared dimension is refused at write time. What this probe does NOT establish is that AI_GENERATE_EMBEDDINGS produces the mismatch, which needs a real endpoint. It goes red if the statement succeeds, or fails with any other number."
+          }
+    ]
   },
   "triggering": {
     "explicit": [

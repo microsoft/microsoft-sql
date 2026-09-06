@@ -167,6 +167,14 @@ severity 10 message prints with no `Msg` number to grep for:
 sqlcmd -S <server>,1433 -d <database> -b -m-1 -i check-json.sql
 ```
 
+**`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
+Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
+`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
+message at any `-m` value, so on that build there is no number to grep for whatever `-m` says. The
+numbers in this skill that matter most, `13609`, `13618`, `13608` and `13625`, are all severity 16
+and print on either build; it is the severity 10 case this flag is for.
+`build-app-on-azure-sql` tells the two builds apart in one table.
+
 ## Do not
 
 - Do not default to `nvarchar(max)` because it is familiar: it accepts invalid JSON, cannot carry

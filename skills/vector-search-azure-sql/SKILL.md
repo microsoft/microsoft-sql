@@ -245,7 +245,13 @@ unsupported, and `sp_verify_database_ledger` errors on a database holding a vect
   has no index until it has content, and every query is silently exact until then. The fixture
   inserts 150 for headroom.
 - **One vector index per column.** A second, even with a different metric, is `Msg 42230`. The
-  metric is fixed at build time, and `VECTOR_SEARCH` with another gets `Msg 42227`, not a fallback.
+  metric is fixed at build time, and asking `VECTOR_SEARCH` for a different one **falls back
+  silently**. Measured 2026-09-06 against a `cosine` index on 150 rows: `METRIC = 'euclidean'` and
+  `METRIC = 'dot'` both returned a full ordered result set, no error and no warning, computed
+  exactly. This skill said `Msg 42227` here until that measurement, and the claim was backwards in
+  the one direction that matters, because a reader who believes the engine will stop them has no
+  reason to check. `Msg 42227` is raised only by `WITH (FORCE_ANN_ONLY)`, which is why that hint
+  belongs in the test that proves the index is being read.
 - **The local Azure SQL Database container builds it too.** Open
   `references/parity.md` in `rag-local-with-container` when a plan leans on the two engines
   agreeing.

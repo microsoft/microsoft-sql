@@ -141,6 +141,35 @@
             },
             "why": "Check 2 in the skill is the one that catches failure 1 before a user does, so the diagnostic itself is asserted rather than only the defect it finds. The column names and the join come from Microsoft Learn's sys.security_predicates and sys.security_policies pages: target_object_id is the protected table, predicate_type_desc is FILTER or BLOCK, and is_enabled lives on the policy rather than the predicate, which is the mistake that would make the check report a disabled policy as enforcing."
         }
+    ,
+          {
+            "sql": "CREATE TABLE dbo.probe_rag_99 (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_rag_99 (v) SELECT CAST(JSON_ARRAY(CAST(value AS float), 1.0, 2.0) AS vector(3)) FROM GENERATE_SERIES(1, 99);\nGO\nCREATE VECTOR INDEX probe_rag_99_ix ON dbo.probe_rag_99 (v) WITH (METRIC = 'cosine', TYPE = 'diskann');",
+            "expect": {
+              "error": 42266
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The 100 row minimum, which is why the index belongs to the load step and not to the schema. A fresh database has no index until it has content and every query is silently exact until then. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_rag_tr (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_rag_tr (v) SELECT CAST(JSON_ARRAY(CAST(value AS float), 1.0, 2.0) AS vector(3)) FROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX probe_rag_tr_ix ON dbo.probe_rag_tr (v) WITH (METRIC = 'cosine', TYPE = 'diskann');\nGO\nTRUNCATE TABLE dbo.probe_rag_tr;",
+            "expect": {
+              "error": 42232
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. TRUNCATE is refused once the index exists, which is the step a re-embedding pipeline written before the index was added will hit. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_rag_sk (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, ordinal int NOT NULL, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_rag_sk (ordinal, v) SELECT value, CAST(JSON_ARRAY(CAST(value AS float), 1.0, 2.0) AS vector(3)) FROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX probe_rag_sk_ix ON dbo.probe_rag_sk (v) WITH (METRIC = 'cosine', TYPE = 'diskann');\nGO\nDECLARE @q vector(3) = N'[1,1,2]';\nSELECT TOP (3) WITH APPROXIMATE t.id, r.distance\nFROM VECTOR_SEARCH(TABLE = dbo.probe_rag_sk AS t, COLUMN = v, SIMILAR_TO = @q, METRIC = 'cosine') AS r\nORDER BY r.distance, t.ordinal;",
+            "expect": {
+              "error": 42271
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Adding the chunk ordinal as a second sort key is refused. The skill's point is that reading chunks back in order has to happen outside the approximate search, and this is the number that says so. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_rag_ap (id int NOT NULL PRIMARY KEY CLUSTERED, v vector(3) NOT NULL);\nSELECT TOP (2) WITH APPROXIMATE id FROM dbo.probe_rag_ap ORDER BY id;",
+            "expect": {
+              "error": 42248
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. And dropping the VECTOR_SEARCH instead is refused too, so neither half of the obvious repair works. It goes red if the statement succeeds, or fails with any other number."
+          }
     ]
   },
   "triggering": {

@@ -18,7 +18,7 @@
     ]
   },
   "posture": ["read", "write"],
-  "maturity": "ga",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "t-sql-correctness",

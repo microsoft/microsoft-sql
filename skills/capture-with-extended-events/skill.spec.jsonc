@@ -98,6 +98,7 @@
         },
         "why": "Why a blocked_process_report session creates, starts, reports healthy and captures nothing across a real 28 second lock wait: there is no threshold to cross, not a threshold set too high. This probe expects Msg 2812, Could not find stored procedure, because validation.target here is cloud and that is what a real logical server answers, measured 2026-09-05 on sqllab200068e2: OBJECT_ID('sys.sp_configure') is NULL and both the qualified and unqualified names raise 2812. It expected 40510 until that run. 40510 is not wrong, it is the CONTAINER answer, measured 2026-08-29 naming CONFIG, and the two engines refuse this differently because one carries the procedure and the other does not. Red if a logical server ever grows an sp_configure, which would change the advice. Without this probe the empty ring buffer reads as a tuning problem."
       }
+    
     ]
   },
   "triggering": {

@@ -106,6 +106,43 @@
         },
         "why": "A policy that is present, enabled, schema bound, and enforcing nothing, because one OR clause admits an unset session. Measured 2026-08-28: all four rows returned with no tenant set while is_enabled stayed 1. No catalog view tells this apart from a correct policy, which is why the skill demands the predicate be read rather than the policy be listed."
       }
+    ,
+          {
+            "sql": "CREATE USER probe_r_a WITHOUT LOGIN;\nGO\nCREATE USER probe_r_b WITHOUT LOGIN;\nGO\nEXECUTE AS USER = 'probe_r_a';\nEXECUTE AS USER = 'probe_r_b';\nREVERT;\nREVERT;",
+            "expect": {
+              "error": 15517
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Borrowing another tenant's identity is refused because impersonation is a permission the tenant does not hold. The nesting matters: run as sa the same statement succeeds, so the probe establishes the low privilege context first and the claim is about the tenant and not about the statement. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE SCHEMA probe_r_sec;\nGO\nCREATE TABLE dbo.probe_r_vec (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, tenant int NOT NULL, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_r_vec (tenant, v) SELECT 1, CAST(JSON_ARRAY(CAST(value AS float), 1.0, 2.0) AS vector(3)) FROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX probe_r_vec_ix ON dbo.probe_r_vec (v) WITH (METRIC = 'cosine', TYPE = 'diskann');\nGO\nCREATE FUNCTION probe_r_sec.fn_probe_r (@t int) RETURNS TABLE WITH SCHEMABINDING AS RETURN SELECT 1 AS ok WHERE @t = 1;\nGO\nCREATE SECURITY POLICY probe_r_sec.p_probe_r ADD FILTER PREDICATE probe_r_sec.fn_probe_r(tenant) ON dbo.probe_r_vec WITH (STATE = ON);",
+            "expect": {
+              "error": 37579
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Row level security and a vector index do not coexist on the container, in this order. The skill's claim is that the isolation control and the retrieval index collide, so this asserts the collision rather than describing it. It goes red if the statement succeeds, or fails with any other number."
+          }
+    ,
+          {
+            "sql": "CREATE SCHEMA probe_r_s2;\nGO\nCREATE TABLE dbo.probe_r_vi (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, tenant int NOT NULL, v vector(3) NOT NULL);\nGO\nINSERT INTO dbo.probe_r_vi (tenant, v) SELECT 1, CAST(JSON_ARRAY(CAST(value AS float), 1.0, 2.0) AS vector(3)) FROM GENERATE_SERIES(1, 150);\nGO\nCREATE FUNCTION probe_r_s2.fn_vi (@t int) RETURNS TABLE WITH SCHEMABINDING AS RETURN SELECT 1 AS ok WHERE @t = 1;\nGO\nCREATE SECURITY POLICY probe_r_s2.p_vi ADD FILTER PREDICATE probe_r_s2.fn_vi(tenant) ON dbo.probe_r_vi WITH (STATE = ON);\nGO\nCREATE VECTOR INDEX probe_r_vi_ix ON dbo.probe_r_vi (v) WITH (METRIC = 'cosine', TYPE = 'diskann');",
+            "expect": {
+              "error": 42244
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Policy first, then the index: the other order of the collision this skill records, and a different number from the index-first case. Both orders are refused, which is what makes the isolation control and the retrieval index a real choice rather than a sequencing problem. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_r_key (tenant int NOT NULL, k nvarchar(20) NOT NULL, CONSTRAINT pk_probe_r_key PRIMARY KEY (tenant, k));\nGO\nINSERT INTO dbo.probe_r_key VALUES (2, N'dup');\nGO\nINSERT INTO dbo.probe_r_key VALUES (2, N'dup');",
+            "expect": {
+              "error": 2627
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A filter predicate hides rows and not their existence. This is the number a tenant sees when it inserts a key another tenant already holds, and it is why the key space of another tenant is probeable through a filter policy alone. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE SCHEMA probe_r_s3;\nGO\nCREATE TABLE dbo.probe_r_pol (id int, tenant int);\nGO\nCREATE FUNCTION probe_r_s3.fn_pol (@t int) RETURNS TABLE WITH SCHEMABINDING AS RETURN SELECT 1 AS ok WHERE @t = 1;\nGO\nCREATE SECURITY POLICY probe_r_s3.p_pol ADD FILTER PREDICATE probe_r_s3.fn_pol(tenant) ON dbo.probe_r_pol WITH (STATE = ON);\nGO\nCREATE USER probe_r_holder WITHOUT LOGIN;\nGO\nGRANT ALTER ANY SECURITY POLICY TO probe_r_holder;\nGO\nEXECUTE AS USER = 'probe_r_holder';\nALTER SECURITY POLICY probe_r_s3.p_pol WITH (STATE = OFF);\nREVERT;",
+            "expect": {
+              "error": 33268
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Disabling a policy needs BOTH the database wide permission and ALTER on the schema holding it. This user has the first alone, and the refusal reads as a missing object rather than as a missing permission, which is the wording that sends someone looking for a typo. Measured alongside the schema-alone and the plain-user cases, which produce the same number. It goes red if the statement succeeds, or fails with any other number."
+          }
     ]
   },
   "triggering": {

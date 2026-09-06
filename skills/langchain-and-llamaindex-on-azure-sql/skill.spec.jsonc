@@ -135,6 +135,77 @@
         },
         "why": "The query langchain-sqlserver 1.0.1 actually emits for similarity_search_with_score, captured off the connection on 2026-08-28 and reduced to three dimensions. It confirms two things at once: SQLAlchemy compiles the row cap as TOP and not LIMIT even though the agent prompt does not, and the shape is ORDER BY VECTOR_DISTANCE, which vector-search-azure-sql measures as a full scan that never reaches a vector index. Correct rows are exactly why nobody notices."
       }
+    ,
+          {
+            "sql": "CREATE TABLE dbo.probe_lc_cust (customer_id int, full_name nvarchar(50));\nGO\nSELECT customer_id, full_name FROM dbo.probe_lc_cust LIMIT 10;",
+            "expect": {
+              "error": 102
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. LIMIT is the first thing a text to SQL chain emits, and it does not parse here. This is the number an agent has to be able to read back to a dialect mistake rather than to a schema one. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_lc_off (customer_id int);\nGO\nSELECT customer_id FROM dbo.probe_lc_off OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY;",
+            "expect": {
+              "error": 102
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The correct looking repair is also refused, because OFFSET needs an ORDER BY. Both attempts produce Msg 102 and only the second is nearly right. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "SELECT CAST(N'1756500000' AS numeric(10,2)) AS x;",
+            "expect": {
+              "error": 8115
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A numeric metadata filter cast to NUMERIC(10, 2) overflows on an epoch timestamp, which is what turns a working filter into an error the day someone filters on a date. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_lc_perm (customer_id int, city nvarchar(50));\nGO\nCREATE USER probe_lc_low WITHOUT LOGIN;\nGO\nEXECUTE AS USER = 'probe_lc_low';\nUPDATE dbo.probe_lc_perm SET city = N'Owned' WHERE customer_id = 1;\nREVERT;",
+            "expect": {
+              "error": 229
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The permission wall a read only chain has to be behind, asserted rather than assumed. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_lc_drop (id int);\nGO\nCREATE USER probe_lc_low2 WITHOUT LOGIN;\nGO\nEXECUTE AS USER = 'probe_lc_low2';\nDROP TABLE dbo.probe_lc_drop;\nREVERT;",
+            "expect": {
+              "error": 3701
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. And the DDL wall. Note the wording: the engine says the table does not exist or you do not have permission, so a chain that reports the message verbatim leaks the object name and tells the caller nothing true. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_lc_heap (id int NOT NULL, v vector(3) NOT NULL);\nGO\nCREATE VECTOR INDEX probe_lc_heap_ix ON dbo.probe_lc_heap (v) WITH (METRIC = 'cosine', TYPE = 'diskann');",
+            "expect": {
+              "error": 42254
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The vector store the package creates has no clustered index, so the index a reader then tries to add is refused. This is the first of the two gates the skill walks through. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_lc_99 (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_lc_99 (v) SELECT CAST(JSON_ARRAY(CAST(value AS float), 1.0, 2.0) AS vector(3)) FROM GENERATE_SERIES(1, 99);\nGO\nCREATE VECTOR INDEX probe_lc_99_ix ON dbo.probe_lc_99 (v) WITH (METRIC = 'cosine', TYPE = 'diskann');",
+            "expect": {
+              "error": 42266
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The second gate, and the skill's own words are that reaching it proves the clustered index fixed the first. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_lc_3072 (v vector(3072));",
+            "expect": {
+              "error": 2717
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A 3072 dimension model does not fit, which decides the dimension budget before any chain is written. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_lc_len (id int, v vector(3) NOT NULL);\nGO\nINSERT INTO dbo.probe_lc_len VALUES (1, N'[1,2,3,4]');",
+            "expect": {
+              "error": 42204
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. embedding_length mismatched to the function fails at write time, not at configuration time, so the mistake survives setup and appears on the first document. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "SET QUOTED_IDENTIFIER OFF;\nCREATE TABLE dbo.probe_lc_qi (id int NOT NULL PRIMARY KEY CLUSTERED, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_lc_qi (id, v) SELECT value, CAST(JSON_ARRAY(CAST(value AS float), 1.0, 2.0) AS vector(3)) FROM GENERATE_SERIES(1, 150);\nGO\nSET QUOTED_IDENTIFIER OFF;\nCREATE VECTOR INDEX probe_lc_qi_ix ON dbo.probe_lc_qi (v) WITH (METRIC = 'cosine', TYPE = 'diskann');",
+            "expect": {
+              "error": 1934
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Without QUOTED_IDENTIFIER ON the index build fails before reaching either gate, and the message names indexed views and computed columns rather than the setting, which is why the skill says check it first. It goes red if the statement succeeds, or fails with any other number."
+          }
     ]
   },
   "triggering": {

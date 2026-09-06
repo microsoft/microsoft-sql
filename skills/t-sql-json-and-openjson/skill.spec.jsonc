@@ -179,6 +179,124 @@
               },
               "why": "A json column stores a parsed document, not the bytes it was given: whitespace goes and the second duplicate key is discarded. Measured 2026-08-28. This is the check the body's 'Check it worked' section reads first, because it is how a reader tells which type they actually have, and the reason the body says to keep the raw text separately if a signature covers the exact bytes."
         }
+    ,
+          {
+            "sql": "CREATE TABLE dbo.probe_j_json (payload json);\nGO\nINSERT INTO dbo.probe_j_json (payload) VALUES (N'{not json at all');",
+            "expect": {
+              "error": 13609
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The json type rejects invalid text on insert. The whole first table in this skill turns on this being an engine rule rather than a habit, because nvarchar(max) accepts the same string silently. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_j_chk (payload nvarchar(max) CONSTRAINT ck_probe_j CHECK (ISJSON(payload) = 1));\nGO\nINSERT INTO dbo.probe_j_chk (payload) VALUES (N'{not json at all');",
+            "expect": {
+              "error": 547
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The nvarchar(max) alternative needs a CHECK constraint to get the same refusal, and it arrives as a constraint violation rather than a JSON error, which is the difference in diagnosis this skill draws. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_j_nv (id int NOT NULL PRIMARY KEY, payload nvarchar(max));\nGO\nCREATE JSON INDEX probe_j_nv_ix ON dbo.probe_j_nv (payload);",
+            "expect": {
+              "error": 13680
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A JSON index needs the json type, so an nvarchar(max) column cannot carry one. This is the cost of the familiar choice, stated as a refusal. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_j_idx (id int NOT NULL PRIMARY KEY, payload json);\nGO\nCREATE JSON INDEX probe_j_idx_ix ON dbo.probe_j_idx (payload);",
+            "expect": {
+              "succeeds": true
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The other half of the pair above, so the refusal on nvarchar(max) is read as a type rule and not as JSON indexes being unavailable on this engine. It asserts the build itself rather than a row count in sys.indexes, which carries two rows for one JSON index on this build, a shape nothing here claims. It goes red if CREATE JSON INDEX ever raises."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_j_eq (id int, payload json);\nGO\nSELECT id FROM dbo.probe_j_eq WHERE payload = N'{}';",
+            "expect": {
+              "error": 402
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A json column cannot be compared with =, which is the first row of the comparison list and the reason a signature or a dedupe key cannot live on the column itself. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_j_ord (id int, payload json);\nGO\nSELECT id FROM dbo.probe_j_ord ORDER BY payload;",
+            "expect": {
+              "error": 13636
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Neither ORDER BY nor GROUP BY works on a json column. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_j_dis (id int, payload json);\nGO\nSELECT DISTINCT payload FROM dbo.probe_j_dis;",
+            "expect": {
+              "error": 421
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. SELECT DISTINCT over a json column is refused for the same reason. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_j_like (id int, payload json);\nGO\nSELECT id FROM dbo.probe_j_like WHERE payload LIKE N'%a%';",
+            "expect": {
+              "error": 8116
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. LIKE is refused too, which closes the last habit a developer reaches for when the other three fail. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_j_rev (id int, payload json);\nGO\nALTER TABLE dbo.probe_j_rev ALTER COLUMN payload nvarchar(max);",
+            "expect": {
+              "error": 257
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The migration runs one way. Coming back out of json needs an explicit CONVERT and a rebuild, which is what makes the choice worth making deliberately. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_j_fwd (id int, payload nvarchar(max));\nINSERT INTO dbo.probe_j_fwd VALUES (1, N'{not json');\nGO\nALTER TABLE dbo.probe_j_fwd ALTER COLUMN payload json;",
+            "expect": {
+              "error": 13609
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. ALTER COLUMN to json validates every existing row, so a table that accepted junk for years fails the migration on the first bad row rather than converting it. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "SELECT qty FROM OPENJSON(N'{\"qty\":\"abc\"}') WITH (qty int '$.qty');",
+            "expect": {
+              "error": 245
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A typed WITH column fails loudly on a bad value where the default output hands the same text back as nvarchar(max), which is the argument for WITH. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "SELECT c FROM OPENJSON(N'{\"c\":{\"id\":1}}') WITH (c nvarchar(50) '$.c' AS JSON);",
+            "expect": {
+              "error": 13618
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. AS JSON requires nvarchar(max) and nothing narrower, so the natural first attempt at reading a nested document is refused rather than silently truncated. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "SELECT v FROM OPENJSON(N'{\"a\":1}') WITH (v int 'strict $.missing');",
+            "expect": {
+              "error": 13608
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A missing property is an error under strict and NULL in lax, and lax is the default nobody writes. This is the number that tells the two modes apart. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "DECLARE @j json = JSON_OBJECT('big': REPLICATE(CAST(N'x' AS nvarchar(max)), 5000));\nSELECT JSON_VALUE(@j, 'strict $.big') AS x;",
+            "expect": {
+              "error": 13625
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The 4000 character cliff, made loud. JSON_VALUE without RETURNING is typed nvarchar(4000) and strict mode is the only setting that says so. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "DECLARE @j json = JSON_OBJECT('big': REPLICATE(CAST(N'x' AS nvarchar(max)), 5000));\nSELECT CASE WHEN JSON_VALUE(@j, '$.big') IS NULL THEN 1 ELSE 0 END AS silent_null;",
+            "expect": {
+              "rows": [
+                [
+                  1
+                ]
+              ]
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The half of the cliff that is dangerous, and the reason the skill calls it data loss dressed as a missing key: in lax mode, which is the default, the same value comes back NULL with no error at all. It goes red if the value ever starts arriving whole or starts raising instead."
+          }
+    ,
+          {
+            "sql": "ALTER DATABASE CURRENT SET COMPATIBILITY_LEVEL = 120;\nGO\nSELECT COUNT(*) AS n FROM OPENJSON(N'[1,2]');",
+            "expect": {
+              "error": 208
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. OPENJSON is hidden below compatibility level 130 and reports as a missing object rather than as an unavailable feature, which sends a reader looking for a spelling mistake. This probe is last in the skill's set on purpose: it lowers the compatibility level of the scratch database the lane drops afterwards, so nothing later in this skill depends on the level it leaves behind. It goes red if the statement succeeds, or fails with any other number."
+          }
     ]
   },
   "triggering": {

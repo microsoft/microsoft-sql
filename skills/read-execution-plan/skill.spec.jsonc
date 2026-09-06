@@ -124,6 +124,28 @@
         },
         "why": "This is the wrong turn the skill exists to prevent, made executable: the procedure has genuinely run, sys.dm_exec_query_plan returns a plan for it without error, and that plan carries zero occurrences of ActualRows. Measured 2026-08-29. An agent reporting numbers out of this DMV is reporting an estimate as a measurement."
       }
+    ,
+          {
+            "sql": "SET SHOWPLAN_XML ON;\nSELECT 1;",
+            "expect": {
+              "error": 1067
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A SET SHOWPLAN statement has to be alone in its batch, so the natural thing to paste, the setting followed by the query, fails before any plan is produced. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "SET QUOTED_IDENTIFIER OFF;\nDECLARE @x xml = N'<a b=\"1\"/>';\nSELECT @x.value('(/a/@b)[1]', 'int') AS v;",
+            "expect": {
+              "error": 1934
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Every XML method call needs QUOTED_IDENTIFIER ON, and the message names indexed views, computed columns and spatial indexes and never the setting that caused it, which is why this skill checks the setting rather than reading the message. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "SET QUOTED_IDENTIFIER ON;\nDECLARE @x xml = N'<a b=\"1\"/>';\nSELECT @x.value('(/a/@b)[1]', 'int') AS v;",
+            "expect": {
+              "succeeds": true
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The control for the probe above. Without it a red there could mean XML methods do not work at all rather than that one session setting decides it. It goes red if the statement raises."
+          }
     ]
   },
   "triggering": {

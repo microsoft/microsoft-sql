@@ -80,6 +80,26 @@
         "cmd": "az sql db replica create --help 2>&1 | tr -s '[:space:]' ' ' | grep -q 'Allowed values include: Geo, Named'",
         "expect": { "succeeds": true },
         "why": "The named replica command in the body passes --secondary-type Named, and Named is a Hyperscale-only value that a reader coming from geo-replication will not expect to find here. Measured 2026-09-03 on Azure CLI 2.90.0, exit 0."
+      },
+      {
+        "sql": "SELECT COUNT(*) AS n, MAX(CASE WHEN dso.edition = 'Hyperscale' THEN 1 ELSE 0 END) AS is_hyperscale FROM sys.database_service_objectives AS dso JOIN sys.databases AS d ON dso.database_id = d.database_id WHERE d.name = DB_NAME();",
+        "expect": { "rows": [[1, 0]] },
+        "why": "The Check it worked section hands a reader this join and tells them to expect exactly one row whose edition reads Hyperscale. The join, the two column names and the one-row shape are settled here; the Hyperscale value is not, and the second column is what says so, because a container database reports GeneralPurpose and GP_Gen5_2. Measured 2026-09-05 on 18.0.226_4_147: one row, edition GeneralPurpose, service_objective GP_Gen5_2. Red if sys.database_service_objectives stops resolving, if edition or service_objective is renamed, if the filter on DB_NAME() stops returning exactly one row, or if a container ever reported itself as Hyperscale, which would make the skill's warning that this is not a container check the wrong warning."
+      },
+      {
+        "sql": "SELECT TOP 1 operation, state_desc FROM sys.dm_operation_status WHERE major_resource_id = DB_NAME() ORDER BY start_time DESC;",
+        "expect": { "rows": [["CREATE DATABASE", "COMPLETED"]] },
+        "why": "The cutover check in Check it worked reads sys.dm_operation_status filtered on major_resource_id and ordered by start_time, and says a state_desc of Completed is what a finished operation looks like. Those four names and that shape are settled here against the one operation a scratch database is guaranteed to have, its own CREATE DATABASE. Measured 2026-09-05: CREATE DATABASE, COMPLETED. Red if the view is gone, if operation, state_desc, major_resource_id or start_time is renamed, or if the engine stops recording the create."
+      },
+      {
+        "sql": "SELECT TOP 1 phase_desc FROM sys.dm_operation_status;",
+        "expect": { "error": 207 },
+        "why": "The same check tells a reader phase_desc reads WaitingForCutover while a manual cutover waits. Microsoft Learn documents phase_desc and phase_code on sys.dm_operation_status as Hyperscale conversion columns, and this build does not carry the column at all: measured 2026-09-05, Msg 207, Invalid column name 'phase_desc'. So the cutover half of that check is settled only by a real Azure SQL Database and this probe records the boundary rather than implying it was tested. Red if a later build adds the column, which is the day the claim becomes locally checkable."
+      },
+      {
+        "sql": "ALTER DATABASE [probe_provision_hyperscale] ADD SECONDARY ON SERVER [probe_partner_server] WITH (SERVICE_OBJECTIVE = 'HS_Gen5_2', SECONDARY_TYPE = Named, DATABASE_NAME = [probe_provision_hyperscale_reporting]);",
+        "expect": { "error": 41920 },
+        "why": "The named replica section prints this statement for a reader with no Azure credentials at hand, so at minimum the engine has to accept it as T-SQL. It does: measured 2026-09-05 the statement is refused by feature, Msg 41920, while the same statement with SECONDARY_TYPE misspelled is refused by the parser, Msg 102. A feature refusal rather than a syntax error is the whole evidence available locally, because a named replica needs a logical server. Red if this build ever answers Msg 102, which would mean the clause order or the option names in the skill are wrong."
       }
     ]
   },

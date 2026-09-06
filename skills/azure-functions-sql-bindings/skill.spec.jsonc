@@ -142,6 +142,28 @@
         },
         "why": "The .NET SDK is the second command in step 0, the one that adds Microsoft.Azure.Functions.Worker.Extensions.Sql. Measured 2026-09-03 on the authoring host: exit 0, 8.0.421. That SDK is also why the skill warns about NETSDK1045, because Core Tools 4.12.0 scaffolds net10.0 and this SDK cannot build it."
       }
+    ,
+          {
+            "sql": "ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 2 DAYS), AUTO_SHRINK OFF;",
+            "expect": {
+              "error": 22114
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Change tracking options cannot share an ALTER DATABASE statement with anything else, which is why the enable step is its own statement and not folded into a provisioning script. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_af_nopk (id int NOT NULL, v int);\nGO\nALTER TABLE dbo.probe_af_nopk ENABLE CHANGE_TRACKING;",
+            "expect": {
+              "error": 4997
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. THE CORRECTION. The monitored table must have a primary key, and this skill printed Msg 22119 for that refusal until 2026-09-06. The engine raises Msg 4997, with the text this skill quotes. A reader grepping a deployment log for 22119 finds nothing. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "IF NOT EXISTS (SELECT 1 FROM sys.change_tracking_databases WHERE database_id = DB_ID()) ALTER DATABASE CURRENT SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 2 DAYS, AUTO_CLEANUP = ON);\nGO\nCREATE TABLE dbo.probe_af_pk (id int NOT NULL PRIMARY KEY, v int);\nGO\nALTER TABLE dbo.probe_af_pk ENABLE CHANGE_TRACKING;",
+            "expect": {
+              "succeeds": true
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The control for the two refusals above: with a primary key and change tracking on at the database level, the enable succeeds. Without this the pair could both be passing for a reason that has nothing to do with the primary key. It goes red if the statement raises."
+          }
     ]
   },
   "triggering": {

@@ -255,6 +255,15 @@ ran and the build half did not. `-m-1` makes severity 10 messages print their `M
 it a warning prints unnumbered, and `-b` will not fail on it either, since `-b` only sets a non-zero
 exit at severity 11 and above.
 
+**`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
+Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
+`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
+message at any `-m` value, so on that build these four checks print a warning with no number
+whatever `-m` says. The ODBC build is inside the container image at
+`/opt/mssql-tools18/bin/sqlcmd`, which is the path the health check above already uses, so run
+these through `docker exec` when the laptop's `sqlcmd` reports 1.x.
+`build-app-on-azure-sql` tells the two builds apart in one table.
+
 ## References
 
 - `src/<template>/.devcontainer/docker-compose.yml`: read it first, every time; the image, the

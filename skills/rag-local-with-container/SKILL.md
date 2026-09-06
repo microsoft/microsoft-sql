@@ -203,9 +203,15 @@ Either way the tenant filter still belongs inside the retrieval query locally, s
 that ships is the query text that was tested.
 
 **Managed identity has no local rehearsal.** The container answers `Msg 31644` and names
-`sp_configure 'allow server scoped db credentials'` as the remedy, which it then refuses with
-`Msg 40510`. Use a key locally and an identity in the cloud, keeping the difference in the
-credential rather than in the code that names it.
+`sp_configure 'allow server scoped db credentials'` as the remedy, and the remedy does not take.
+Which statement stops it was re-measured on 2026-09-06 against 18.0.226_4_147, because this skill
+attributed it to the wrong one until that day. From a user database `sp_configure` is not there at
+all, `Msg 2812, Could not find stored procedure`. Connected to `master` it runs and stages the value
+without complaint. **`RECONFIGURE` is what refuses**, with
+`Msg 40510, Statement 'CONFIG' is not supported in this version of SQL Server`, so the staged value
+never takes effect and the only sign is a message a reader has to go looking for. Use a key locally
+and an identity in the cloud, keeping the difference in the credential rather than in the code that
+names it.
 
 **The allowlist cannot be tested locally.** The container calls any public host, so a successful
 local call is evidence of nothing. The cloud list is a fixed set of Azure service domains published
