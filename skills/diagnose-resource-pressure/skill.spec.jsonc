@@ -130,6 +130,21 @@
         },
         "why": "The body tells a reader to reach for the diagnostic connection during a worker-limit incident, because ordinary connections are being refused at that moment. This proves the flag exists on the client a developer installs, with no connection and no credentials. Verified 2026-09-03 against the sqlcmd on this machine, which lists '-A,--dedicated-admin-connection' in its backwards-compatible flag help. It runs on the host because sqlcmd is a client tool, not something in the engine image."
       }
+    ,
+          {
+            "sql": "SELECT * FROM sys.dm_db_resource_stats;",
+            "expect": {
+              "error": 208
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. sys.dm_db_resource_stats is an Azure SQL Database view the container does not carry, so the first thing an answer reaches for is the first thing that fails locally. The skill's rule is not to read this as a broken database. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "EXEC sp_configure 'max degree of parallelism';",
+            "expect": {
+              "error": 2812
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. sp_configure is not there at all on the container, which is a different failure from the option error a reader would otherwise go hunting for. This is also the measurement that showed embeddings-and-external-models was attributing the wrong number to the same statement. It goes red if the statement succeeds, or fails with any other number."
+          }
     ]
   },
   "triggering": {

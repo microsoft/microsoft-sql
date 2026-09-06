@@ -105,6 +105,29 @@
         },
         "why": "THIS PROBE CONTRADICTS THE SKILL AND IS MEANT TO. Step 2 of the body prints this exact statement and annotates it 'Msg 31610. The statement never gets as far as the network', and builds its structural argument for embedding in application code on that refusal. Measured 2026-09-04 the statement succeeds and the model is listed in sys.external_models, on both container builds available here, 18.0.226_4_147 and azure-sql/db-dev:latest. The https-to-a-private-address refusal the body records as Msg 31624 did not reproduce either. So this is asserted as the measured outcome rather than as the documented one, and it is a row assertion rather than a succeeds assertion so it stays specific: it goes red the day the engine starts refusing the plain-HTTP endpoint, which is the day the skill's prose becomes right again. Until then the body needs correcting, and this probe is the standing evidence."
       }
+    ,
+          {
+            "sql": "EXEC sp_configure 'allow server scoped db credentials';",
+            "expect": {
+              "error": 2812
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. THE CORRECTION. Msg 31644 names this statement as its remedy, and from a user database, which is where a reader is connected, the procedure is not there at all. This skill attributed Msg 40510 to sp_configure until 2026-09-06; that number comes from RECONFIGURE. capture-with-extended-events and embeddings-and-external-models carried the same mistake. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "EXEC sp_invoke_external_rest_endpoint @url = N'https://10.0.0.5/x', @method = 'GET';",
+            "expect": {
+              "error": 31624
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A hostname resolving to a private address is refused before the handshake, which is half of why a locally hosted model has no local rehearsal either. It goes red if the statement succeeds, or fails with any other number."
+          }
+    ,
+          {
+            "sql": "CREATE SCHEMA probe_rl_sec;\nGO\nCREATE TABLE dbo.probe_rl_rls (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, tenant int NOT NULL, v vector(3) NOT NULL);\nGO\nINSERT INTO dbo.probe_rl_rls (tenant, v) SELECT 1, CAST(JSON_ARRAY(CAST(value AS float), 1.0, 2.0) AS vector(3)) FROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX probe_rl_rls_ix ON dbo.probe_rl_rls (v) WITH (METRIC = 'cosine', TYPE = 'diskann');\nGO\nCREATE FUNCTION probe_rl_sec.fn_rl (@t int) RETURNS TABLE WITH SCHEMABINDING AS RETURN SELECT 1 AS ok WHERE @t = 1;\nGO\nCREATE SECURITY POLICY probe_rl_sec.p_rl ADD FILTER PREDICATE probe_rl_sec.fn_rl(tenant) ON dbo.probe_rl_rls WITH (STATE = ON);",
+            "expect": {
+              "error": 37579
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The parity table's sharpest row: row level security beside a vector index is refused here and coexists in the cloud, so the isolation cannot be rehearsed locally. This is the container half. The cloud half is a claim this lane cannot reach. It goes red if the statement succeeds, or fails with any other number."
+          }
     ]
   },
   "triggering": {

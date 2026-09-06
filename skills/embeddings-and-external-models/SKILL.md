@@ -121,9 +121,14 @@ Measured in the cloud: with no `SECRET` the call failed with `Msg 33047, Fail to
 secret`, which sounds like a master key problem and is not. Adding `resourceid` fixed it. The server
 also needs an identity holding a role on the target resource, and without it the failure is an HTTP
 401, indistinguishable from a wrong key. **On the container managed identity does not work at all**:
-`Msg 31644, Server Managed Identity is disabled for this instance`, whose named remedy cannot run
-there either because `sp_configure` returns `Msg 40510`. Use a key locally and managed identity in
-the cloud, changing only the credential.
+`Msg 31644, Server Managed Identity is disabled for this instance`, and its named remedy cannot run
+there either. Which statement refuses it, measured 2026-09-06 on 18.0.226_4_147, is worth getting
+right, because this skill named the wrong one until that day. `sp_configure` is not callable from a
+user database at all, `Msg 2812, Could not find stored procedure`. Connected to `master` it runs and
+stages the value happily. **`RECONFIGURE` is what refuses**, with
+`Msg 40510, Statement 'CONFIG' is not supported in this version of SQL Server`, so the staged value
+never takes effect and nothing tells you unless you read that far. Use a key locally and managed
+identity in the cloud, changing only the credential.
 
 ## Step 3: the model
 
@@ -290,6 +295,14 @@ sqlcmd -S "$SQL_SERVER" -d "$SQL_DB" -G -b -m-1 -i check-embeddings.sql
 `-b` sets a non-zero exit only at severity 11 and above, and this surface emits severity 10 messages:
 `Msg 31616`, the overwritten `User-Agent` header, is one. Without `-m-1` those print their text with
 no `Msg` number and the run looks clean, so use both.
+
+**`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
+Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
+`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
+message at any `-m` value, so on that build `Msg 31616` never appears at all and a run that
+overwrote the header still looks clean. Run the file through the ODBC build, or read the number out
+of `sys.messages` on a connection that works. `build-app-on-azure-sql` tells the two builds apart in
+one table.
 
 ## References
 

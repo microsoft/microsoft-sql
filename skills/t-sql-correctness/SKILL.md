@@ -61,10 +61,12 @@ WHERE NOT EXISTS (SELECT 1 FROM dbo.assigned a WHERE a.customer_id = c.id);  -- 
 ```
 
 **Aggregates skip nulls, and say nothing about it.** Measured 2026-09-03 on `EngineEdition` 5
-through `sqlcmd -I -m-1`: this batch returns 30 and **no message at all**. Message 8153, "Null
-value is eliminated by an aggregate", is in `sys.messages` at severity 10 and was never raised.
-Microsoft Learn's `SET ANSI_WARNINGS` page says a warning is generated. It is not, so do not plan
-on being told.
+through the **ODBC `sqlcmd`** at `-I -m-1`, the build that does print a severity 10 message's `Msg`
+number: this batch returns 30 and **no message at all**. Which build was used is the whole weight of
+that sentence, because go-sqlcmd 1.10.0 prints no `Msg` header on a severity 10 message at any `-m`
+value, so a silent run there would prove nothing. Message 8153, "Null value is eliminated by an
+aggregate", is in `sys.messages` at severity 10 and was never raised. Microsoft Learn's
+`SET ANSI_WARNINGS` page says a warning is generated. It is not, so do not plan on being told.
 
 ```sql
 CREATE TABLE dbo.readings (v INT NULL);
@@ -195,6 +197,12 @@ Expected: check 1 returns `ON ON ON`, check 2 no rows. An `OFF` means your scrip
 parsed under different rules from the ones the application connects with. `-m-1` is there because
 `-b` sets a non-zero exit only at severity 11 and above, so any severity 10 message leaves a
 script reporting success.
+
+**`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
+Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
+`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
+message at any `-m` value, so on that build a quiet output file is not evidence that the engine
+stayed quiet. `build-app-on-azure-sql` tells the two builds apart in one table.
 
 ## Do not
 

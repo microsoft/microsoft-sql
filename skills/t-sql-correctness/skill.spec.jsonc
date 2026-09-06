@@ -144,6 +144,71 @@
         },
         "why": "Two claims in one statement. That the ANSI double pipe operator exists here at all is the overcorrection half of this skill, and a failure on this probe means the engine predates its July 2025 general availability rather than that the claim is wrong. That it disagrees with CONCAT about NULL is the silent half: || propagates the null while CONCAT treats a null argument as an empty string, so the same name assembled two ways gives two answers."
       }
+    ,
+          {
+            "sql": "SELECT \"not a column\" AS x;",
+            "expect": {
+              "error": 207
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A double quoted string is an identifier under QUOTED_IDENTIFIER ON, which is the setting every driver sets, so the literal a developer typed is read as a column name. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_c_trg (id int, v int);\nGO\nCREATE TRIGGER probe_c_trg_ins ON dbo.probe_c_trg AFTER INSERT AS SELECT 1;\nGO\nINSERT INTO dbo.probe_c_trg (id, v) OUTPUT inserted.id VALUES (1, 1);",
+            "expect": {
+              "error": 334
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A bare OUTPUT is refused once the target carries an enabled trigger, so a pattern that worked in development breaks the day an audit trigger is added. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_c_p (id int NOT NULL PRIMARY KEY);\nCREATE TABLE dbo.probe_c_c (id int NOT NULL PRIMARY KEY, pid int NOT NULL REFERENCES dbo.probe_c_p(id));\nGO\nINSERT INTO dbo.probe_c_p (id) OUTPUT inserted.id INTO dbo.probe_c_c (id) VALUES (1);",
+            "expect": {
+              "error": 332
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. OUTPUT INTO refuses a target on either side of a foreign key, one of the three restrictions that make OUTPUT INTO narrower than it looks. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "SELECT NO_SUCH_FUNCTION_HERE(1) AS x;",
+            "expect": {
+              "error": 195
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. One of the three numbers a missing function can produce. The skill tells a reader to check the compatibility level before believing the function does not exist, and this is what an unrecognised name looks like. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "SELECT * FROM dbo.probe_c_no_such_object;",
+            "expect": {
+              "error": 208
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The second of the three, and the one OPENJSON produces below compatibility level 130, which is why the skill says read the level rather than the message. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_c_json (id int, j json);\nGO\nSELECT id FROM dbo.probe_c_json WHERE j = N'{}';",
+            "expect": {
+              "error": 402
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A json column compared with = is a type incompatibility, not a NULL problem, so it is a different failure from the ones this skill's first half is about. It goes red if the statement succeeds, or fails with any other number."
+          }
+    ,
+          {
+            "sql": "CREATE TABLE dbo.probe_c_out_p (id int NOT NULL PRIMARY KEY);\nCREATE TABLE dbo.probe_c_out_c (id int NOT NULL, CONSTRAINT ck_probe_c CHECK (id > 0));\nGO\nINSERT INTO dbo.probe_c_out_p (id) OUTPUT inserted.id INTO dbo.probe_c_out_c (id) VALUES (1);",
+            "expect": {
+              "error": 333
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The second OUTPUT INTO restriction: the target can carry no enabled CHECK constraint. Together with the foreign key case this is why an audit table written by OUTPUT INTO has to be barer than a normal table. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_c_nulls (v int NULL);\nINSERT INTO dbo.probe_c_nulls VALUES (10), (NULL), (20);\nGO\nSET ANSI_WARNINGS ON;\nSELECT SUM(v) AS s, COUNT(*) AS c_all, COUNT(v) AS c_val, AVG(v) AS a FROM dbo.probe_c_nulls;",
+            "expect": {
+              "rows": [
+                [
+                  30,
+                  3,
+                  2,
+                  15
+                ]
+              ]
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The aggregate claim, made executable: SUM skips the NULL and returns 30, COUNT(*) counts three rows while COUNT(v) counts two, and AVG divides by two rather than three. What this probe CANNOT assert is the other half of the claim, that message 8153 is never raised: the judge treats a severity 10 message as reportable and not as a failure, so a run where the engine started warning would still pass. That half stays a reading and not a check, and saying so is better than a probe that looks like it covers it. It goes red if any of the four values changes."
+          }
     ]
   },
   "triggering": {

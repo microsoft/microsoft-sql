@@ -141,6 +141,14 @@
         },
         "why": "The deadlock query needs QUOTED_IDENTIFIER ON, and the skill claims the client decides whether you ever notice. Checked against local help output on 2026-09-03: sqlcmd 1.10.0 (go-sqlcmd) documents -I as provided for backward compatibility because quoted identifiers are always enabled, while the older mssql-tools sqlcmd does not set it. host, not container: this is the client a developer installs, and the wording being asserted is that build's. The tr is load-bearing, not decoration. This probe exited 1 on every run before 2026-09-03 because sqlcmd wraps its help text and the asserted phrase spans two lines, so a line-oriented grep could never match it. The claim was right and the matcher was wrong, so the matcher was fixed; flattening whitespace first makes the assertion test the sentence rather than the column width. If a future sqlcmd drops the line, the skill's portability note needs rewriting rather than quietly rotting."
       }
+    ,
+          {
+            "sql": "CREATE TABLE dbo.probe_b_qi (id int NOT NULL PRIMARY KEY, c AS (id * 2));\nCREATE UNIQUE INDEX probe_b_qi_ix ON dbo.probe_b_qi (c);\nGO\nSET QUOTED_IDENTIFIER OFF;\nINSERT INTO dbo.probe_b_qi (id) VALUES (1);",
+            "expect": {
+              "error": 1934
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A write against a table carrying an indexed computed column needs QUOTED_IDENTIFIER ON, and the message names indexed views and filtered indexes rather than the setting. A session that lacks it fails on write and looks like a blocking problem to whoever is reading the symptom. It goes red if the statement succeeds, or fails with any other number."
+          }
     ]
   },
   "triggering": {

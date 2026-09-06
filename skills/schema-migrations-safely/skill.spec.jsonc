@@ -201,6 +201,106 @@
         },
         "why": "The mechanism behind the Msg 207 probe above, kept separate because the two are read at different times and by different people. After sp_rename the dependent view's stored definition still names the old column, so nothing in the catalog was rewritten and nothing was warned about, and an author who checks that the rename 'worked' by opening the view is reading text that no longer compiles. Measured 2026-09-05 against the fixture the sp_rename probe leaves behind. Red if the definition is rewritten by the rename, which would mean the catalog does track the change and only a compiled plan was stale."
       }
+    ,
+          {
+            "sql": "CREATE TABLE dbo.probe_m_idx (id int, qty int);\nCREATE INDEX probe_m_idx_ix ON dbo.probe_m_idx (qty);\nGO\nALTER TABLE dbo.probe_m_idx DROP COLUMN qty;",
+            "expect": {
+              "error": 5074
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. An index holds the column, so a migration that drops it has to drop the index first. The index name differs per environment, which is why the skill says read the message rather than hardcode a drop. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "BEGIN TRAN;\nALTER DATABASE CURRENT SET AUTO_SHRINK OFF;\nCOMMIT;",
+            "expect": {
+              "error": 226
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. ALTER DATABASE SET cannot sit inside a multi statement transaction, so a migration runner that wraps every step in one cannot carry a database setting. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE IF NOT EXISTS dbo.probe_m_ct (id int);",
+            "expect": {
+              "error": 156
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. CREATE TABLE IF NOT EXISTS does not exist on this engine. It is the first thing a model writes when asked for an idempotent migration. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_m_ci (id int);\nGO\nCREATE INDEX IF NOT EXISTS probe_m_ci_ix ON dbo.probe_m_ci (id);",
+            "expect": {
+              "error": 156
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Nor does the index form. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_m_at (id int);\nGO\nALTER TABLE dbo.probe_m_at ADD IF NOT EXISTS z int;",
+            "expect": {
+              "error": 156
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Nor the ALTER TABLE ADD form. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "IF OBJECT_ID('dbo.probe_m_view') IS NULL CREATE VIEW dbo.probe_m_view AS SELECT 1 AS x;",
+            "expect": {
+              "error": 156
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The guard a developer writes instead cannot work either, because CREATE VIEW cannot follow IF. This is the one that surprises people who know the first three do not exist. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "SELECT 1;\nCREATE VIEW dbo.probe_m_view2 AS SELECT 1 AS x;",
+            "expect": {
+              "error": 111
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. And CREATE VIEW must be first in its batch, which is the same rule from the other side and the reason these objects need dynamic SQL or their own batch. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE OR ALTER TABLE dbo.probe_m_coa (id int);",
+            "expect": {
+              "error": 156
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. CREATE OR ALTER covers programmability objects and not tables, which is a distinction a model does not make. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_m_dupcol (id int);\nGO\nALTER TABLE dbo.probe_m_dupcol ADD id int;",
+            "expect": {
+              "error": 2705
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The number an unguarded migration produces on its second run, and the one the skill's eight concurrent runners hit seven times out of eight. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_m_dupobj (id int);\nGO\nCREATE TABLE dbo.probe_m_dupobj (id int);",
+            "expect": {
+              "error": 2714
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The object level version of the same non-idempotence. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_m_dupidx (id int);\nCREATE INDEX probe_m_dupidx_ix ON dbo.probe_m_dupidx (id);\nGO\nCREATE INDEX probe_m_dupidx_ix ON dbo.probe_m_dupidx (id);",
+            "expect": {
+              "error": 1913
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. And the index level version. The skill lists these three together as the numbers that mean a script is not idempotent. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_m_col (id int);\nGO\nSELECT nosuchcolumn FROM dbo.probe_m_col;",
+            "expect": {
+              "error": 207
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. What an old connection sees after the shape changes underneath it, which is why the skill sequences a rename as add, backfill, switch, drop. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_m_res (id int, s nvarchar(50));\nGO\nALTER TABLE dbo.probe_m_res ALTER COLUMN s nvarchar(100) WITH (ONLINE = ON, RESUMABLE = ON);",
+            "expect": {
+              "error": 102
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. RESUMABLE is not available on ALTER COLUMN, only on index builds, so the answer a model gives for a long running column change does not parse. It goes red if the statement succeeds, or fails with any other number."
+          }
+    ,
+          {
+            "sql": "CREATE TABLE dbo.probe_m_ver (version int NOT NULL PRIMARY KEY);\nGO\nINSERT INTO dbo.probe_m_ver VALUES (1);\nGO\nINSERT INTO dbo.probe_m_ver VALUES (1);",
+            "expect": {
+              "error": 2627
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The version row collision the skill's concurrency table records, and the one that arrives AFTER the backfill has already run eight times. It is the last error in that run and the least important one. It goes red if the statement succeeds, or fails with any other number."
+          }
     ]
   },
   "triggering": {

@@ -110,6 +110,14 @@
         "expect": { "error": 40518 },
         "why": "Step 0 says DBCC FLUSHAUTHCACHE forces the five minute firewall cache to refresh, does not apply to master, and needs the admin account. None of that can be settled here: measured 2026-09-05, this build refuses the command outright as sa in a user database and in master alike, Msg 40518, DBCC command 'flushauthcache' is not supported in this version of SQL Server. The probe records that boundary as a measurement rather than leaving the claim looking checked. Red if a later build implements the command, which is the day the master-versus-user-database half becomes locally testable."
       }
+    ,
+          {
+            "sql": "RAISERROR (N'a severity ten note', 10, 1);",
+            "expect": {
+              "warning": 50000
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The sqlcmd claim this skill's table turns on, asserted through the ODBC sqlcmd the container image ships, which is the build this lane connects with and the build the -m-1 instructions are for. A severity 10 RAISERROR arrives carrying Msg 50000 rather than as bare text. It goes red if the message stops carrying a number, which is exactly what happens on go-sqlcmd 1.10.0 and is why the table exists. The go-sqlcmd half cannot be asserted here: the lane has one client and it is the ODBC one."
+          }
     ]
   },
   "triggering": {

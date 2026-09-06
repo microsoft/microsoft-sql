@@ -95,7 +95,11 @@ trigger. These options cannot be combined with other `ALTER DATABASE` options in
 which fails with Msg 22114.
 
 **The monitored table must have a primary key.** Without one the second statement fails with
-Msg 22119, `Change tracking requires a primary key constraint on the table to be enabled`.
+`Msg 4997, Cannot enable change tracking on table '<name>'. Change tracking requires a primary key
+on the table.` This skill printed Msg 22119 for that refusal until 2026-09-06, when it was measured
+on the Azure SQL Database container at 18.0.226_4_147 and came back 4997. A deployment log grepped
+for 22119 finds nothing. The cloud number is not verified here, so match on the text if you are
+reading a log from a real Azure SQL Database.
 
 ## Step 2: write the trigger
 

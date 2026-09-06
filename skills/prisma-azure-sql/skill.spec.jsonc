@@ -89,6 +89,14 @@
         "expect": { "error": 2627 },
         "why": "The PostgreSQL habit that survives validation and fails at runtime: this engine treats NULL as a value for uniqueness, so a second null row in a String? @unique field is a duplicate key. The fixture is now the DDL Prisma actually emits, and that is the whole correction. An earlier version of this probe built the column with CREATE UNIQUE NONCLUSTERED INDEX and expected 2627; the engine returned 2601, because the two numbers name different objects. Learn gives 2601 as 'Cannot insert duplicate key row in object ... with unique index' (MSSQL_ENG002601) and 2627 as 'Violation of %ls constraint ... Cannot insert duplicate key in object' (MSSQL_ENG002627), checked 2026-09-03. Measured the same day on prisma 7.9.1: @unique and @@unique emit ADD CONSTRAINT ... UNIQUE NONCLUSTERED on BOTH the create-table and the alter-table path, never a standalone unique index, even though the generated migration labels the step -- CreateIndex. A UNIQUE constraint is enforced by an automatically created unique index (Learn, Unique constraints and check constraints), but the engine still reports the constraint, so 2627 is the number a reader hits when a Prisma @unique is violated and 2601 is the number they hit on an index they wrote by hand."
       }
+    ,
+          {
+            "sql": "CREATE TABLE dbo.probe_pr_uniq (id int IDENTITY, s nvarchar(20) NOT NULL);\nCREATE UNIQUE INDEX probe_pr_uniq_ix ON dbo.probe_pr_uniq (s);\nGO\nINSERT INTO dbo.probe_pr_uniq (s) VALUES (N'a');\nINSERT INTO dbo.probe_pr_uniq (s) VALUES (N'a');",
+            "expect": {
+              "error": 2601
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. What a Prisma @unique becomes and what a duplicate then costs. The number differs from the constraint form, which is why a log line can be read back to the shape Prisma actually emitted. It goes red if the statement succeeds, or fails with any other number."
+          }
     ]
   },
   "triggering": {

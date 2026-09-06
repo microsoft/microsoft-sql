@@ -219,6 +219,91 @@
         },
         "why": "The correction in the Do not list, made executable: a table with no clustered index is created and takes rows. The belief that this engine requires a clustered index on every table is out of date. Measured 2026-08-28. Two counts are asserted together so the probe cannot pass on a table that quietly acquired a clustered index from a primary key."
       }
+    ,
+          {
+            "sql": "CREATE TABLE dbo.probe_d_ci (s nvarchar(20) COLLATE Latin1_General_CI_AS);\nCREATE TABLE dbo.probe_d_bin (s nvarchar(20) COLLATE Latin1_General_BIN2);\nGO\nSELECT a.s FROM dbo.probe_d_ci AS a JOIN dbo.probe_d_bin AS b ON a.s = b.s;",
+            "expect": {
+              "error": 468
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A join across two collations is refused rather than resolved, which is the second half of what the database default costs. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_d_p20 (k nvarchar(20) NOT NULL PRIMARY KEY);\nCREATE TABLE dbo.probe_d_c50 (k nvarchar(50) NOT NULL, CONSTRAINT fk_probe_d_len FOREIGN KEY (k) REFERENCES dbo.probe_d_p20(k));",
+            "expect": {
+              "error": 1753
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A foreign key column must match the parent's length exactly, so an oversized parent key propagates to every child rather than being narrowed at the child. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_d_pc (k nvarchar(20) COLLATE Latin1_General_CI_AS NOT NULL PRIMARY KEY);\nCREATE TABLE dbo.probe_d_cc (k nvarchar(20) COLLATE Latin1_General_BIN2 NOT NULL, CONSTRAINT fk_probe_d_coll FOREIGN KEY (k) REFERENCES dbo.probe_d_pc(k));",
+            "expect": {
+              "error": 1757
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The same rule for collation, which is the one that bites when a single column was given a collation by hand. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_d_nvmax (s nvarchar(max) NOT NULL PRIMARY KEY);",
+            "expect": {
+              "error": 1919
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. nvarchar(max) cannot be a key column. Note the number: this is 1919 and the json and vector cases below are 1978, which is why the skill prints both. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_d_jkey (id int NOT NULL PRIMARY KEY, payload json);\nGO\nCREATE INDEX probe_d_jkey_ix ON dbo.probe_d_jkey (payload);",
+            "expect": {
+              "error": 1978
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A json column cannot be an index key, the row this skill's storage table asserts. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_d_vkey (id int NOT NULL PRIMARY KEY, v vector(3));\nGO\nCREATE INDEX probe_d_vkey_ix ON dbo.probe_d_vkey (v);",
+            "expect": {
+              "error": 1978
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. And neither can a vector column, the other half of the same row. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_d_dim (v vector(1999));",
+            "expect": {
+              "error": 2717
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The 1998 dimension ceiling, asserted here as well as in vector-search-azure-sql because this skill is where the choice of column type is made. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "DBCC TRACEON (272, -1);",
+            "expect": {
+              "error": 40518
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Trace flag 272, the identity cache lever every answer from a boxed engine reaches for, is not available here, which is why the skill routes to a sequence instead. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "SELECT * FROM probe_d_otherdb.dbo.some_parent;",
+            "expect": {
+              "error": 40515
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A three part name across databases is refused, which is what makes a cross database foreign key impossible rather than merely discouraged. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_d_uidx (id int IDENTITY, s nvarchar(20) NULL);\nCREATE UNIQUE INDEX probe_d_uidx_ix ON dbo.probe_d_uidx (s);\nGO\nINSERT INTO dbo.probe_d_uidx (s) VALUES (NULL);\nINSERT INTO dbo.probe_d_uidx (s) VALUES (NULL);",
+            "expect": {
+              "error": 2601
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A unique index treats two NULLs as duplicates, which is the behaviour that makes an optional unique field unusable without a filtered index. The number differs from the constraint case below, and the skill says so. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_d_ucon (s nvarchar(20) NOT NULL CONSTRAINT uq_probe_d UNIQUE);\nGO\nINSERT INTO dbo.probe_d_ucon (s) VALUES (N'a');\nINSERT INTO dbo.probe_d_ucon (s) VALUES (N'a');",
+            "expect": {
+              "error": 2627
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The same collision through a unique constraint reports a different number, which is the distinction the skill draws so a log line can be read back to its cause. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_d_filt (id int NOT NULL PRIMARY KEY, slug nvarchar(50) NULL);\nCREATE UNIQUE INDEX probe_d_filt_ix ON dbo.probe_d_filt (slug) WHERE slug IS NOT NULL;\nGO\nSET QUOTED_IDENTIFIER OFF;\nINSERT INTO dbo.probe_d_filt (id, slug) VALUES (1, N'a');",
+            "expect": {
+              "error": 1934
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The filtered index is the fix for the NULL problem above, and it puts a requirement on every session that writes to the table. Drivers set QUOTED_IDENTIFIER; a command line client may not, which is how this reaches production as an intermittent write failure. It goes red if the statement succeeds, or fails with any other number."
+          }
     ]
   },
   "triggering": {

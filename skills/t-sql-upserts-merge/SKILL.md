@@ -162,6 +162,16 @@ One session proves nothing, so run the upsert from two shells at once and compar
 against the arithmetic total. `sqlcmd -b` exits non-zero on an error, and `-m-1` prints
 every message, including the severity 10 ones that otherwise arrive with no number at all.
 
+**`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
+Microsoft command line utilities, and `localhost,1433` is exactly where a reader is most likely to
+be holding the other one. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
+`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
+message at any `-m` value. `Msg 2627` below is severity 14 and arrives with its number on either
+build, so this check still works; what go-sqlcmd will not show you is a severity 10 message from the
+statements around it. The ODBC build is inside the container image at
+`/opt/mssql-tools18/bin/sqlcmd`, one `docker exec` away.
+`build-app-on-azure-sql` tells the two builds apart in one table.
+
 ```bash
 UPSERT="BEGIN TRAN;
 UPDATE dbo.counters WITH (SERIALIZABLE) SET n = n + 1 WHERE k = N'hot';

@@ -131,7 +131,8 @@ For some combination of large values, the insert/update operation will fail.
 ```
 
 Severity 10 sets no non-zero exit, so `sqlcmd -b` alone reports a clean migration and the pipeline
-goes green. Without `-m-1` the message prints no `Msg` number at all. The bill arrives later, on a
+goes green. Without `-m-1` the message prints no `Msg` number at all, and on go-sqlcmd it prints no
+number with `-m-1` either, which the check section below explains. The bill arrives later, on a
 genuinely long value:
 
 ```
@@ -252,6 +253,14 @@ sqlcmd -S <server-name>.database.windows.net,1433 -d <database> -U <user> -C -b 
 
 Expect zero rows. Each row is an index over its limit, `key_bytes` 2000 being the unsized default.
 Keep `-m-1`: without it the create-time warning carries no `Msg` number, which is how these ship.
+
+**`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
+Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
+`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
+message at any `-m` value, so on that build the 1945 warning `prisma migrate deploy` provokes stays
+unnumbered and the migration still reads as clean. Run the migration through the ODBC build when the
+number is what you are grepping for. `build-app-on-azure-sql` tells the two builds apart in one
+table.
 
 ## Do not
 
