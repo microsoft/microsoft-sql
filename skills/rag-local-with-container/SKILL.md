@@ -22,8 +22,10 @@ then move it. This skill is about **what survives the move and what does not**.
 Verified 2026-08-28 by running one script against the local Azure SQL Database container and the
 same script against a live Azure SQL Database and comparing line by line; both report
 `SERVERPROPERTY('EngineEdition')` of 5. The local model commands were rerun 2026-09-03 on Ollama
-0.33.2. Open [references/parity.md](references/parity.md) before repeating any number below, or
-whenever someone disputes that the offline prototype is real.
+0.33.2. The two sqlcmd builds were compared on 2026-09-05, go-sqlcmd 1.10.0 against ODBC sqlcmd
+18.6.0002.1, and the chunk lengths below were re-read off the engine the same day. Open
+[references/parity.md](references/parity.md) before repeating any number below, or whenever someone
+disputes that the offline prototype is real.
 
 ## What this owns
 
@@ -150,7 +152,7 @@ FROM (VALUES (N'Retrieval augmented generation grounds an answer in your own tex
 CROSS APPLY AI_GENERATE_CHUNKS(SOURCE = d.body, CHUNK_TYPE = FIXED, CHUNK_SIZE = 25) AS c;
 ```
 
-Expect three rows, lengths 25, 25 and 15. It needs compatibility level 170 or higher; below that
+Expect three rows, lengths 25, 25 and 16. It needs compatibility level 170 or higher; below that
 the engine cannot find the function at all. Chunk in the database on both sides and one more piece
 of the pipeline stops being environment specific.
 
@@ -225,9 +227,18 @@ that they are the same assertions.
 
 ## Check it worked
 
-Run these with sqlcmd 1.10.0 or later. `-b` returns a non-zero exit on an error and `-m-1` makes
-severity 10 messages arrive with their `Msg` numbers rather than as anonymous text, which `-b`
-alone never surfaces. Start with the declared dimension against what the model produces:
+Run these with the ODBC `sqlcmd` the container image already carries. `-b` returns a non-zero exit
+on an error and `-m-1` makes severity 10 messages arrive with their `Msg` numbers rather than as
+anonymous text, which `-b` alone never surfaces.
+
+**`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
+Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
+`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
+message at any `-m` value, so on that build these commands print the message text with no number at
+all. The ODBC build is inside the container image at `/opt/mssql-tools18/bin/sqlcmd`, one
+`docker exec` away. `build-app-on-azure-sql` tells the two builds apart in one table.
+
+Start with the declared dimension against what the model produces:
 
 ```bash
 sqlcmd -S localhost,1433 -U sa -P "$SQL_PASSWORD" -d appdb -C -b -m-1 -h -1 \

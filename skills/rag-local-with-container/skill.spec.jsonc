@@ -24,7 +24,7 @@
     ]
   },
   "posture": ["read", "write", "execute"],
-  "maturity": "ga",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db-container", "azure-sql-db"],
   "related": [
     "rag-on-azure-sql",
@@ -85,7 +85,7 @@
             ]
           ]
         },
-        "why": "The one step of the pipeline this skill says is not environment specific, asserted on the skill's own sentence rather than on a paraphrase, so the numbers are reproducible by hand from the body. Measured 2026-09-04 on both container builds available here, 18.0.226_4_147 and azure-sql/db-dev:latest, which agreed. NOTE: the skill's body currently says the three lengths are 25, 25 and 15. The sentence is 66 characters, 25 plus 25 plus 16, and the engine returns 16. The body is off by one and this probe records the measured value, so the probe is green and the prose is wrong until somebody fixes it."
+        "why": "The one step of the pipeline this skill says is not environment specific, asserted on the skill's own sentence rather than on a paraphrase, so the numbers are reproducible by hand from the body. Measured 2026-09-04 on both container builds available here, 18.0.226_4_147 and azure-sql/db-dev:latest, which agreed. The body said 25, 25 and 15 until 2026-09-05. The sentence is 66 characters, 25 plus 25 plus 16, the engine returns 16, and the body now says 16 as well, so the probe and the prose finally assert the same number."
       },
       {
         "sql": "CREATE TABLE dbo.probe_rlc_dim (id int NOT NULL, embedding vector(768) NULL);\nGO\nALTER TABLE dbo.probe_rlc_dim ALTER COLUMN embedding vector(1536);",
