@@ -21,7 +21,7 @@
     ]
   },
   "posture": ["inspect", "read"],
-  "maturity": "draft",
+  "maturity": "preview",
   "applies_to": ["azure-sql-db"],
   "related": ["diagnose-slow-query", "diagnose-blocking-and-deadlocks", "diagnose-resource-pressure", "read-execution-plan"],
   "validation": {
@@ -35,7 +35,8 @@
       "sys.dm_xe_database_sessions lists a session only after ALTER EVENT SESSION probe_db_scope ON DATABASE STATE = START, so the catalog view and the DMV answer different questions",
       "an event added without an ACTION() clause attaches no rows to sys.database_event_session_actions and captures no username, client_app_name or sql_text",
       "an event_file target pointed at a local filesystem path is rejected at CREATE time with error 40538",
-      "an event_file target pointed at an https blob URL is accepted at CREATE and fails only at START, with error 25739 when no credential exists and 25602 when the target cannot initialise",
+      "an event_file target pointed at an https blob URL is accepted at CREATE and fails only at START, and the number there is 25602 with operating system error 86, not the 25739 whose own text names this exact condition. Measured 2026-09-08 on sqllab0908614 against both a fictitious storage account and a real container with no credential",
+      "error 40538 is a URL SHAPE check and its text names only the scheme: a blob container segment of fewer than three characters is refused with 40538 while the same URL with a longer container name is accepted, measured 2026-09-08",
       "a database scoped credential is usable by an event_file target only when its name is exactly the blob container URL with no trailing slash",
       "the duration field is documented in microseconds for sql_statement_completed and rpc_completed and in milliseconds for wait_info and wait_completed",
       "sp_configure 'blocked process threshold' cannot be set on Azure SQL Database, so a blocked_process_report session has no threshold to cross and the supported source for that report is the Blocks resource log category. The refusal differs by engine and the right one has to be quoted: a real logical server has no sp_configure at all and answers Msg 2812, while the container carries the procedure and answers Msg 40510",
@@ -98,7 +99,50 @@
         },
         "why": "Why a blocked_process_report session creates, starts, reports healthy and captures nothing across a real 28 second lock wait: there is no threshold to cross, not a threshold set too high. This probe expects Msg 2812, Could not find stored procedure, because validation.target here is cloud and that is what a real logical server answers, measured 2026-09-05 on sqllab200068e2: OBJECT_ID('sys.sp_configure') is NULL and both the qualified and unqualified names raise 2812. It expected 40510 until that run. 40510 is not wrong, it is the CONTAINER answer, measured 2026-08-29 naming CONFIG, and the two engines refuse this differently because one carries the procedure and the other does not. Red if a logical server ever grows an sp_configure, which would change the advice. Without this probe the empty ring buffer reads as a tuning problem."
       }
-    
+    ,
+      {
+        "sql": "IF EXISTS (SELECT 1 FROM sys.database_event_sessions WHERE name = 'probe_bad_target')\n  DROP EVENT SESSION probe_bad_target ON DATABASE;\nCREATE EVENT SESSION probe_bad_target ON DATABASE\n  ADD EVENT sqlserver.sql_statement_completed\n  ADD TARGET package0.etw_classic_sync_target;",
+        "expect": {
+          "error": 25742
+        },
+        "why": "The first of the three refusals a ported SQL Server script meets, and the skill states all three in one sentence with none of them run. Measured 2026-09-08 on sqllab0908614: Target 'package0.etw_classic_sync_target' is not available for Azure SQL Database. Red if the service ever admits a Windows-only target, which would change what the skill says about porting. It catches on the number, so a typo in the target name reports its own number and goes red rather than passing."
+      },
+      {
+        "sql": "IF EXISTS (SELECT 1 FROM sys.database_event_sessions WHERE name = 'probe_bad_event')\n  DROP EVENT SESSION probe_bad_event ON DATABASE;\nCREATE EVENT SESSION probe_bad_event ON DATABASE\n  ADD EVENT sqlserver.xml_deadlock_report\n  ADD TARGET package0.ring_buffer;",
+        "expect": {
+          "error": 25743
+        },
+        "why": "The server-scoped deadlock event every on-premises script uses, and the reason this skill sends a reader to database_xml_deadlock_report instead. Measured 2026-09-08 on sqllab0908614: The event 'sqlserver.xml_deadlock_report' is not available for Azure SQL Database. Red if it becomes available, which would remove the reason for the substitution the skill teaches."
+      },
+      {
+        "sql": "IF EXISTS (SELECT 1 FROM sys.database_event_sessions WHERE name = 'probe_bad_action')\n  DROP EVENT SESSION probe_bad_action ON DATABASE;\nCREATE EVENT SESSION probe_bad_action ON DATABASE\n  ADD EVENT sqlserver.sql_statement_completed (ACTION (sqlserver.server_instance_name))\n  ADD TARGET package0.ring_buffer;",
+        "expect": {
+          "error": 25744
+        },
+        "why": "The third refusal, and the one that lands inside the ACTION() clause this skill spends a step telling the reader to add. Measured 2026-09-08 on sqllab0908614: The action 'sqlserver.server_instance_name' is not available for Azure SQL Database. Red if a server-scoped action becomes addable at database scope."
+      },
+      {
+        "sql": "IF EXISTS (SELECT 1 FROM sys.database_event_sessions WHERE name = 'probe_memory_cap')\n  DROP EVENT SESSION probe_memory_cap ON DATABASE;\nCREATE EVENT SESSION probe_memory_cap ON DATABASE\n  ADD EVENT sqlserver.sql_statement_completed\n  ADD TARGET package0.ring_buffer\n  WITH (MAX_MEMORY = 1048576 KB);",
+        "expect": {
+          "error": 25746
+        },
+        "why": "The 128 MB per database event session memory ceiling, which the skill states as a number and nothing checked. One gibibyte asked for in a single session is comfortably past it on any tier, so this does not depend on what else is running. Measured 2026-09-08 on sqllab0908614: Operation will cause database event session memory to exceed allowed limit. Red if the ceiling moves, which would make the number in the body wrong."
+      },
+      {
+        "sql": "IF EXISTS (SELECT 1 FROM sys.database_event_sessions WHERE name = 'probe_blob_nocred')\n  DROP EVENT SESSION probe_blob_nocred ON DATABASE;\nCREATE EVENT SESSION probe_blob_nocred ON DATABASE\n  ADD EVENT sqlserver.sql_statement_completed\n  ADD TARGET package0.event_file (SET filename = 'https://nosuchaccount0908.blob.core.windows.net/xeprobes/probe');\nALTER EVENT SESSION probe_blob_nocred ON DATABASE STATE = START;",
+        "expect": {
+          "error": 25602
+        },
+        "why": "The claim this skill had backwards until 2026-09-08. A well formed blob URL is accepted at CREATE with no credential check, and the START then answers Msg 25602 with operating system error 86, not the Msg 25739 whose own sys.messages text names this exact condition. Measured four times that day on sqllab0908614, twice against this fictitious account and twice against a real storage container created for the run, all four identical. The filename deliberately carries no .xel extension and a container segment of three characters or more, because the engine validates the URL against blob naming rules at CREATE and reports every shape failure as Msg 40538. Red if the engine starts raising 25739 here, which would mean the product moved and the skill's original wording was right after all."
+      },
+      {
+        "where": "host",
+        "cmd": "set -e; Q() { sqlcmd -S \"$PROBE_SERVER\" -d \"$PROBE_DB\" --authentication-method=ActiveDirectoryAzCli -b -I -m-1 -W -l 30 -Q \"$1\" 2>&1; }; Q \"DROP TABLE IF EXISTS dbo.probe_dl1; DROP TABLE IF EXISTS dbo.probe_dl2; CREATE TABLE dbo.probe_dl1(i INT); CREATE TABLE dbo.probe_dl2(i INT); INSERT dbo.probe_dl1 VALUES(1); INSERT dbo.probe_dl2 VALUES(1);\" > /dev/null; o=$(mktemp -d); Q \"BEGIN TRAN; UPDATE dbo.probe_dl1 SET i=i+1; WAITFOR DELAY '00:00:03'; UPDATE dbo.probe_dl2 SET i=i+1; COMMIT;\" > \"$o/a\" 2>&1 & sleep 1; Q \"BEGIN TRAN; UPDATE dbo.probe_dl2 SET i=i+1; WAITFOR DELAY '00:00:03'; UPDATE dbo.probe_dl1 SET i=i+1; COMMIT;\" > \"$o/b\" 2>&1 & wait; grep -q 'Msg 1205,' \"$o/a\" \"$o/b\"",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Msg 1205 is the number this skill's whole deadlock section rests on and no sql probe can produce it, because a deadlock needs two sessions and the lane hands a probe one batch. So it is a host probe that opens two Entra connections of its own and takes two tables in opposite order. The grep is for the literal string Msg 1205, with its comma, so a different error in either session leaves the grep with no match and the probe red: this is not a TRY/CATCH that passes on any failure. Measured 2026-09-08 on sqllab0908614: Transaction (Process ID 75) was deadlocked on lock resources with another process and has been chosen as the deadlock victim, Level 13, State 72. Red if the deadlock monitor stops choosing a victim, or if 1205 changes."
+      }
     ]
   },
   "triggering": {

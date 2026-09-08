@@ -179,7 +179,13 @@ GRANT REFERENCES ON DATABASE SCOPED CREDENTIAL::[https://<resource>.openai.azure
 
 **The `EXECUTE` denial is the one that wastes an afternoon.** A caller without it is told the model
 "does not exist or you do not have permission", so the obvious move is to recreate it, which changes
-nothing. A caller going through `AI_GENERATE_EMBEDDINGS` needs neither of the other two grants,
+nothing.
+
+**`Msg 15151` has a second cause that is not a permission at all**, measured on a logical server
+2026-09-08: `CREATE EXTERNAL MODEL` and the `AI_GENERATE_EMBEDDINGS` that uses it **cannot be in the
+same batch**. The model name binds when the batch compiles, before the create in that batch has run,
+and there is no deferred name resolution for external models. Split by `GO` or run in two round trips
+and the identical statements succeed. The message points at permissions the whole time. A caller going through `AI_GENERATE_EMBEDDINGS` needs neither of the other two grants,
 because the model holds the credential: that is why to prefer it over raw REST.
 
 ## Step 5: the allowlist, which is a cloud rule and not a local one
@@ -228,6 +234,10 @@ rows: 200 rows is roughly a 70 second transaction, and the corpus is never one. 
 - **A per call override exists** when a job needs a different dimension or retry budget than the
   model carries: `AI_GENERATE_EMBEDDINGS(@t USE MODEL text_embedder PARAMETERS N'{"dimensions":768}')`.
 - **Concurrency is capped**, at 10% of worker threads to a maximum of 150, and `Msg 10928` past it.
+  Measured 2026-09-08 on a Basic database: 70 concurrent sessions, 30 admitted and 40 refused with
+  `Resource ID : 1. The request limit for the database is 30 and has been reached`. It arrives at
+  **Level 20**, though `sys.messages` lists 10928 at severity 16, so a retry policy that filters on
+  severity does not see what the catalog predicts.
   Learn's query for the per database number reads `sys.dm_user_db_resource_governance`, cloud only
   and `Msg 208` on the container, so size parallelism in the cloud or not at all.
 - Record which model produced each vector. The reason belongs to `rag-on-azure-sql`.

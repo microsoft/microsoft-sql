@@ -240,7 +240,9 @@ unsupported, and `sp_verify_database_ledger` errors on a database holding a vect
 
 - **The table needs a clustered index.** Without one, `Msg 42254`. Learn says a primary key
   clustered index; clustered primary keys on `int`, `bigint`, `nvarchar` and a composite all built
-  here, so `Msg 42217`'s narrower wording is stale, not the rule.
+  here, so `Msg 42217`'s narrower wording is stale, not the rule. Re-measured on a real logical
+  server 2026-09-08: `bigint` and a composite `(int, int)` both built, a heap was refused with
+  `Msg 42254` and not 42217, and **no input produced `Msg 42217` at all**.
 - **At least 100 rows with a non-null vector must already exist**, or `Msg 42266`. A fresh database
   has no index until it has content, and every query is silently exact until then. The fixture
   inserts 150 for headroom.
