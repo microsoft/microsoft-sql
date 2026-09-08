@@ -23,6 +23,14 @@ Microsoft's first-party open-source engine. You describe tables as entities in
 with a plain connection string, so **no change tracking or special engine
 feature is needed.**
 
+Verified on 2026-09-05 against the container image
+`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
+5, Edition `SQL Azure`, build `12.0.2000.8`. All eight executable checks behind this skill
+passed against Data API builder 2.0.9, including the generated `dab-config.json` keeping the
+environment-variable indirection rather than the password, the `/api` and `/graphql` prefixes
+and the `/mcp` endpoint arriving as defaults, and both REST and GraphQL returning the same
+rows from a table in the container.
+
 ## Load-bearing facts (inlined; full engine detail in azuresql-db-container)
 
 - This is the **Azure SQL Database engine** (Private Preview), not the SQL Server
@@ -48,7 +56,8 @@ first, use **azuresql-db-container** or **azuresql-db-scaffold**.
 ## Step 1: install DAB
 
 Two supported ways. Pick the CLI for local dev; pick the container to wire DAB
-into a compose stack (see [references/dab-snippets.md](references/dab-snippets.md)).
+into a compose stack. Open [references/dab-snippets.md](references/dab-snippets.md) when you want
+that compose service rather than the CLI.
 
 ```bash
 # CLI (.NET 8 required): installs the `dab` command
@@ -127,7 +136,8 @@ from the same `dab-config.json`**, at `http://localhost:5000/mcp` by default,
 enabled by default. This is an additional API surface Data API Builder provides
 over your configured entities - it is not, and should not be presented as, a
 standalone "MSSQL MCP server." How to point an MCP client at it and how to
-scope the exposed tools is in [references/dab-mcp.md](references/dab-mcp.md).
+scope the exposed tools is in [references/dab-mcp.md](references/dab-mcp.md); open it when a user
+asks to point an MCP client at DAB, or to narrow which entities it exposes.
 
 ## Validation rules
 

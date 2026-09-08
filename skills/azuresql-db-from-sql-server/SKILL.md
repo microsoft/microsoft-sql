@@ -32,6 +32,14 @@ If a project is using the SQL Server image but wants Azure-faithful local dev, *
 and switch to the container.** This skill is self-contained;
 for full container detail see the **azuresql-db-container** skill.
 
+Verified on 2026-09-05 against the container image
+`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
+5, Edition `SQL Azure`, build `12.0.2000.8`. All nine executable checks behind this skill
+passed, including `Msg 40508` for `USE`, `Msg 40510` for `BACKUP`, `Msg 2812` for
+`sp_configure` (absent rather than refused), `Msg 40517` for `ALTER DATABASE ... SET
+RECOVERY`, the single-database model, `/docker-entrypoint-initdb.d` not being auto-run, and
+`sqlcmd` at `/opt/mssql-tools18/bin/sqlcmd`.
+
 ## When to use
 
 - The project Dockerfile, compose file, or run script references
@@ -130,7 +138,8 @@ docker exec -i sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "YourSt
 ### 7. Remove SQL Server-only features
 
 Some features exist only in the SQL Server image and must be removed or replaced.
-Flag and fix every hit. Full table in [references/sql-server-vs-azure-feature-matrix.md](references/sql-server-vs-azure-feature-matrix.md).
+Flag and fix every hit. Open [references/sql-server-vs-azure-feature-matrix.md](references/sql-server-vs-azure-feature-matrix.md)
+when you meet a feature this list does not name.
 
 - **SQL Server Agent** jobs: not available; use an external scheduler.
 - **FILESTREAM / FileTable**: not supported; store blobs in columns or external storage.
@@ -168,7 +177,7 @@ The Azure SQL Database engine has a native `VECTOR(n)` type and
 `VECTOR_DISTANCE('cosine', a, b)`. Insert with `CAST(CAST(? AS NVARCHAR(MAX)) AS VECTOR(n))` where **n
 is a LITERAL, never a bind parameter** (a parameter dimension fails with
 "Incorrect syntax near '@P3'"). `CREATE VECTOR INDEX` (DiskANN) **works on this image**, measured, and the Known
-limitations page has not caught up. It needs `SET QUOTED_IDENTIFIER ON` and at
+limitations page says so. It needs `SET QUOTED_IDENTIFIER ON` and at
 least 100 rows with non-null vectors (`Msg 42266` below that). Full-scan top-k
 stays exact and stays the right choice for a small table. The `azuresql-db-rag`
 skill carries the rules the index imposes.
