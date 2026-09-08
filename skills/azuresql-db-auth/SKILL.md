@@ -21,6 +21,15 @@ connect as. This skill wires the app to a **least-privilege user**, picks the
 in the cloud, changing only the connection string), secures the connection, and
 keeps the secret out of source control.
 
+Verified on 2026-09-05 against the container image
+`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
+5, Edition `SQL Azure`, build `12.0.2000.8`. All seven executable checks behind this skill
+passed, including `Msg 15007` for a contained user, `Msg 12844` for `SET CONTAINMENT =
+PARTIAL`, `Msg 37525` for `CREATE USER ... FROM EXTERNAL PROVIDER` on a container started
+without Entra configuration, and the fixed database roles this skill grants. The cloud side of
+this guidance, Azure Key Vault and managed identity, was not measured by that run and comes
+from Microsoft Learn.
+
 ## Load-bearing facts (inlined; full engine detail in azuresql-db-container)
 
 - This is the **Azure SQL Database engine** (Private Preview), not the SQL Server
@@ -110,8 +119,16 @@ The connection string carries a credential. Never commit it or the SA password.
 - In the cloud, store it in **Azure Key Vault** and reference it, or use managed
   identity so there is no password to store at all.
 
-Per-stack secret handling (Key Vault, user-secrets, `.env`) is in
-[references/auth-and-secrets.md](references/auth-and-secrets.md).
+For a .NET project the local value goes in the secret store rather than in a file
+that can be committed:
+
+```bash
+dotnet user-secrets init
+dotnet user-secrets set "SQL_CONNECTION_STRING" "Server=localhost,1433;Database=appdb;User Id=appuser;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true"
+```
+
+Open [references/auth-and-secrets.md](references/auth-and-secrets.md) when you need the
+per-stack handling for Key Vault, user-secrets or `.env`.
 
 ## Validation rules
 

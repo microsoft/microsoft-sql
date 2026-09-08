@@ -18,11 +18,16 @@ before proposing anything.
 hand-created folder will not have it, and CI fails. The 17 carried-over container skills are the
 one sanctioned exception, backfilled once by `scripts/backfill-container-sidecars.mjs`.
 
-**The container family is carried over, not forked.** Anything under
-`skills/azure-sql-database-container/` is byte-identical to
-`microsoft/azure-sql-database-container`, whose users install the same files until the product
-leaves Private Preview in November 2026. Changes originate there and arrive by sync. Editing them
-here forks the product.
+**The container family is carried over, not forked.** Every `skills/azuresql-db-*/` folder is
+byte-identical to `microsoft/azure-sql-database-container`, whose users install the same files
+until the product leaves Private Preview in November 2026. Changes originate there and arrive by
+sync. Editing them here forks the product.
+
+`npm run sidecars:parity` enforces that, on the sidecar fields AND on the shipped text, meaning
+`SKILL.md` and everything under `references/`. It reads the product repository over HTTPS, or
+from a local checkout given as `--product-repo <path>`, and it fails rather than skipping when it
+cannot see it. Before 2026-09-08 it compared sidecars only, and all 17 `SKILL.md` files plus 5
+reference files had gone stale behind the product repository while every gate stayed green.
 
 ## The sidecar installs with the skill, and that is expected
 

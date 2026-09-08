@@ -13,6 +13,15 @@ to the user to submit.
 
 **Repository:** `microsoft/azure-sql-database-container` (both the container and the skills live here).
 
+The claims in this skill are about issue forms in `microsoft/azure-sql-database-container`,
+not about the engine, so no engine measurement applies to them. Verified on 2026-09-05:
+`aka.ms/sql-agent-skills-feedback` still answers `301` to
+`https://github.com/microsoft/azure-sql-database-container/issues/new?template=skill_feedback.yml`
+with the query string dropped, which is exactly why a prefilled report has to use the full
+`github.com` URL. The field ids, labels and dropdown values are read from the issue form
+definitions in this repository and mirrored in
+[references/issue-fields.md](references/issue-fields.md), which you open before you build any URL.
+
 ## The two rules that matter most
 
 1. **Never create an issue without explicit confirmation.** Show the user the full title and body first and
@@ -99,6 +108,15 @@ anything happens. Use this whenever `gh` is not available; it always works.
 Build the URL from the issue form's field ids and print it for the user to open. The field ids, the **verbatim**
 dropdown values, and worked examples for all three templates are in
 [references/issue-fields.md](references/issue-fields.md). **Read that file before constructing a URL.**
+
+## Validation rules
+
+- The user saw the exact title, body and labels before anything was submitted, and said yes.
+- The report went to the right template: a skill problem on the skills form, a container problem on the container form.
+- No SA password, registry credential or access token appears in any field. Re-read the body once more before submitting.
+- Every dropdown value is verbatim from the field reference, which you open before building any URL, or the field was left out.
+- A prefilled report uses a full `github.com` URL, never an `aka.ms` link, because those drop the query string.
+- Tier 1 succeeded when `gh issue create` printed the new issue URL; tier 2 succeeded when the user opened the URL and the form came up with the fields already filled in. If neither happened, the report was not filed: say so rather than implying it was.
 
 ## Do not
 
