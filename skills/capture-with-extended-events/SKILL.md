@@ -234,9 +234,20 @@ captured XML of each case above, the container measurements behind them, and the
 
 A local filesystem path is rejected at `CREATE`, not left unwritten:
 `Msg 40538, A valid URL beginning with 'https://' is required as value for any filepath specified`.
+That same message is also what a **malformed blob URL** gets, and it names the wrong thing: measured
+on a logical server 2026-09-08, a container segment of fewer than three characters is refused with
+`Msg 40538` while the identical URL with a longer container name is accepted, so a reader retypes a
+scheme that was already `https://`. Check the container name against Azure's blob naming rules
+before touching the scheme.
+
 An `https://` blob URL is accepted at `CREATE` with no credential check at all; the credential is
-evaluated only at `START`, which fails with `Msg 25739` when it is missing outright, or `Msg 25602`
-when the target cannot initialise. The most common cause of the latter is documented and specific:
+evaluated only at `START`. **Expect `Msg 25602` there, not `Msg 25739`.** `Msg 25739` exists and its
+text is exactly this condition, "required credential for writing session output to Azure blob is
+missing", and the engine does not raise it: measured 2026-09-08 on a logical server, four times,
+against both a fictitious storage account and a real container with no credential, every start
+answered `Msg 25602` with operating system error 86, "The specified network password is not
+correct". That error text sends you after a password when what is missing is the credential object.
+The most common cause of `Msg 25602` is documented and specific:
 **the database scoped credential's name must be the blob container URL itself, with no trailing
 slash.** Open
 [references/event-file-to-blob-storage.md](references/event-file-to-blob-storage.md) before you

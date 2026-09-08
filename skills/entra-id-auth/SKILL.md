@@ -183,7 +183,10 @@ Msg 33131, Level 16, State 1, Line 4
 Principal 'myapp' has a duplicate display name.
 ```
 
-Two traps: the object id must exist in this tenant or the statement fails with `Msg 37545`, and the
+Three traps. **`WITH OBJECT_ID` is a modifier on `FROM EXTERNAL PROVIDER`, not an alternative to
+it**: written on its own the statement is `Msg 37546, Can only specify object_id when creating user
+from external provider`, measured 2026-09-08. The object id must exist in this tenant or the
+statement fails with `Msg 37545`. And the
 **Object ID on an app registration is not the one on its service principal**. This clause wants the
 enterprise application one, `objectId` in step 3.
 
@@ -196,7 +199,12 @@ Entra authenticated. The `WITH SID` form is the exception: it performs no extern
 
 ## The name to put in the brackets
 
-A wrong name produces `Msg 33134` or `Msg 33131` and reads as a permissions problem. The one nobody
+A wrong name produces **`Msg 33130`**, `Principal '<name>' could not be found or this principal type
+is not supported`, and reads as a permissions problem. Measured on two different logical servers, on
+2026-09-05 and again on 2026-09-08: an unknown address, a bare guid and a non-existent application
+name all answered 33130. `Msg 33134` is a different path and is described above; `Msg 33131` is the
+duplicate display name, confirmed 2026-09-08 by
+`CREATE USER [Microsoft Graph] FROM EXTERNAL PROVIDER`. The one nobody
 guesses: a **system-assigned** identity on a deployment slot is `<app-name>/slots/<slot-name>`,
 which is why an application works in production and fails in staging. Open
 [references/identity-errors.md](references/identity-errors.md) before typing a name you inferred,

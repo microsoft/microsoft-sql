@@ -80,10 +80,20 @@ error number tables list all three at **severity 10** with text beginning `Reaso
 sub-message attached to a login failure rather than a standalone error. Both are Microsoft Learn and
 they do not agree.
 
-Take the tables as operative: they explain the symptom. Severity 10 becomes 0 on the way to
-the client, so a developer whose public network access was disabled reports a timeout and never sees
-`47073`. `-m-1` on ODBC `sqlcmd` is what makes it visible. On go-sqlcmd 1.10.0 nothing does, so
-look the number up in `sys.messages` on a connection that works.
+Take the tables as operative: they explain the symptom. What a client sees was measured on
+2026-09-08, by setting public network access to Disabled on a live logical server and connecting:
+
+```output
+mssql: login error: Reason: An instance-specific error occurred while establishing a connection to
+SQL Server. Connection was denied because Deny Public Network Access is set to Yes. For more
+information, see https://go.microsoft.com/fwlink/?linkid=2323206.
+```
+
+**It is not a timeout, and it is not silent.** The refusal is immediate and go-sqlcmd 1.10.0 prints
+the severity 10 sub-message text in full, remedy and documentation link included. What it does not
+print is the bare number, so a developer searching their own terminal output for `47073` finds
+nothing while the reason is on the screen in front of them. Read the reason, not the number, and look
+the number up in `sys.messages` on a connection that works if you need it for a ticket.
 
 ## 40615 and 40914 are the firewall, and no connection string fixes them
 

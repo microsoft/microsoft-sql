@@ -50,13 +50,13 @@
     ],
     "assert": [
       "an address with no firewall rule returns 40615 and the skill answers with a firewall rule rather than an edit to the connection string, and accounts for the five minute propagation delay",
-      "a server with public network access disabled returns 47073 and is not diagnosed as a credential problem",
+      "a server with public network access disabled returns 47073 and is not diagnosed as a credential problem. Measured 2026-09-08 on sqllab0908614: the refusal is immediate rather than a timeout, and go-sqlcmd 1.10.0 prints the severity 10 sub-message text in full while printing no number",
       "an error carrying no SQL number is classified from its message text rather than reported as unknown",
       "a certificate-chain failure is answered by fixing the client trust store, never by trusting the server certificate",
       "a wrong password returns 18456, and the skill names the layer that rejected it and hands it to entra-id-auth rather than answering it here or blaming the firewall",
       "a database name that does not exist returns 4060, and is likewise named and handed on rather than answered as a firewall or connection-string fault",
       "40613 is named as expected serverless resume and handed to connect-to-azure-sql rather than answered here",
-      "a refusal that arrives with no visible number is not declared unknown before -m-1 has been tried, because 47072, 47073 and 42101 are severity 10 and are converted to severity 0 before the client sees them"
+      "a refusal that arrives with no visible number is not declared unknown before -m-1 has been tried, because 47072, 47073 and 42101 are severity 10 and are converted to severity 0 before the client sees them. The TEXT still reaches the client on go-sqlcmd 1.10.0, measured 2026-09-08, so the reason is readable even where the number is not"
     ],
     "probes": [
       {
