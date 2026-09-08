@@ -34,8 +34,9 @@
 // in red, because "I could not check" and "I checked and it is fine" are the
 // two things this whole exercise exists to stop confusing.
 
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import { createHash } from 'node:crypto';
 
 // The product repository, and the ref that carries the sidecars.
 //
@@ -69,6 +70,62 @@ const ROOT = 'skills';
 const CATALOG = 'catalog/catalog.json';
 const DOMAIN = 'azure-sql-database-container';
 const SIDECAR = 'skill.spec.jsonc';
+
+// ---- THE SHIPPED TEXT --------------------------------------------------
+//
+// WHY THIS WAS ADDED, 2026-09-08. Everything below the sidecar policy compared
+// contract files and nothing else. So SKILL.md and references/ , which are the
+// only files a reader is ever served, were nobody's check: this script read
+// skill.spec.jsonc, backfill-container-sidecars.mjs regenerates skill.spec.jsonc,
+// validate-catalog.mjs checks structure, and none of them opened the prose. That
+// blind spot was then measured. All 17 SKILL.md files and 5 reference files in
+// this catalog were older than the product repository's, missing the constitution
+// fixes to how each skill points at its references and missing the dated
+// verification statement added to all 17 on 2026-09-05, while every gate in
+// `npm test` stayed green. The catalog was publishing text nobody had compared.
+//
+// EQUALITY, NOT A POLICY TABLE. The sidecar needs three classes because a sidecar
+// field can legitimately differ, and `correction` is the worked example: this
+// catalog carries a summary sized for a catalog entry and the product repository
+// carries the full text. The shipped text has no such case. AGENTS.md states the
+// contract in one line, "anything under skills/ is byte-identical to
+// microsoft/azure-sql-database-container ... changes originate there and arrive by
+// sync", and the house-rules exclusion for em-dashes is written FROM that contract:
+// the container skills are exempt because "they are the product's files, not ours
+// to reformat". The two rules that could have forced a deliberate divergence both
+// resolve by excluding these files instead. So there is exactly one correct state,
+// identical, and this enforces it rather than inviting a future exception to be
+// filed as one.
+//
+// HOW COMPARISON WORKS, AND WHY IT IS A HASH. Both sides are reduced to the git
+// blob hash of each file, which is what `git hash-object` computes. That buys two
+// things. Over HTTPS the whole file list AND its hashes arrive in ONE request to
+// the git trees API, so widening this from 17 files to 100 costs no extra network
+// calls and cannot trip the unauthenticated rate limit the way 100 raw fetches
+// would. And a blob hash is content only, so the 100755-versus-100644 file modes
+// the two repositories happen to carry are ignored, which they should be: a mode
+// bit is not text a reader is served.
+const isShipped = (relativePath) =>
+  relativePath === 'SKILL.md' || relativePath.startsWith('references/');
+
+const blobHash = (buf) =>
+  createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${buf.length}\0`), buf])).digest('hex');
+
+function filesUnder(dir, base = dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = join(dir, entry.name);
+    return entry.isDirectory() ? filesUnder(full, base) : [relative(base, full)];
+  });
+}
+
+// The shipped files of one skill directory, as { relativePath: blobHash }.
+function shippedHashes(skillDir) {
+  const out = {};
+  for (const f of filesUnder(skillDir).sort()) {
+    if (isShipped(f)) out[f] = blobHash(readFileSync(join(skillDir, f)));
+  }
+  return out;
+}
 
 // THE FIELD POLICY.
 //
@@ -184,7 +241,8 @@ async function loadFromLocal(base) {
       `${SOURCE.ref} in that clone and pull, or unset the path to fetch that ref over HTTPS.`,
     ]);
   }
-  return { out, origin: `local checkout ${base}` };
+  const body = Object.fromEntries(ids.map((id) => [id, shippedHashes(join(base, SOURCE.dir, id))]));
+  return { out, body, origin: `local checkout ${base}` };
 }
 
 async function loadFromGitHub() {
@@ -221,11 +279,96 @@ async function loadFromGitHub() {
   }
   return {
     out: Object.fromEntries(results.map((r) => [r.id, { text: r.text, where: r.url }])),
+    body: await loadShippedFromGitHub(),
     origin: `${SOURCE.repo} at ${SOURCE.ref} over HTTPS`,
   };
 }
 
-const { out: product, origin } = localPath ? await loadFromLocal(localPath) : await loadFromGitHub();
+// The shipped text over HTTPS, in ONE request.
+//
+// raw.githubusercontent.com can serve a file and cannot list a directory, and
+// listing is the half that matters: fetching only the files this catalog already
+// has would be blind to a reference file ADDED upstream, which is precisely the
+// direction this drift travelled. The git trees API returns every path under the
+// ref together with each blob's hash, so one call answers both "which files exist
+// there" and "are they the same bytes".
+//
+// GITHUB_TOKEN is used when the environment offers one, purely for the rate
+// limit. It is never required: the product repository is public, and a check that
+// only runs where a secret is configured is a check that silently stops running.
+async function loadShippedFromGitHub() {
+  const url = `https://api.github.com/repos/${SOURCE.repo}/git/trees/${SOURCE.ref}?recursive=1`;
+  const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'check-container-parity' };
+  if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+
+  let doc;
+  try {
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      fail([
+        `Could not list the shipped files of ${SOURCE.repo} at ${SOURCE.ref}: HTTP ${res.status}`,
+        `      ${url}`,
+        '',
+        'THIS IS A FAILURE AND NOT A SKIP, for the same reason the sidecar fetch above is.',
+        '',
+        'Likely causes, in order:',
+        '  - HTTP 403 with no token: the unauthenticated API rate limit, 60 requests an',
+        '    hour per address. Set GITHUB_TOKEN in the environment, or pass',
+        '    --product-repo <path> to compare against a local checkout instead.',
+        `  - HTTP 404: the ref ${SOURCE.ref} was deleted or renamed. Repoint SOURCE.ref.`,
+        '  - no network egress on this runner. Give the job a local checkout and set',
+        '    AZURE_SQL_CONTAINER_REPO to it.',
+      ]);
+    }
+    doc = await res.json();
+  } catch (e) {
+    fail([
+      `Could not list the shipped files of ${SOURCE.repo} at ${SOURCE.ref}: ${e.message}`,
+      `      ${url}`,
+      '',
+      'THIS IS A FAILURE AND NOT A SKIP. A parity check that passes when it cannot see',
+      'the other repository is the defect it was written to remove.',
+    ]);
+  }
+
+  // The trees API drops entries once a response grows past its own limit and says
+  // so in this flag. A truncated tree would look exactly like a repository with
+  // fewer files, so believing it would turn this into a check that passes because
+  // it did not see the evidence.
+  if (doc.truncated) {
+    fail([
+      `The git tree of ${SOURCE.repo} at ${SOURCE.ref} came back TRUNCATED, so the file`,
+      'list is incomplete and a missing file cannot be told apart from a deleted one.',
+      '',
+      'Pass --product-repo <path> to compare against a local checkout, which has no',
+      'such limit.',
+    ]);
+  }
+
+  const wanted = new Set(ids);
+  const body = Object.fromEntries(ids.map((id) => [id, {}]));
+  for (const entry of doc.tree ?? []) {
+    if (entry.type !== 'blob') continue;
+    const parts = entry.path.split('/');
+    if (parts[0] !== SOURCE.dir || !wanted.has(parts[1])) continue;
+    const rel = parts.slice(2).join('/');
+    if (isShipped(rel)) body[parts[1]][rel] = entry.sha;
+  }
+
+  const empty = ids.filter((id) => !body[id]['SKILL.md']);
+  if (empty.length) {
+    fail([
+      `${empty.length} of ${ids.length} skills have no SKILL.md in ${SOURCE.repo} at ${SOURCE.ref}:`,
+      ...empty.map((id) => `  x ${SOURCE.dir}/${id}/SKILL.md`),
+      '',
+      'Either the product repository moved these files, or the tree was read wrongly.',
+      'Both are failures here rather than something to compare around.',
+    ]);
+  }
+  return body;
+}
+
+const { out: product, body: productBody, origin } = localPath ? await loadFromLocal(localPath) : await loadFromGitHub();
 
 // ---- compare -------------------------------------------------------------
 
@@ -312,6 +455,52 @@ for (const id of ids) {
   }
 }
 
+// ---- the shipped text ----------------------------------------------------
+//
+// One entry per file, naming the file, because "azuresql-db-rag differs" sends a
+// reader to look at four files when one moved.
+const textErrors = [];
+
+for (const id of ids) {
+  const here = join(ROOT, id);
+  if (!existsSync(here)) continue; // already reported by the sidecar loop above
+  const mine = shippedHashes(here);
+  const theirs = productBody[id] ?? {};
+
+  for (const rel of [...new Set([...Object.keys(mine), ...Object.keys(theirs)])].sort()) {
+    if (mine[rel] === theirs[rel]) continue;
+    if (!theirs[rel]) { textErrors.push({ id, rel, why: 'is in this catalog and not in the product repository. It was either deleted there and not here, or added here, which forks the product.' }); continue; }
+    if (!mine[rel]) { textErrors.push({ id, rel, why: 'exists in the product repository and is missing here, so this catalog is serving a skill whose own links point at a file it does not carry.' }); continue; }
+    textErrors.push({ id, rel, why: 'differs' });
+  }
+}
+
+// Say WHERE the text differs, not only that it does. A reader who is told
+// "SKILL.md differs" opens a 400-line file and starts reading; a reader who is
+// given the line number and both sides of it knows within seconds whether this is
+// a missed sync or somebody editing the catalog copy by hand.
+async function productLines(id, rel) {
+  if (localPath) return readFileSync(join(localPath, SOURCE.dir, id, rel), 'utf8').split('\n');
+  const res = await fetch(`https://raw.githubusercontent.com/${SOURCE.repo}/${SOURCE.ref}/${SOURCE.dir}/${id}/${rel}`);
+  if (!res.ok) return null;
+  return (await res.text()).split('\n');
+}
+
+if (textErrors.length) {
+  for (const e of textErrors.filter((e) => e.why === 'differs')) {
+    const theirLines = await productLines(e.id, e.rel);
+    if (!theirLines) continue;
+    const mineLines = readFileSync(join(ROOT, e.id, e.rel), 'utf8').split('\n');
+    const n = Math.max(mineLines.length, theirLines.length);
+    for (let i = 0; i < n; i++) {
+      if (mineLines[i] === theirLines[i]) continue;
+      const trim = (v) => (v === undefined ? '(end of file)' : v.length > 160 ? v.slice(0, 160) + ' ...' : v);
+      e.why = `differs, first at line ${i + 1}\n        catalog: ${trim(mineLines[i])}\n        product: ${trim(theirLines[i])}`;
+      break;
+    }
+  }
+}
+
 // ---- report --------------------------------------------------------------
 
 console.log(`Compared ${ids.length} container sidecars in ${ROOT}/ against ${origin}.`);
@@ -323,6 +512,9 @@ console.log('Must match:   ' + [...Object.keys(POLICY.mustMatch).filter((f) => f
   + ', and both sides must carry a non-empty correction.');
 console.log('May differ:   ' + Object.keys(POLICY.mayDiffer).join(', '));
 console.log('Unreconciled: ' + Object.keys(POLICY.unreconciled).join(', ') + '  (reported, not enforced)');
+console.log('');
+console.log(`Compared the shipped text of the same ${ids.length}: SKILL.md and references/, by git blob hash.`);
+console.log('These must be IDENTICAL. AGENTS.md: the container family is carried over, not forked.');
 
 if (notes.length) {
   console.log('');
@@ -336,13 +528,30 @@ if (notes.length) {
   console.log('  Rule each of these into mustMatch or mayDiffer and this section goes away.');
 }
 
+if (textErrors.length) {
+  console.error('');
+  console.error(`${textErrors.length} shipped file(s) differ from ${SOURCE.repo} at ${SOURCE.ref}:`);
+  for (const e of textErrors) console.error(`  x ${e.id}/${e.rel} ${e.why}`);
+  console.error('');
+  console.error('This text is what a user installs, so a difference here is the catalog');
+  console.error('publishing something other than what the product ships.');
+  console.error('');
+  console.error('THE FIX IS ALWAYS IN ONE DIRECTION. The product repository is the source; copy');
+  console.error(`${SOURCE.dir}/<id>/SKILL.md and ${SOURCE.dir}/<id>/references/ from there to here.`);
+  console.error('Do not edit these files in this repository to make them agree: that forks the');
+  console.error('product, and the next sync silently discards whatever was written here.');
+}
+
 if (errors.length) {
   console.error('');
   console.error(`${errors.length} parity failure(s) between this repository and ${SOURCE.repo}:`);
   for (const e of errors) console.error(`  x ${e}`);
+}
+
+if (errors.length || textErrors.length) {
   console.error('');
   process.exit(1);
 }
 
 console.log('');
-console.log(`All ${ids.length} agree on every field that must match.`);
+console.log(`All ${ids.length} agree on every field that must match, and on every byte of the text they ship.`);
