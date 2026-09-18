@@ -52,11 +52,21 @@ The repository root is an Agent Plugins package. [`plugin.json`](plugin.json) de
 Claude Code uses its own plugin format rather than Agent Plugins, so it has its own path:
 
 ```bash
-claude plugin marketplace add microsoft/azure-sql-skills
+claude plugin marketplace add microsoft/microsoft-sql
 ```
 
 ```bash
-claude plugin install azure-sql-skills@azure-sql-skills
+claude plugin install microsoft@microsoft-sql
+```
+
+### Codex plugin
+
+```bash
+codex plugin marketplace add microsoft/microsoft-sql
+```
+
+```bash
+codex plugin add microsoft@microsoft-sql
 ```
 
 ### Repository-committed skills
