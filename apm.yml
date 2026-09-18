@@ -3,12 +3,12 @@
 name: microsoft
 version: "0.1.0"
 description: >-
-  Curated by the Azure SQL Database product team. Skills that correct what coding agents get wrong about the engine, from connection strings to vector search, measured against a live database rather than quoted from documentation.
-author: Microsoft
+  Microsoft SQL skills, curated by the Azure SQL Database product team. They correct what coding agents get wrong about the engine, from connection strings to vector search, measured against a live database rather than quoted from documentation.
+author: Microsoft SQL
 license: MIT
 homepage: https://github.com/microsoft/microsoft-sql
 repository: https://github.com/microsoft/microsoft-sql
-keywords: [azure-sql, sql, database, tsql, agent-skills, vector-search, entra-id]
+keywords: [microsoft-sql, azure-sql, sql, database, tsql, agent-skills, vector-search, entra-id]
 
 # Constrains what this package may contain. Skills, and nothing else.
 type: skill

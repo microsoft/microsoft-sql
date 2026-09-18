@@ -25,6 +25,8 @@ const PKG = JSON.parse(readFileSync('package.json', 'utf8'));
 const PLUGIN_NAME = 'microsoft';
 const MARKETPLACE_NAME = 'microsoft-sql';
 const DISPLAY = 'Azure SQL Agent Skills';
+// The publisher name every manifest shows beside the version. Carlos, 2026-09-18.
+const AUTHOR = 'Microsoft SQL';
 // The repository is being renamed to microsoft/microsoft-sql. These links do not
 // resolve until it is, so this lands right after the rename.
 const REPO = 'https://github.com/microsoft/microsoft-sql';
@@ -80,7 +82,7 @@ const domainOf = Object.fromEntries(TAXONOMY.domains.map((d) => [d.slug, d]));
 // its own marketplace format and its own enumerated skill paths.
 const skillPaths = present.map((p) => `./skills/${p.name}`);
 
-const KEYWORDS = ['azure-sql', 'sql', 'database', 'tsql', 'agent-skills', 'vector-search', 'entra-id'];
+const KEYWORDS = ['microsoft-sql', 'azure-sql', 'sql', 'database', 'tsql', 'agent-skills', 'vector-search', 'entra-id'];
 // The single public-facing pitch. It reaches llms.txt, apm.yml, plugin.json,
 // .claude-plugin/plugin.json and BOTH description fields in
 // .claude-plugin/marketplace.json, which is the file that goes out to the
@@ -98,10 +100,11 @@ const KEYWORDS = ['azure-sql', 'sql', 'database', 'tsql', 'agent-skills', 'vecto
 // standing in front of.
 //
 // No skill count. Carlos, 2026-09-01: a number is not value. Provenance is.
+// Leads with the plugin's name, Microsoft SQL, since 2026-09-18.
 const SUMMARY =
-  'Curated by the Azure SQL Database product team. Skills that correct what coding agents get ' +
-  'wrong about the engine, from connection strings to vector search, measured against a live ' +
-  'database rather than quoted from documentation.';
+  'Microsoft SQL skills, curated by the Azure SQL Database product team. They correct what coding ' +
+  'agents get wrong about the engine, from connection strings to vector search, measured against a ' +
+  'live database rather than quoted from documentation.';
 
 // ---------------------------------------------------------------------------
 // llms.txt, per the llmstxt.org convention: a title, a summary, then sections
@@ -231,7 +234,7 @@ const base = {
   name: PLUGIN_NAME,
   version: PKG.version,
   description: SUMMARY,
-  author: { name: 'Microsoft', url: 'https://microsoft.com' },
+  author: { name: AUTHOR, url: 'https://microsoft.com' },
   homepage: HOMEPAGE,
   repository: REPO,
   license: 'MIT',
@@ -258,7 +261,7 @@ const STORE_NAME = 'Microsoft SQL';
 emit('.claude-plugin/plugin.json', j({ displayName: STORE_NAME, ...base }));
 emit('.claude-plugin/marketplace.json', j({
   name: MARKETPLACE_NAME,
-  owner: { name: 'Microsoft', url: REPO },
+  owner: { name: AUTHOR, url: REPO },
   metadata: { description: SUMMARY },
   // Wave 2 adds one entry per persona, each with its own skills array.
   plugins: [{ name: PLUGIN_NAME, displayName: STORE_NAME, source: './', description: SUMMARY, version: PKG.version, skills: skillPaths }],
@@ -288,14 +291,13 @@ emit('.claude-plugin/marketplace.json', j({
 //
 //   Codex   documents interface.displayName, and skills as a string path
 //
-//   Cursor  MEASURED 2026-09-02, and the bet lost. Cursor does not document
-//           displayName and does not honour it. Installed
-//           azure-sql-database-container, whose manifest asks for "Azure SQL
-//           Database container", and Cursor's panel rendered "Azure Sql
-//           Database Container": title-cased from `name`, ignoring the field.
-//           So displayName stays here because it costs nothing and may be
-//           honoured later, and this comment exists so nobody reads its
-//           presence as evidence that it works. In Cursor we are "Azure Sql".
+//   Cursor  RE-MEASURED 2026-09-18, and it now honours displayName. On
+//           2026-09-02 it ignored the field and title-cased `name`. Cursor
+//           3.20.10 reads .cursor-plugin/plugin.json first, then
+//           .claude-plugin/plugin.json, then plugin.json, and its panel showed
+//           "Microsoft SQL" for this plugin imported from Claude Code. One
+//           exception: a folder copied by hand into ~/.cursor/plugins/local is
+//           labelled with the folder name, whatever the manifest says.
 //
 //           `logo` IS documented and DOES work: the same install rendered the
 //           container repo's SVG in the panel. Hence assets/plugin-logo.svg,
@@ -318,6 +320,21 @@ emit('.codex-plugin/plugin.json', j({
 }));
 emit('.cursor-plugin/plugin.json', j({ displayName: STORE_NAME, ...base, skills: 'skills/', logo: 'assets/plugin-logo.svg' }));
 
+// GROK. Grok Build registers a repository with `grok plugin marketplace add`
+// and reads its index from .grok-plugin/marketplace.json, per its user guide
+// (09-plugins.md), with a `{ type, path }` source object rather than Claude
+// Code's bare "./". Restored 2026-09-18 so `grok plugin install microsoft`
+// works; PR #9 removed the earlier Grok files on the grounds that Grok reads
+// the portable package, which does not cover a marketplace install.
+// NOT TESTED against a running Grok: none was installed when this was written.
+emit('.grok-plugin/marketplace.json', j({
+  name: MARKETPLACE_NAME,
+  description: SUMMARY,
+  owner: { name: AUTHOR, url: REPO },
+  plugins: [{ name: PLUGIN_NAME, displayName: STORE_NAME, description: SUMMARY, category: 'databases', source: { type: 'local', path: './' } }],
+}));
+emit('.grok-plugin/plugin.json', j({ displayName: STORE_NAME, ...base, skills: 'skills/' }));
+
 // The Agent Plugins package IS the repository root: plugin.json beside a flat
 // skills/. Nothing to generate into a subdirectory, and NO displayName here:
 // that schema is closed and has no such field.
@@ -329,7 +346,7 @@ emit('plugin.json', JSON.stringify({
   name: PLUGIN_NAME,
   version: PKG.version,
   description: SUMMARY,
-  author: { name: 'Microsoft', url: 'https://microsoft.com' },
+  author: { name: AUTHOR, url: 'https://microsoft.com' },
   homepage: HOMEPAGE,
   repository: REPO,
   license: 'MIT',
@@ -367,7 +384,7 @@ emit('plugin.json', JSON.stringify({
     `name: ${PLUGIN_NAME}`,
     `version: "${PKG.version}"`,
     'description: >-', `  ${SUMMARY}`,
-    'author: Microsoft',
+    `author: ${AUTHOR}`,
     'license: MIT',
     `homepage: ${HOMEPAGE}`,
     `repository: ${REPO}`,
