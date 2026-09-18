@@ -12,18 +12,17 @@
 ## Templates that actually exist for Azure SQL Database
 
 Verified 2026-09-03 against the Azure Developer CLI 1.32.0 by listing the gallery, which returned
-315 entries, 17 of them tagged `azuresql`. Names, tags and repositories move, so confirm before
-generating a project:
+315 entries, 17 of them tagged `azuresql`. Re-listed 2026-09-18: 303 entries, and the `todo-` family
+gone. Names, tags and repositories move, so confirm before generating a project:
 
 ```bash
 azd template list -f azuresql --output json | grep -B2 '"msft"'
 ```
 
-The Microsoft-published ones that use Azure SQL Database:
+The Microsoft-published ones that use Azure SQL Database, as listed 2026-09-18:
 
 | Repository | What it is |
 |---|---|
-| `Azure-Samples/todo-csharp-sql` | The blueprint sample: React front end, C# API, Azure SQL Database |
 | `Azure-Samples/functions-quickstart-dotnet-azd-sql` | Serverless, triggers and bindings, .NET |
 | `Azure-Samples/functions-quickstart-python-azd-sql` | The same, Python |
 | `Azure-Samples/functions-quickstart-typescript-azd-sql` | The same, TypeScript |
@@ -38,15 +37,27 @@ carries `azuresql` and is MySQL by name. Read the repository, not the tag.
 Anything else in that filtered list is community-published rather than Microsoft-published, which is
 worth saying to a user before it becomes the starting point for their project.
 
+**No Microsoft-published web application blueprint for Azure SQL Database is in the gallery any
+more.** `Azure-Samples/todo-csharp-sql` (React front end, C# API) was archived on 2026-09-04, its
+README now opening "This repository is archived and no longer maintained", and removed from the
+gallery by Azure/awesome-azd pull request 1006 on 2026-09-08. It is not gone: `azd init -t
+todo-csharp-sql` still initializes it on 1.32.0, measured 2026-09-18, and the Microsoft Learn page
+"Full-stack deployment templates for Azure Developer CLI" still lists it. That is how users keep
+arriving with it, so the evidence below still applies.
+
+The App Service tutorial on Microsoft Learn initializes `Azure-Samples/dotnet-app-service-sqldb-infra`,
+which is not in the gallery. Read on 2026-09-18, its `infra/resources.bicep` sets
+`administratorLoginPassword` and turns public network access off, so it is password-based too.
+
 ## The naming trap in the sample family
 
-The blueprint samples are named `todo-<language>-<database>`. There are nine of them. **Only one
-uses Azure SQL Database**, and it is the C# one. Every other entry in the family is MongoDB or
-Cosmos DB.
+The archived blueprint samples are named `todo-<language>-<database>`. Nine were in the gallery on
+2026-09-03. **Only one uses Azure SQL Database**, and it is the C# one. Every other entry in the
+family is MongoDB or Cosmos DB.
 
 Two specific mistakes follow from this, and both look reasonable:
 
-- **`todo-nodejs-sql` and `todo-python-sql` do not exist.** An agent extrapolating from the family's
+- **`todo-nodejs-sql` and `todo-python-sql` never existed.** GitHub returns 404 for both. An agent extrapolating from the family's
   naming will produce a template name that fails at initialization. There is no first-party
   blueprint sample pairing Node.js or Python with Azure SQL Database. The serverless quickstarts
   above are the closest first-party starting points for those languages.
@@ -59,7 +70,7 @@ Two specific mistakes follow from this, and both look reasonable:
 SKILL.md carries the headline. This is the per-template evidence behind it, gathered by reading each
 `infra` directory on 2026-09-03, because the two generations of template differ completely.
 
-**The blueprint sample is password-based.** `infra/app/db-avm.bicep` provisions the logical server
+**The archived blueprint sample is password-based.** `infra/app/db-avm.bicep` provisions the logical server
 with `administratorLogin` and a password. A deployment script then creates the application's
 contained user with `create user ... with password` and runs `alter role db_owner add member`. The
 string `FROM EXTERNAL PROVIDER` does not appear anywhere under `infra`. The application's managed

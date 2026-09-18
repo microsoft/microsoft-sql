@@ -34,15 +34,15 @@ once**, and every claim below is settled by a command rather than by reading.
 
 ```bash
 azd version
-azd template list --output json | grep -o '"Azure-Samples/todo-[a-z-]*"' | sort -u
+azd template list --output json | grep -c '"Azure-Samples/todo-'
 ```
 
-Measured 2026-09-03: 315 templates, nine `todo-<language>-<database>` entries, and exactly two
-whose name ends in `sql`. `Azure-Samples/todo-csharp-sql` is the Azure SQL Database one.
-`todo-csharp-cosmos-sql` is Cosmos DB for NoSQL. **`todo-nodejs-sql` and `todo-python-sql` do not
-exist**, and an `azd init --template` naming one fails at initialization.
+Measured 2026-09-18: 303 templates, **zero** `todo-` entries. The family was archived 2026-09-04 and
+left the gallery 2026-09-08, yet `azd init -t todo-csharp-sql` still initializes it and Microsoft
+Learn still lists it, so users still arrive with it. `todo-csharp-cosmos-sql` is Cosmos DB for
+NoSQL. **`todo-nodejs-sql` and `todo-python-sql` never existed.**
 
-### The only first-party web application template for Azure SQL Database uses a password
+### The archived web application blueprint for Azure SQL Database uses a password
 
 Read its infrastructure without cloning it:
 
