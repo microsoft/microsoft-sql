@@ -105,7 +105,7 @@ const KEYWORDS = ['microsoft-sql', 'azure-sql', 'sql', 'database', 'tsql', 'agen
 const SUMMARY =
   'From the Microsoft SQL product team. It teaches coding agents how the database engine behaves, ' +
   'from connection strings and vector search to building AI-ready apps with Azure Functions and ' +
-  'Azure SQL Database. Every claim is tested against a live database.';
+  'Azure SQL Database.';
 
 // ---------------------------------------------------------------------------
 // llms.txt, per the llmstxt.org convention: a title, a summary, then sections
