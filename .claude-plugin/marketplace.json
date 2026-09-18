@@ -6,14 +6,14 @@
     "url": "https://github.com/microsoft/microsoft-sql"
   },
   "metadata": {
-    "description": "From the Microsoft SQL product team. It teaches coding agents how the database engine behaves, from connection strings and vector search to building AI-ready apps with Azure Functions and Azure SQL Database."
+    "description": "From the Microsoft SQL product team. Build AI-ready apps on Azure SQL Database with vector search, RAG, REST APIs, serverless functions, passwordless auth, and the ORMs you already use."
   },
   "plugins": [
     {
       "name": "microsoft",
       "displayName": "Microsoft SQL",
       "source": "./",
-      "description": "From the Microsoft SQL product team. It teaches coding agents how the database engine behaves, from connection strings and vector search to building AI-ready apps with Azure Functions and Azure SQL Database.",
+      "description": "From the Microsoft SQL product team. Build AI-ready apps on Azure SQL Database with vector search, RAG, REST APIs, serverless functions, passwordless auth, and the ORMs you already use.",
       "version": "0.1.0",
       "skills": [
         "./skills/azure-functions-sql-bindings",
