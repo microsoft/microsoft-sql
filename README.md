@@ -59,6 +59,18 @@ claude plugin marketplace add microsoft/microsoft-sql
 claude plugin install microsoft@microsoft-sql
 ```
 
+### GitHub Copilot CLI plugin
+
+```bash
+copilot plugin marketplace add microsoft/microsoft-sql
+```
+
+```bash
+copilot plugin install microsoft@microsoft-sql
+```
+
+Visual Studio Code loads plugins installed this way, so the same two commands cover it.
+
 ### Codex plugin
 
 ```bash
