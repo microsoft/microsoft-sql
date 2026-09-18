@@ -7,7 +7,7 @@
     "changes-too-fast-to-memorize",
     "multi-step-with-silent-failures"
   ],
-  "correction": "Agents treat a first-party Azure sample's infrastructure as a reviewed baseline and spend their attention on the application code, so asked to reach Azure SQL Database without a password using the Azure Developer CLI they recommend the first-party template as the way to get there. `Azure-Samples/todo-csharp-sql` is the only Microsoft-published template in the gallery pairing a web application with Azure SQL Database, and it does not use an identity for the database at all: it provisions the logical server with an administrator login and a password, creates the application's database user with `create user ... with password` from a deployment script, and adds that user to `db_owner`, with `FROM EXTERNAL PROVIDER` appearing nowhere under its infrastructure directory. The template does create a managed identity, which is what lets the misreading survive a glance, but that identity authenticates to a vault and what the vault holds is a connection string with a password in it. The second half is worse, because it survives choosing correctly: all four Microsoft-published templates that build the logical server from the Azure Verified Module, including the three serverless quickstarts that are otherwise exemplary about identity, ship a firewall rule named `Azure Services` spanning `0.0.0.1` to `255.255.255.254`, which is every address a client can present, while the documented Allow Azure services rule uses `0.0.0.0` as both its start and its end address. So the identity defect is fixed by choosing a different template and the firewall defect is not fixed by choosing anything.",
+  "correction": "Agents treat a first-party Azure sample's infrastructure as a reviewed baseline and spend their attention on the application code, so asked to reach Azure SQL Database without a password using the Azure Developer CLI they recommend the first-party template as the way to get there. `Azure-Samples/todo-csharp-sql`, the Microsoft-published blueprint pairing a web application with Azure SQL Database, was archived and dropped from the gallery in September 2026 yet still initializes with `azd init`, and it does not use an identity for the database at all: it provisions the logical server with an administrator login and a password, creates the application's database user with `create user ... with password` from a deployment script, and adds that user to `db_owner`, with `FROM EXTERNAL PROVIDER` appearing nowhere under its infrastructure directory. The template does create a managed identity, which is what lets the misreading survive a glance, but that identity authenticates to a vault and what the vault holds is a connection string with a password in it. The second half is worse, because it survives choosing correctly: all four Microsoft-published templates that build the logical server from the Azure Verified Module, including the three serverless quickstarts that are otherwise exemplary about identity, ship a firewall rule named `Azure Services` spanning `0.0.0.1` to `255.255.255.254`, which is every address a client can present, while the documented Allow Azure services rule uses `0.0.0.0` as both its start and its end address. So the identity defect is fixed by choosing a different template and the firewall defect is not fixed by choosing anything.",
   "value_probe": {
     "gate": "The answer reads the infrastructure the template generates rather than trusting it because it is first-party, and reaches both how the application actually authenticates to the database and which addresses the generated firewall rule really admits.",
     "task": "My team lead wants our new web application and its database deployed to Azure with no password anywhere, and asked me to start from a Microsoft published template rather than writing the infrastructure myself. I have found a first-party sample that pairs a web application with a SQL database, and on the face of it that is what we want. Before I commit the team to it, review the choice: does starting there actually get us where he is asking to be, and is there anything in the infrastructure it generates that I should not merge as it stands?",
@@ -123,19 +123,19 @@
       },
       {
         "where": "host",
-        "cmd": "test \"$(azd template list --output json 2>/dev/null | grep -c '\\\"Azure-Samples/todo-[a-z-]*-sql\\\"')\" = 2",
+        "cmd": "g=\"$(azd template list --output json 2>/dev/null)\" && test \"$(printf '%s\\n' \"$g\" | grep -c '\\\"repositoryPath\\\"')\" -gt 100 && test \"$(printf '%s\\n' \"$g\" | grep -c '\\\"Azure-Samples/todo-')\" = 0",
         "expect": {
           "succeeds": true
         },
-        "why": "The naming trap made executable. Exactly two entries in the todo family end in sql: todo-csharp-sql, which is Azure SQL Database, and todo-csharp-cosmos-sql, which is Cosmos DB for NoSQL. Measured 2026-09-03 against a gallery of 315 templates. A third means a new sample landed and the one-template claim needs rereading."
+        "why": "The gallery claim made executable: the gallery answers with more than 100 templates, so an unreachable gallery cannot pass as an empty one, and none of them is an Azure-Samples todo- template. Measured 2026-09-18 on 1.32.0: 303 templates, zero todo- entries, after Azure/awesome-azd pull request 1006 removed the family on 2026-09-08. Until that date this probe asserted exactly two todo-*-sql entries and went red when they left. If any todo- template returns, the skill's statement that the family left the gallery is stale."
       },
       {
         "where": "host",
-        "cmd": "azd template list --output json 2>/dev/null | grep -q 'todo-nodejs-sql' && exit 1 || exit 0",
+        "cmd": "curl -sf https://raw.githubusercontent.com/Azure-Samples/todo-csharp-sql/main/README.md | grep -q 'This repository is archived' && test \"$(curl -s -o /dev/null -w '%{http_code}' https://github.com/Azure-Samples/todo-nodejs-sql)\" = 404",
         "expect": {
           "succeeds": true
         },
-        "why": "The negative half of the same claim, kept separate so a red run can be told apart from the gallery being unreachable. todo-nodejs-sql is the name an agent extrapolates from the family; measured absent 2026-09-03. The day it exists, routing Node.js users to the serverless quickstarts stops being right."
+        "why": "The other half, read from GitHub rather than the gallery. todo-csharp-sql is archived but still published, which is why the skill still reads its Bicep: its README opens with the archive warning, added 2026-09-04. todo-nodejs-sql, the name an agent extrapolates from the family, returns 404; measured 2026-09-18. The gallery test alone cannot say this any more, because every todo- name is now absent from it. If the archive warning goes, or todo-nodejs-sql appears, the skill needs rereading."
       },
       {
         "where": "host",
@@ -186,7 +186,7 @@
       "where does the connection string for my deployed app come from if there is no password",
       "how do I add a SQL database to my azd project",
       "azd down deleted my resources, what is left behind",
-      "the managed identity exists in Azure but the database says login failed"
+      "how do I get from a working local project to Azure without putting a password in the repo"
     ],
     "negative": [
       "create an Azure SQL database and open the firewall for my address",
