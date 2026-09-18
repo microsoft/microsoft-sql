@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "microsoft",
   "version": "0.1.0",
-  "description": "From the Microsoft SQL product team. It teaches coding agents how the database engine behaves, from connection strings and vector search to building apps with Azure Functions and Azure SQL Database. Every claim is tested against a live database.",
+  "description": "From the Microsoft SQL product team. It teaches coding agents how the database engine behaves, from connection strings and vector search to building AI-ready apps with Azure Functions and Azure SQL Database. Every claim is tested against a live database.",
   "author": {
     "name": "Microsoft SQL",
     "url": "https://microsoft.com"

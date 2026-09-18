@@ -1,6 +1,6 @@
 # Microsoft SQL
 
-From the Microsoft SQL product team. It teaches coding agents how the database engine behaves, from connection strings and vector search to building apps with Azure Functions and Azure SQL Database. Every claim is tested against a live database.
+From the Microsoft SQL product team. It teaches coding agents how the database engine behaves, from connection strings and vector search to building AI-ready apps with Azure Functions and Azure SQL Database. Every claim is tested against a live database.
 
 [![Documentation](https://img.shields.io/badge/Documentation-blue?logo=github)](https://learn.microsoft.com/azure/azure-sql/database/)
 [![Agent Plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-8A2BE2?logo=github)](https://agent-plugins.org/specification)
