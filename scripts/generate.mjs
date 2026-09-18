@@ -103,9 +103,9 @@ const KEYWORDS = ['microsoft-sql', 'azure-sql', 'sql', 'database', 'tsql', 'agen
 // Leads with the plugin's name, Microsoft SQL, since 2026-09-18. No "skills" in
 // the name: the plugin will carry an MCP server too.
 const SUMMARY =
-  'Microsoft SQL, curated by the Azure SQL Database product team. It corrects what coding agents ' +
-  'get wrong about the engine, from connection strings to vector search, measured against a live ' +
-  'database rather than quoted from documentation.';
+  'From the Microsoft SQL product team. It teaches coding agents how the database engine behaves, ' +
+  'from connection strings and vector search to building apps with Azure Functions and Azure SQL ' +
+  'Database. Every claim is tested against a live database.';
 
 // ---------------------------------------------------------------------------
 // llms.txt, per the llmstxt.org convention: a title, a summary, then sections
