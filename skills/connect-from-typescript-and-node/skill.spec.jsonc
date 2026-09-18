@@ -140,7 +140,8 @@
     ],
     "routing": [
       "add a database layer to my Node backend",
-      "passwordless SQL connection for a Node app on App Service"
+      "passwordless SQL connection for a Node app on App Service",
+      "add a database layer to my TypeScript app on Azure SQL"
     ],
     "negative": [
       "connect to Azure SQL from Python with pyodbc",

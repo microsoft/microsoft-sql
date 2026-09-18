@@ -4,12 +4,13 @@ description: >-
   Connects a .NET application to Azure SQL Database with Microsoft.Data.SqlClient: which package
   references are required, the encryption defaults and what changed, connection pooling and the
   keys that split a pool, and managed identity or other Microsoft Entra ID modes. Use when a user
-  says "connect .NET to Azure SQL", "Microsoft.Data.SqlClient", "SqlConnection", "managed identity
-  for my API", "Active Directory Default", "Max Pool Size", "Encrypt=Strict", or asks whether
-  "Microsoft.Data.SqlClient.Extensions.Azure" is needed. Also use when an app authenticates with a
-  password locally and must use an identity in Azure. Covers packages, connection string keywords,
-  pooling and Entra ID for .NET only; the ORM path is ef-core-azure-sql, and encryption doctrine
-  plus transient-fault retry belong to connect-to-azure-sql.
+  says "connect .NET to Azure SQL", "Microsoft.Data.SqlClient", "SqlConnection", "passwordless
+  access for my .NET app", "managed identity for my API", "Active Directory Default", "Max Pool
+  Size", "Encrypt=Strict", or asks whether "Microsoft.Data.SqlClient.Extensions.Azure" is needed.
+  Also use when an app authenticates with a password locally and must use an identity in Azure.
+  Covers packages, connection string keywords, pooling and Entra ID for .NET only; the ORM path is
+  ef-core-azure-sql, and encryption doctrine plus transient-fault retry belong to
+  connect-to-azure-sql.
 ---
 
 # Connect from .NET

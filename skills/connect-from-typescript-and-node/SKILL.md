@@ -1,15 +1,16 @@
 ---
 name: connect-from-typescript-and-node
 description: >-
-  Connects a TypeScript or JavaScript application to Azure SQL Database with the mssql package over
-  tedious: which packages to install, where the connection pool has to live, how to type query
-  results, and how to authenticate with Microsoft Entra ID without a password. Use when a user says
-  "connect my Node app to Azure SQL", "which npm package for SQL Server", "mssql pool size",
-  "azure-active-directory-default", "@types/mssql", "sql.connect", "tedious", or reports that a
-  Node API gets slower under load, opens a connection per request, or runs out of connections. Also
-  use when wiring an Azure Function or an Express route to a database. Covers driver installation,
-  the config object, pool lifetime and Entra ID for this stack only. Encryption doctrine, retry and
-  transient-fault handling belong to connect-to-azure-sql; Python and .NET have their own skills.
+  Connects a TypeScript or JavaScript application to Azure SQL Database with the mssql package
+  over tedious: which packages to install, where the connection pool has to live, how to type
+  query results, and how to authenticate with Microsoft Entra ID without a password. Use when a
+  user says "connect my Node app to Azure SQL", "which npm package for SQL Server", "mssql pool
+  size", "passwordless connection from Node", "azure-active-directory-default", "@types/mssql", or
+  reports that a Node API gets slower under load, opens a connection per request, or runs out of
+  connections. Also use when adding a database layer to a Node backend, an Azure Function or an
+  Express route. Covers driver installation, the config object, pool lifetime and Entra ID for
+  this stack only. Encryption doctrine, retry and transient-fault handling belong to
+  connect-to-azure-sql; Python and .NET have their own skills.
 ---
 
 # Connect from TypeScript and Node.js

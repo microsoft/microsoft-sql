@@ -1,17 +1,16 @@
 ---
 name: langchain-and-llamaindex-on-azure-sql
 description: >-
-  Wires LangChain or LlamaIndex to Azure SQL Database from Python: the SQL toolkits and their text
-  to SQL prompts, the langchain-sqlserver vector store, and the guardrails neither framework
+  Wires LangChain or LlamaIndex to Azure SQL Database from Python: the SQL toolkits, their text to
+  SQL prompts, the langchain-sqlserver vector store, and the guardrails neither framework
   enforces. Use when someone asks to "use LangChain with Azure SQL", "build a SQL agent over the
-  database", "text to SQL", "SQLDatabaseToolkit", "NLSQLTableQueryEngine", "which LlamaIndex vector
-  store works with Azure SQL", or "make the SQL agent read only"; when a generated query fails with
-  incorrect syntax near a number because the framework prompt asked for a LIMIT clause; when a
-  framework-created embedding table refuses CREATE VECTOR INDEX; and when a metadata filter starts
-  throwing arithmetic overflow. This skill owns the Python framework wiring. The vector type and the
-  query shape are vector-search-azure-sql, the cloud retrieval pipeline is rag-on-azure-sql, the
-  offline container loop is rag-local-with-container, and drivers, connection strings and token auth
-  are connect-from-python.
+  database", "text to SQL", "SQLDatabaseToolkit", "NLSQLTableQueryEngine", "which LlamaIndex
+  vector store works with Azure SQL", or "make the SQL agent read only"; when a SQL agent keeps
+  generating LIMIT, its query checker approves a query the database refuses, or its schema tool
+  puts real rows into the prompt; or when a framework-created embedding table refuses CREATE
+  VECTOR INDEX or a metadata filter throws arithmetic overflow. Vector type and query shape are
+  vector-search-azure-sql, the cloud pipeline rag-on-azure-sql, the offline loop
+  rag-local-with-container, and drivers and token auth connect-from-python.
 ---
 
 # LangChain and LlamaIndex on Azure SQL Database
