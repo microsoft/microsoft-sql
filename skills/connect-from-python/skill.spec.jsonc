@@ -119,7 +119,8 @@
     ],
     "routing": [
       "add a database layer to my Python service",
-      "read from Azure SQL in a Python script without a password"
+      "read from Azure SQL in a Python script without a password",
+      "add a Python data access layer to my Azure SQL app"
     ],
     "negative": [
       "connect my TypeScript API to Azure SQL with the mssql package",

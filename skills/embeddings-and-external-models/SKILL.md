@@ -4,13 +4,13 @@ description: >-
   Generates embeddings and chunks inside Azure SQL Database with CREATE EXTERNAL MODEL,
   AI_GENERATE_EMBEDDINGS, AI_GENERATE_CHUNKS and sp_invoke_external_rest_endpoint, covering the
   database scoped credential naming rule, the permissions, the dimension budget that decides which
-  embedding model can be used at all, and the outbound allowlist. Use when someone asks to "create an
-  external model", "call AI_GENERATE_EMBEDDINGS", "embed text in T-SQL", "chunk text in the
-  database", or "call an Azure OpenAI endpoint from SQL"; and when such a call fails on the
-  credential, on permissions, on HTTPS, on managed identity or on a blocked domain. This skill owns
-  producing the vector and calling out of the engine; storing and searching it is
-  vector-search-azure-sql, the pipeline around it is rag-on-azure-sql, and embedding offline is
-  rag-local-with-container.
+  embedding model fits, and the outbound allowlist. Use when someone asks to "create an external
+  model", "call AI_GENERATE_EMBEDDINGS", "embed text in T-SQL", "chunk text in the database", or
+  "call an Azure OpenAI endpoint from SQL"; when such a call fails on the credential secret,
+  managed identity, permissions, HTTPS or a blocked domain; and when embedding a whole table in
+  one statement runs for hours. This skill owns producing the vector and calling out of the
+  engine; storing and searching it is vector-search-azure-sql, the pipeline around it is
+  rag-on-azure-sql, and embedding offline is rag-local-with-container.
 ---
 
 # Embeddings and external models in Azure SQL Database

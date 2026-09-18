@@ -4,12 +4,13 @@ description: >-
   Writes an upsert for Azure SQL Database that is still correct when two sessions run it at the
   same moment, and refuses the MERGE shapes that lose rows. Use when asked to "insert or update",
   "insert if not exists", "add or update", "make this insert idempotent", "upsert", "write a
-  MERGE", "sync a staging table into the target table", or to port ON CONFLICT DO UPDATE or ON
-  DUPLICATE KEY UPDATE; and use when duplicate rows appear that nothing in the application
-  created, or when error 2627, 2601, 8672, 10713 or a deadlock shows up under load. Covers why
-  IF EXISTS then UPDATE ELSE INSERT is a race, what MERGE needs to be safe, which MERGE shapes to
-  refuse outright, and the two patterns that are safe without MERGE. Key and index design belongs
-  to design-azure-sql-schema, and general T-SQL dialect to t-sql-correctness.
+  MERGE", "sync a staging table into the target table", make a row-by-row load or import safe to
+  run twice, or port ON CONFLICT DO UPDATE or ON DUPLICATE KEY UPDATE; and use when duplicate rows
+  appear that nothing in the application created, or when error 2627, 2601, 8672, 10713 or a
+  deadlock shows up under load. Covers why IF EXISTS then UPDATE ELSE INSERT is a race, what MERGE
+  needs to be safe, which MERGE shapes to refuse outright, and the two patterns that are safe
+  without MERGE. Key and index design belongs to design-azure-sql-schema, and general T-SQL
+  dialect to t-sql-correctness.
 ---
 
 # Write an upsert that survives concurrency, and refuse the dangerous MERGE

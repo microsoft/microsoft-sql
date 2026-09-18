@@ -5,12 +5,12 @@ description: >-
   mssql-python driver and the incumbent pyodbc, and covering driver installation, the connection
   string each one wants, connection pooling, and Microsoft Entra ID including token-based
   authentication. Use when a user says "connect Python to Azure SQL", "mssql-python", "pyodbc",
-  "install the ODBC driver so my Python code can connect", "which Python driver for SQL Server", or
-  hits errors such as "data source name not found and no default driver specified" or a container
-  image that cannot load the driver. Also use when a Python service needs a passwordless
-  connection. Covers installation, connection strings, pooling and Entra ID for Python only.
-  Encryption doctrine and transient-fault retry belong to connect-to-azure-sql; Node and .NET have
-  their own skills.
+  "install the ODBC driver so my Python code can connect", "which Python driver for SQL Server",
+  or hits errors such as "data source name not found and no default driver specified" or a
+  container image that cannot load the driver. Also use when adding a database layer to a Python
+  service, or when it needs a passwordless connection. Covers installation, connection strings,
+  pooling and Entra ID for Python only. Encryption doctrine and transient-fault retry belong to
+  connect-to-azure-sql; Node and .NET have their own skills.
 ---
 # Connect from Python
 
