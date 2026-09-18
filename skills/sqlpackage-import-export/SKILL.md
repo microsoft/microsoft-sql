@@ -4,8 +4,11 @@ description: >-
   Moves a whole Azure SQL Database as a portable file with SqlPackage, choosing between the
   Extract, Publish, Export and Import actions, stating what each one carries, and giving the
   command line for each. Use when asked to export a database to a bacpac, extract or publish a
-  dacpac, clone or move a database between servers or into the container, explain dacpac versus
-  bacpac, or diagnose a failed sqlpackage run such as SQL71659 or SQL71627.
+  dacpac, clone or move a database between servers, move the database itself from the local Azure
+  SQL Database container up to Azure SQL Database, explain dacpac versus bacpac, or diagnose a
+  failed sqlpackage run such as SQL71627, or SQL71659 when an Import stops because the target
+  database is not empty. Making the application code run unchanged in the cloud is
+  azuresql-db-local-to-cloud, and a first bacpac into the local container is azuresql-db-import.
 ---
 
 # Move a whole database with SqlPackage: dacpac and bacpac

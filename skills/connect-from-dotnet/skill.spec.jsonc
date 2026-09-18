@@ -99,7 +99,8 @@
     ],
     "routing": [
       "add a data access layer to my ASP.NET service",
-      "passwordless database access for a .NET app running in Azure"
+      "passwordless database access for a .NET app running in Azure",
+      "add a data access layer to my ASP.NET service that talks to Azure SQL"
     ],
     "negative": [
       "connect to Azure SQL from Python with mssql-python",

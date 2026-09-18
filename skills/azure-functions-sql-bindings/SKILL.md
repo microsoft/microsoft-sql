@@ -3,13 +3,13 @@ name: azure-functions-sql-bindings
 description: >-
   Wires Azure Functions to Azure SQL Database with the SQL input and output bindings and the SQL
   trigger, including the change tracking the trigger cannot run without and the identity
-  permissions the trigger needs beyond the ones the bindings need. Use when a user asks to "add a
-  SQL input binding", "write to SQL from a function", "run code when a row changes", "SQL trigger
-  function", "SqlTrigger", "sqlTrigger", "SqlInput", "SqlOutput", "SqlConnectionString", or says
-  "my SQL trigger never fires and there is no error". Also use when an output binding silently
-  updated an existing row instead of inserting, which is the documented upsert behaviour. This is
-  the Azure SQL Database story; the same bindings against the local Azure SQL Database container
-  belong to azuresql-db-functions, and connection reuse across invocations belongs to the
+  permissions the trigger needs beyond the ones the bindings need. Use when a user asks for "a
+  serverless CRUD API over SQL", to "add a SQL input binding", "write to SQL from a function",
+  "react to inserts and updates", "SQL trigger function", "SqlTrigger", "SqlInput", "SqlOutput",
+  or says "my SQL trigger never fires and there is no error". Also use when an output binding
+  silently updated an existing row instead of inserting, which is the documented upsert behaviour.
+  This is the Azure SQL Database story; the same bindings against the local Azure SQL Database
+  container belong to azuresql-db-functions, and connection reuse across invocations to the
   per-language connect skills.
 ---
 

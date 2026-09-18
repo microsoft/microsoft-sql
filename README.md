@@ -242,11 +242,11 @@ Decides what a Data API builder configuration on Azure SQL Database actually pub
 
 **[embeddings-and-external-models](skills/embeddings-and-external-models/SKILL.md)**
 
-Generates embeddings and chunks inside Azure SQL Database with CREATE EXTERNAL MODEL, AI_GENERATE_EMBEDDINGS, AI_GENERATE_CHUNKS and sp_invoke_external_rest_endpoint, covering the database scoped credential naming rule, the permissions, the dimension budget that decides which embedding model can be used at all, and the outbound allowlist.
+Generates embeddings and chunks inside Azure SQL Database with CREATE EXTERNAL MODEL, AI_GENERATE_EMBEDDINGS, AI_GENERATE_CHUNKS and sp_invoke_external_rest_endpoint, covering the database scoped credential naming rule, the permissions, the dimension budget that decides which embedding model fits, and the outbound allowlist.
 
 **[langchain-and-llamaindex-on-azure-sql](skills/langchain-and-llamaindex-on-azure-sql/SKILL.md)**
 
-Wires LangChain or LlamaIndex to Azure SQL Database from Python: the SQL toolkits and their text to SQL prompts, the langchain-sqlserver vector store, and the guardrails neither framework enforces.
+Wires LangChain or LlamaIndex to Azure SQL Database from Python: the SQL toolkits, their text to SQL prompts, the langchain-sqlserver vector store, and the guardrails neither framework enforces.
 
 **[rag-local-with-container](skills/rag-local-with-container/SKILL.md)**
 
