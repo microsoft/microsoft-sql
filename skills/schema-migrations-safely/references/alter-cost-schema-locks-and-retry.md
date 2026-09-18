@@ -169,6 +169,23 @@ for the offline form in run 3.
 | `ALTER TABLE ... REBUILD WITH (ONLINE = ON (WAIT_AT_LOW_PRIORITY (...)))` | parses and runs |
 | `ALTER TABLE ... ALTER COLUMN ... WITH (ONLINE = ON (WAIT_AT_LOW_PRIORITY (...)))` | **`Msg 102`, syntax error** |
 
+**The two forms written out.** A resumable build, which requires `ONLINE = ON` and cannot run inside
+an explicit transaction, pauses to fit a window and is watched in `sys.index_resumable_operations`.
+A rebuild with `WAIT_AT_LOW_PRIORITY` gives up rather than queueing the workload behind itself; it
+is for rebuilds only, per the table above.
+
+```sql
+-- Pausable build. Not inside BEGIN TRAN.
+CREATE INDEX ix_orders_customer ON dbo.orders (customer_id)
+WITH (ONLINE = ON, RESUMABLE = ON, MAX_DURATION = 20 MINUTES);
+SELECT name, state_desc, percent_complete FROM sys.index_resumable_operations;
+ALTER INDEX ix_orders_customer ON dbo.orders PAUSE;
+
+-- Rebuild that gives up rather than queueing the workload behind itself.
+ALTER INDEX ix_orders_customer ON dbo.orders REBUILD
+WITH (ONLINE = ON (WAIT_AT_LOW_PRIORITY (MAX_DURATION = 1 MINUTES, ABORT_AFTER_WAIT = SELF)));
+```
+
 ## Run 5: eight instances migrating at startup
 
 Fixture reset before each mode: `dbo.__migrations(version int PRIMARY KEY, applied_at)` and
