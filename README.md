@@ -75,7 +75,7 @@ Committed to `.github/skills/` in your own repository, skills also reach the Git
 
 **[dev-container-templates](skills/dev-container-templates/SKILL.md)**
 
-Sets up a local development environment from the Azure SQL Dev Container templates in microsoft/azuresql-devcontainers, which cover .NET, .NET Aspire, Node.js and Python and ship a sample database and schema.
+Sets up local development from the Azure SQL Database dev container templates in microsoft/azuresql-devcontainers (.NET, .NET Aspire, Node.js, Python), each with a sample database and schema loaded.
 
 **[provision-azure-sql-db](skills/provision-azure-sql-db/SKILL.md)**
 
