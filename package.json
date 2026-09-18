@@ -1,5 +1,5 @@
 {
-  "name": "azure-sql-skills",
+  "name": "microsoft-sql",
   "private": true,
   "version": "0.1.0",
   "description": "Agent skills for Azure SQL Database. The published catalog.",

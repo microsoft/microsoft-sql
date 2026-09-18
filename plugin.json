@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "microsoft",
   "version": "0.1.0",
-  "description": "Microsoft SQL skills, curated by the Azure SQL Database product team. They correct what coding agents get wrong about the engine, from connection strings to vector search, measured against a live database rather than quoted from documentation.",
+  "description": "Microsoft SQL, curated by the Azure SQL Database product team. It corrects what coding agents get wrong about the engine, from connection strings to vector search, measured against a live database rather than quoted from documentation.",
   "author": {
     "name": "Microsoft SQL",
     "url": "https://microsoft.com"

@@ -1,18 +1,18 @@
-# Azure SQL Agent Skills
+# Microsoft SQL
 
-Microsoft SQL skills, curated by the Azure SQL Database product team. They correct what coding agents get wrong about the engine, from connection strings to vector search, measured against a live database rather than quoted from documentation.
+Microsoft SQL, curated by the Azure SQL Database product team. It corrects what coding agents get wrong about the engine, from connection strings to vector search, measured against a live database rather than quoted from documentation.
 
 [![Documentation](https://img.shields.io/badge/Documentation-blue?logo=github)](https://learn.microsoft.com/azure/azure-sql/database/)
 [![Agent Plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-8A2BE2?logo=github)](https://agent-plugins.org/specification)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-spec-brightgreen?logo=github)](https://agentskills.io/)
 [![Skill feedback](https://img.shields.io/badge/Skill%20feedback-red?logo=github)](https://aka.ms/sql-agent-skills-feedback)
 [![Discussions](https://img.shields.io/badge/Discussions-blueviolet?logo=github)](../../discussions)
-[![Skills](https://skills.sh/b/microsoft/azure-sql-skills)](https://skills.sh/microsoft/azure-sql-skills)
+[![Skills](https://skills.sh/b/microsoft/microsoft-sql)](https://skills.sh/microsoft/microsoft-sql)
 
 <!-- PLACEHOLDER. Replace docs/assets/img/skills-cover.png with the real demo cover,
      and point both links below at the video. -->
 <a href="https://learn.microsoft.com/azure/azure-sql/database/">
-  <img src="docs/assets/img/skills-cover.png" alt="Watch the Azure SQL agent skills demo" width="760">
+  <img src="docs/assets/img/skills-cover.png" alt="Watch the Microsoft SQL demo" width="760">
 </a>
 
 <a href="https://learn.microsoft.com/azure/azure-sql/database/">**Watch the demo**</a>
@@ -26,19 +26,19 @@ These follow the [Agent Skills](https://agentskills.io/) format, and the reposit
 ### Install every skill
 
 ```bash
-npx skills add microsoft/azure-sql-skills
+npx skills add microsoft/microsoft-sql
 ```
 
 ### Install one skill
 
 ```bash
-npx skills add microsoft/azure-sql-skills --skill connect-to-azure-sql
+npx skills add microsoft/microsoft-sql --skill connect-to-azure-sql
 ```
 
 ### GitHub CLI
 
 ```bash
-gh skill install microsoft/azure-sql-skills --all --agent claude-code
+gh skill install microsoft/microsoft-sql --all --agent claude-code
 ```
 
 Choose your agent with `--agent`, for example `github-copilot` or `cursor`.

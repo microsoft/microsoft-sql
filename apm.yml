@@ -3,7 +3,7 @@
 name: microsoft
 version: "0.1.0"
 description: >-
-  Microsoft SQL skills, curated by the Azure SQL Database product team. They correct what coding agents get wrong about the engine, from connection strings to vector search, measured against a live database rather than quoted from documentation.
+  Microsoft SQL, curated by the Azure SQL Database product team. It corrects what coding agents get wrong about the engine, from connection strings to vector search, measured against a live database rather than quoted from documentation.
 author: Microsoft SQL
 license: MIT
 homepage: https://github.com/microsoft/microsoft-sql

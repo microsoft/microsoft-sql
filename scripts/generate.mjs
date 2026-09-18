@@ -24,7 +24,7 @@ const PKG = JSON.parse(readFileSync('package.json', 'utf8'));
 // `marketplace add` registers the repository as.
 const PLUGIN_NAME = 'microsoft';
 const MARKETPLACE_NAME = 'microsoft-sql';
-const DISPLAY = 'Azure SQL Agent Skills';
+const DISPLAY = 'Microsoft SQL';
 // The publisher name every manifest shows beside the version. Carlos, 2026-09-18.
 const AUTHOR = 'Microsoft SQL';
 // The repository is being renamed to microsoft/microsoft-sql. These links do not
@@ -100,11 +100,12 @@ const KEYWORDS = ['microsoft-sql', 'azure-sql', 'sql', 'database', 'tsql', 'agen
 // standing in front of.
 //
 // No skill count. Carlos, 2026-09-01: a number is not value. Provenance is.
-// Leads with the plugin's name, Microsoft SQL, since 2026-09-18.
+// Leads with the plugin's name, Microsoft SQL, since 2026-09-18. No "skills" in
+// the name: the plugin will carry an MCP server too.
 const SUMMARY =
-  'Microsoft SQL skills, curated by the Azure SQL Database product team. They correct what coding ' +
-  'agents get wrong about the engine, from connection strings to vector search, measured against a ' +
-  'live database rather than quoted from documentation.';
+  'Microsoft SQL, curated by the Azure SQL Database product team. It corrects what coding agents ' +
+  'get wrong about the engine, from connection strings to vector search, measured against a live ' +
+  'database rather than quoted from documentation.';
 
 // ---------------------------------------------------------------------------
 // llms.txt, per the llmstxt.org convention: a title, a summary, then sections
