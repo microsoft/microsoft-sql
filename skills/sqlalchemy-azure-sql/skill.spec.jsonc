@@ -142,10 +142,6 @@
       "session.add then commit blows up on one table only and I cannot see why",
       "my Alembic migration cannot change a column to NOT NULL on Azure SQL"
     ],
-    "routing": [
-      "add a Python data access layer to my Azure SQL app",
-      "load a few hundred thousand rows into Azure SQL from Python"
-    ],
     "negative": [
       "install the ODBC driver so my Python container can reach Azure SQL",
       "which Python driver should I use, pyodbc or the Microsoft one",

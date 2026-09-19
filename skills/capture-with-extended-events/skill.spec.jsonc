@@ -21,7 +21,7 @@
     ]
   },
   "posture": ["inspect", "read"],
-  "maturity": "preview",
+  "maturity": "ga",
   "applies_to": ["azure-sql-db"],
   "related": ["diagnose-slow-query", "diagnose-blocking-and-deadlocks", "diagnose-resource-pressure", "read-execution-plan"],
   "validation": {
@@ -154,7 +154,8 @@
     "implicit": [
       "I created an event session and started it but the ring buffer is empty",
       "My deadlock event session never fires even though I know the app is deadlocking",
-      "Where do I find system_health on my Azure SQL database"
+      "Where do I find system_health on my Azure SQL database",
+      "I got Invalid object name sys.dm_xe_sessions when I tried to check system_health, so I guess Azure SQL Database does not have it"
     ],
     "negative": [
       "Read the estimated execution plan for this query",

@@ -30,7 +30,7 @@
     "write",
     "inspect"
   ],
-  "maturity": "preview",
+  "maturity": "ga",
   "applies_to": [
     "azure-sql-db",
     "azure-sql-db-container"
@@ -318,7 +318,6 @@
     "implicit": [
       "Warning! The maximum key length for a nonclustered index is 1700 bytes",
       "my migration ran fine and now inserts are failing on the unique index",
-      "the same query used to be instant and now it reads the whole table, nothing changed",
       "our invoice numbers jumped by about a thousand overnight and nobody deleted anything",
       "why can I only have one row with a NULL in this unique column",
       "two users signed up with the same email in different cases and the second one was rejected",

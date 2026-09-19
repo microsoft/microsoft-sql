@@ -21,7 +21,7 @@
     ]
   },
   "posture": ["read", "write", "provision"],
-  "maturity": "draft",
+  "maturity": "ga",
   "applies_to": ["azure-sql-db"],
   "related": [
     "azure-sql",
@@ -132,8 +132,7 @@
     "routing": [
       "which stack should I use with Azure SQL Database",
       "should I write the CRUD endpoints myself or generate them",
-      "my app works locally but returns a server error once it is deployed to Azure",
-      "how do I get from a working local project to Azure without putting a password in the repo"
+      "my app works locally but returns a server error once it is deployed to Azure"
     ],
     "negative": [
       "how do I connect to Azure SQL Database from Node.js",
