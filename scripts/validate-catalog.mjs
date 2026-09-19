@@ -180,16 +180,25 @@ for (const name of skillDirs) {
     }
 }
 
-// ---- direction 2: claimed shipped implies on disk
+// ---- direction 2: claimed shipped implies on disk, and on disk implies shipped
+//
+// shipped-pilot is the one shipped value the schema defines, and the lab's
+// linter, in the rule that governs which skills a description may name, reads
+// it as "exists in the product repository now". A directory under skills/ is exactly that, so every skill on disk must
+// carry it, and nothing else may.
+//
+// The second half used to be a warning, and only for backlog. Until 2026-09-19
+// all 40 authored skills on disk were still marked planned-core, which this
+// block did not even warn about, so every gate was green over a manifest that
+// called the whole shipped catalog a roadmap.
 for (const s of catalog.skills) {
   if (s.status === 'shipped-pilot') {
     check(onDisk.has(s.id),
       `${CATALOG}: "${s.id}" is marked shipped-pilot but has no directory under ${SKILLS}/`);
   } else {
-    // Not an error. Most of the catalog is roadmap, and roadmap entries are the
-    // whole reason the manifest lists more than what exists.
-    warn(!onDisk.has(s.id) || s.status !== 'backlog',
-      `${CATALOG}: "${s.id}" has content on disk but is still marked ${s.status}`);
+    check(!onDisk.has(s.id),
+      `${CATALOG}: "${s.id}" has a directory under ${SKILLS}/ but is marked ${s.status}. ` +
+      `A skill in ${SKILLS}/ is shipped; mark it shipped-pilot.`);
   }
 }
 

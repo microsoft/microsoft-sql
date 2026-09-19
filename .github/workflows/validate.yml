@@ -25,6 +25,11 @@ jobs:
       - name: Structure and manifest parity
         run: node scripts/validate-catalog.mjs
 
+      # The validator against planted bad states: a skill on disk marked planned,
+      # and an entry marked shipped with nothing on disk. Both must go red.
+      - name: Manifest parity check fails when it should
+        run: node --test test/validate-catalog.test.mjs
+
       # Regenerate every derived surface and fail if anything differs. The
       # pilot maintained llms.txt and four plugin manifests by hand and they
       # drifted; two audits missed them because plugin manifests hide in
