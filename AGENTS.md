@@ -46,8 +46,8 @@ mean nothing in someone else's repository.
 ## The manifest is checked in both directions
 
 `catalog/catalog.json` lists all 142 skills, so "is it current?" cannot be answered by reading it.
-CI checks it against the filesystem both ways: every skill on disk must have an entry, and every
-entry marked shipped must have a directory. Neither can be forgotten.
+CI checks it against the filesystem both ways: every skill on disk must have an entry marked
+`shipped-pilot`, and every entry marked `shipped-pilot` must have a directory. Neither can be forgotten.
 
 ## Domains are data, not directories
 

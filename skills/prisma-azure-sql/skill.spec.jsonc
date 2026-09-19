@@ -116,7 +116,6 @@
       "inserting a long value fails on a column Prisma created for me"
     ],
     "routing": [
-      "add a database layer to my TypeScript app on Azure SQL",
       "model my data with an ORM on Node and Azure SQL"
     ],
     "negative": [

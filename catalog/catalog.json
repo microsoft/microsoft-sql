@@ -13,7 +13,7 @@
       "domain": "provisioning-and-local-dev",
       "goal": "Set up a full local environment from the Azure SQL Dev Container templates: .NET, .NET Aspire, Node.js or Python, with a database and a schema already deployed",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "multi-step-with-silent-failures"
@@ -62,7 +62,7 @@
       "domain": "provisioning-and-local-dev",
       "goal": "Create a database and get a working connection string: free offer or paid, firewall, Entra-only admin, all scripted",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "changes-too-fast-to-memorize"
@@ -75,7 +75,7 @@
       "domain": "provisioning-and-local-dev",
       "goal": "Put a real workload on Hyperscale: when to choose it, how to size it, and how to convert an existing database",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "corrects-a-wrong-assumption"
@@ -123,7 +123,7 @@
       "domain": "drivers-and-connectivity",
       "goal": "Connect from .NET: Microsoft.Data.SqlClient, encryption defaults, managed identity, and pooling",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "corrects-a-wrong-assumption"
@@ -148,7 +148,7 @@
       "domain": "drivers-and-connectivity",
       "goal": "Connect from Python: the mssql-python driver and pyodbc, ODBC driver installation, and token-based Entra",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "changes-too-fast-to-memorize"
@@ -161,7 +161,7 @@
       "domain": "drivers-and-connectivity",
       "goal": "Connect from TypeScript and Node.js: the node driver stack, typed results, pooling that survives serverless, and Entra without secrets",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "corrects-a-wrong-assumption"
@@ -174,7 +174,7 @@
       "domain": "drivers-and-connectivity",
       "goal": "Choose the right driver for your language and connect correctly: the doctrine every stack inherits",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "corrects-a-wrong-assumption",
         "changes-too-fast-to-memorize"
@@ -187,7 +187,7 @@
       "domain": "drivers-and-connectivity",
       "goal": "Turn an error code or string into the cause and the fix",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "changes-too-fast-to-memorize",
         "multi-step-with-silent-failures"
@@ -223,7 +223,7 @@
       "domain": "schema-and-orm",
       "goal": "Design a schema that will not be rebuilt at the first index or migration",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "corrects-a-wrong-assumption"
       ],
@@ -258,7 +258,7 @@
       "domain": "schema-and-orm",
       "goal": "Get EF Core right against Azure SQL: UseAzureSql, resiliency, type mapping, split queries",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "corrects-a-wrong-assumption"
@@ -282,7 +282,7 @@
       "domain": "schema-and-orm",
       "goal": "Use Prisma against Azure SQL Database and work within the provider's real limits",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "corrects-a-wrong-assumption"
@@ -295,7 +295,7 @@
       "domain": "schema-and-orm",
       "goal": "Use SQLAlchemy against Azure SQL Database and avoid the OUTPUT INSERTED and fast_executemany traps",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "corrects-a-wrong-assumption"
@@ -320,7 +320,7 @@
       "domain": "tsql-correctness-and-patterns",
       "goal": "Load before any T-SQL is written and overwrite PostgreSQL and MySQL habits",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "corrects-a-wrong-assumption"
       ],
@@ -343,7 +343,7 @@
       "domain": "tsql-correctness-and-patterns",
       "goal": "Use the native json type, JSON indexes and OPENJSON with an explicit schema",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data"
       ],
@@ -389,7 +389,7 @@
       "domain": "tsql-correctness-and-patterns",
       "goal": "Produce a correct upsert and refuse to produce a dangerous MERGE",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "corrects-a-wrong-assumption"
       ],
@@ -422,7 +422,7 @@
       "domain": "identity-and-access",
       "goal": "Get an application identity to a working passwordless connection, and diagnose it when it fails",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "multi-step-with-silent-failures"
       ],
@@ -559,7 +559,7 @@
       "domain": "security-and-safe-sql",
       "goal": "The identifier cases parameterisation does not cover: QUOTENAME returning NULL above 128 characters and the statement then running as a silent no-op, ORDER BY by a user-chosen column, and encrypted columns that reject literals outright",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "corrects-a-wrong-assumption"
       ],
@@ -571,7 +571,7 @@
       "domain": "security-and-safe-sql",
       "goal": "Implement tenant isolation that holds, and prove it with a test",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "corrects-a-wrong-assumption"
       ],
@@ -705,7 +705,7 @@
       "domain": "schema-change-and-cicd",
       "goal": "Ship schema changes from GitHub Actions with the Azure SQL action, OIDC authentication and environment approvals",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "multi-step-with-silent-failures"
@@ -740,7 +740,7 @@
       "domain": "schema-change-and-cicd",
       "goal": "The tool-neutral doctrine: expand and contract, idempotent scripts, never migrate on startup, locking and retry",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "corrects-a-wrong-assumption",
         "multi-step-with-silent-failures"
@@ -753,7 +753,7 @@
       "domain": "schema-change-and-cicd",
       "goal": "Build and publish a SQL Database Project: SDK-style .sqlproj, Microsoft.Build.Sql, pre and post deployment scripts, refactorlog and code analysis",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "multi-step-with-silent-failures"
@@ -802,7 +802,7 @@
       "domain": "azure-patterns-and-deploy",
       "goal": "Take a working local app and database to Azure with the Azure Developer CLI (azd), using an identity rather than a password",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "multi-step-with-silent-failures"
       ],
@@ -837,7 +837,7 @@
       "domain": "apis-and-application-patterns",
       "goal": "Use SQL input and output bindings and the SQL trigger in Azure Functions, including the change-tracking requirement",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "multi-step-with-silent-failures"
@@ -850,7 +850,7 @@
       "domain": "apis-and-application-patterns",
       "goal": "Build an application end to end on Azure SQL: pick the data access path, scaffold the stack, wire identity, and ship it",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "multi-step-with-silent-failures"
       ],
@@ -874,7 +874,7 @@
       "domain": "apis-and-application-patterns",
       "goal": "Expose REST and GraphQL from an Azure SQL schema with Data API builder: entities, relationships, authentication, policies",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "multi-step-with-silent-failures"
@@ -964,7 +964,7 @@
       "domain": "ai-vector-and-rag",
       "goal": "Use CREATE EXTERNAL MODEL, AI_GENERATE_EMBEDDINGS, AI_GENERATE_CHUNKS and sp_invoke_external_rest_endpoint, including permissions and the endpoint allowlist",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "changes-too-fast-to-memorize"
@@ -988,7 +988,7 @@
       "domain": "ai-vector-and-rag",
       "goal": "Wire LangChain or LlamaIndex to Azure SQL correctly: SQL toolkits, the vector store integration, and the guardrails",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "corrects-a-wrong-assumption"
@@ -1001,7 +1001,7 @@
       "domain": "ai-vector-and-rag",
       "goal": "Build and test RAG locally against the Azure SQL Database container with Ollama and LangChain or LlamaIndex, then move to the cloud unchanged",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data"
       ],
@@ -1013,7 +1013,7 @@
       "domain": "ai-vector-and-rag",
       "goal": "Build RAG end to end on Azure SQL: chunk, embed, store, retrieve, ground the answer",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data"
       ],
@@ -1072,7 +1072,7 @@
       "domain": "ai-vector-and-rag",
       "goal": "Store and search vectors natively: the vector type, VECTOR_DISTANCE, dimension limits and the restriction list",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data"
       ],
@@ -1084,7 +1084,7 @@
       "domain": "performance-and-diagnostics",
       "goal": "Create, read and clean up a database-scoped Extended Events session on Azure SQL Database",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "multi-step-with-silent-failures"
@@ -1108,7 +1108,7 @@
       "domain": "performance-and-diagnostics",
       "goal": "Capture and read a deadlock on a platform with no system_health session",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "corrects-a-wrong-assumption"
       ],
@@ -1120,7 +1120,7 @@
       "domain": "performance-and-diagnostics",
       "goal": "Answer whether it is CPU, IO, memory, or the service tier, and what to do about each",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "corrects-a-wrong-assumption",
         "not-in-training-data"
@@ -1133,7 +1133,7 @@
       "domain": "performance-and-diagnostics",
       "goal": "Triage a slow query on Azure SQL Database: is it volatile, blocked, regressed, or growing",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "corrects-a-wrong-assumption"
@@ -1169,7 +1169,7 @@
       "domain": "performance-and-diagnostics",
       "goal": "Get a plan and find the operator that matters, without drowning in showplan XML",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "multi-step-with-silent-failures"
@@ -1273,7 +1273,7 @@
       "domain": "operate-and-recover",
       "goal": "Recover data correctly under pressure: no RESTORE T-SQL, every restore creates a new database",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "corrects-a-wrong-assumption"
       ],
@@ -1375,7 +1375,7 @@
       "domain": "data-movement",
       "goal": "Load data fast by any route: bcp, BULK INSERT, OPENROWSET from blob, SqlBulkCopy, and the Python and Node equivalents",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "corrects-a-wrong-assumption"
       ],
@@ -1433,7 +1433,7 @@
       "domain": "data-movement",
       "goal": "Move a whole database with BACPAC and DACPAC: export, import, extract, publish, and what each one does and does not carry",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data",
         "multi-step-with-silent-failures"
@@ -1633,7 +1633,7 @@
       "domain": "docs-and-feedback",
       "goal": "Working with Azure SQL: what exists in 2026, which tool to use for the job, which skill applies, and how to look things up",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "changes-too-fast-to-memorize"
       ],
@@ -1657,7 +1657,7 @@
       "domain": "docs-and-feedback",
       "goal": "Turn a failure inside any agent into a well-formed, redacted GitHub issue",
       "wave": 1,
-      "status": "planned-core",
+      "status": "shipped-pilot",
       "value": [
         "not-in-training-data"
       ],

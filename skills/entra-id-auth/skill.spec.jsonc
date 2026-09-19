@@ -116,7 +116,8 @@
     "routing": [
       "the grant step of an azd deployment, where the database side user and roles have to be created",
       "a login failure whose user name is an identity rather than a SQL login",
-      "a decision between a system-assigned and a user-assigned managed identity for database access"
+      "a decision between a system-assigned and a user-assigned managed identity for database access",
+      "the managed identity exists in Azure but the database says login failed"
     ],
     "negative": [
       "how do I connect to Azure SQL Database from Node.js",

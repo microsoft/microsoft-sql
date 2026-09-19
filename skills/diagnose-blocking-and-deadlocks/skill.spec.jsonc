@@ -161,7 +161,6 @@
     "implicit": [
       "our checkout page is hanging under load and I ran a blocking query but nothing shows blocked",
       "blocking_session_id is always 0 in sys.dm_exec_requests but the app is clearly stuck waiting",
-      "I got Invalid object name sys.dm_xe_sessions when I tried to check system_health, so I guess Azure SQL Database does not have it",
       "who is the head blocker and what is it running right now",
       "a session has been idle for ten minutes but still shows an open transaction and I cannot find what it is running"
     ],
