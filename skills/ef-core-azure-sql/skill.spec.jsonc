@@ -126,7 +126,6 @@
       "does anything in my DbContext have to change when the app moves to a passwordless connection string"
     ],
     "routing": [
-      "add a data access layer to my ASP.NET service that talks to Azure SQL",
       "port my EF Core app from a self hosted database to Azure SQL Database",
       "make my EF Core writes safe to retry against Azure SQL Database"
     ],

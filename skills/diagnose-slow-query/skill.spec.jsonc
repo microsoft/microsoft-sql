@@ -115,7 +115,8 @@
       "Sometimes this dashboard finishes in two seconds and sometimes it takes forty, same parameters",
       "This query got slow right after last night's deployment and nothing else changed",
       "Query Store shows nothing for the query I just ran, does that mean it was fast",
-      "The nightly job used to take ten minutes and now it takes forty five, and it keeps creeping up"
+      "The nightly job used to take ten minutes and now it takes forty five, and it keeps creeping up",
+      "the same query used to be instant and now it reads the whole table, nothing changed"
     ],
     "routing": [
       "why is this slow",
