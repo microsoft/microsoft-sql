@@ -184,8 +184,15 @@ for (const name of skillDirs) {
 //
 // shipped-pilot is the one shipped value the schema defines, and the lab's
 // linter, in the rule that governs which skills a description may name, reads
-// it as "exists in the product repository now". A directory under skills/ is exactly that, so every skill on disk must
-// carry it, and nothing else may.
+// it as "exists in the catalog now", meaning this repository. A directory under
+// skills/ is exactly that, so every skill on disk must carry it, and nothing
+// else may.
+//
+// That sentence used to say "the product repository", which read fine while
+// there was one other repository in the picture. Since 2026-09-20 this catalog
+// is the parent of the 17 azuresql-db-* skills and
+// microsoft/azure-sql-database-container is downstream of it, so "the product
+// repository" now points at the wrong one.
 //
 // The second half used to be a warning, and only for backlog. Until 2026-09-19
 // all 40 authored skills on disk were still marked planned-core, which this
