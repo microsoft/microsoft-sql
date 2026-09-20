@@ -3,7 +3,9 @@
   "id": "azuresql-db-dab",
   "domain": "azure-sql-database-container",
   "value": [
-    "not-in-training-data"
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "changes-too-fast-to-memorize"
   ],
   "correction": "Asked for an API over existing tables, an agent hand-writes controllers and an ORM layer. Data API Builder generates REST and GraphQL from configuration with no application code, which is both less work and less to maintain.",
   "posture": [

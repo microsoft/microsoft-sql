@@ -3,7 +3,9 @@
   "id": "azuresql-db-functions",
   "domain": "azure-sql-database-container",
   "value": [
-    "not-in-training-data"
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "multi-step-with-silent-failures"
   ],
   "correction": "The Azure SQL trigger binding has a prerequisite no model volunteers: change tracking must be enabled on the database and the table, or the trigger simply never fires and nothing reports an error. Change Event Streaming is cloud-only and cannot stand in for it locally.",
   "posture": [

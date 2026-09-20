@@ -3,7 +3,9 @@
   "id": "azuresql-db-feedback",
   "domain": "azure-sql-database-container",
   "value": [
-    "not-in-training-data"
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "multi-step-with-silent-failures"
   ],
   "correction": "Told that something did not work, an agent says \"file an issue\" and leaves the user to it. A skill problem and a product problem use different templates, the report needs context the agent already has, and secrets in a pasted connection string would become world-readable, so the report is built, redacted, and never submitted without explicit confirmation.",
   "posture": [

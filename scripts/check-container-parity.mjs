@@ -157,6 +157,22 @@ const POLICY = {
       'A written acceptance of value signed by a named person on a named date, in place of a measurement. Two versions of that text mean two different things were signed, and nobody could say which one Carlos Robles agreed to.',
     'validation.target':
       'Declares which engines the skill was validated against, and so which runs are owed. Disagreement means the two repositories owe different runs for the same skill.',
+    // RULED 2026-09-20 BY CARLOS ROBLES. These three sat in `unreconciled` below
+    // from the day this script was written, not because anyone had looked at them
+    // and decided they were allowed to differ, but because nobody had looked. That
+    // is the state the `unreconciled` bucket exists to make uncomfortable, and it
+    // worked: 26 differences across these three fields were reported on every run
+    // for long enough to be read, and then ruled on. The ruling was to take the
+    // pilot repository's labels where they were better, which on `value` they were
+    // on 14 of 17, and to decide `posture` freshly on what each skill has a reader
+    // do. What the two repositories say now is the result of that reading, so a
+    // difference from here on is drift rather than an unanswered question.
+    value:
+      'Why the skill is worth shipping. This catalog said not-in-training-data for all 17, which was a bulk fill rather than a reading of 17 skills; the per-skill lists were adopted from the pilot repository on 2026-09-20, checked one label at a time against each skill\'s own correction sentence and body. Two versions of this field mean the two repositories disagree about what the skill is FOR.',
+    posture:
+      'What the skill has a reader do. Descriptive metadata for grouping and filtering, never an authorization control. Ruled field by field on 2026-09-20 on what each skill actually instructs, so a difference is now a disagreement about the instructions rather than about the vocabulary.',
+    applies_to:
+      'Who the guidance is for. The one difference on 2026-09-20 was azuresql-db-local-to-cloud carrying the same two values in the other order; this catalog carries them sorted and the comparison below treats all three of these fields as the sets their schema declares them to be, so an order is not a difference. A difference in MEMBERSHIP is, because it changes which engine a reader is told this applies to.',
   },
 
   // Differ on purpose. The reason is the record of the decision.
@@ -177,12 +193,28 @@ const POLICY = {
   // report says so on every run so that this list is uncomfortable to leave
   // alone. Moving an entry from here to mustMatch or mayDiffer is a decision
   // somebody has to make and write down.
-  unreconciled: {
-    value: 'This catalog uses the catalog value taxonomy; the pilot repository uses its own. Nobody has ruled on whether these should be the same vocabulary.',
-    posture: 'Differs on 8 of the 17. Not part of the set a reviewer established, so this script will not invent a ruling on it.',
-    applies_to: 'Follows validation.target on one side and not the other. Settle target first.',
-  },
+  //
+  // EMPTY SINCE 2026-09-20, and kept rather than deleted. It emptied because the
+  // last three entries in it were ruled on, which is the only way an entry is
+  // meant to leave. Deleting the bucket would delete the place the next
+  // unclassified field has to sit and be seen, and a field with nowhere to sit
+  // fails the run instead, which is a worse way to find out.
+  unreconciled: {},
 };
+
+// The three fields above that the schema declares as SETS: arrays with
+// `uniqueItems`, whose order nothing reads. They are compared as sets here, so
+// ["admin", "provision", "read"] and ["read", "provision", "admin"] are the same
+// answer written two ways rather than a difference worth a line in a report.
+//
+// THIS IS NOT A RELAXATION, because order is still pinned, one level down and in
+// the place that can act on it. scripts/backfill-container-sidecars.mjs --check
+// compares these three fields against its own literals with JSON.stringify, which
+// is order-exact, and it fails this repository's `npm test` on a reordering. So
+// the house order is enforced HERE, where it can be fixed, and membership is
+// enforced ACROSS the two repositories, where order is somebody else's file.
+const SET_FIELDS = new Set(['value', 'posture', 'applies_to']);
+const asSet = (field, v) => (SET_FIELDS.has(field) && Array.isArray(v) ? [...v].sort() : v);
 
 // validation is compared subfield by subfield rather than as a whole object,
 // because it also carries `assert`, which the two repositories are migrating away
@@ -445,9 +477,9 @@ for (const id of ids) {
       );
       continue;
     }
-    if (canon(a[field]) === canon(b[field])) continue;
+    if (canon(asSet(field, a[field])) === canon(asSet(field, b[field]))) continue;
     if (cls === 'mustMatch') {
-      pending.push({ id, what: `${SIDECAR} ${field}`, why: `differs, at ${firstDiff(a[field], b[field])}`, since: waitingSince(here) });
+      pending.push({ id, what: `${SIDECAR} ${field}`, why: `differs, at ${firstDiff(asSet(field, a[field]), asSet(field, b[field]))}`, since: waitingSince(here) });
     } else if (cls === 'unreconciled') {
       notes.push({ id, field });
     }
@@ -544,7 +576,9 @@ const mustMatchValidation = Object.entries(VALIDATION_SUBFIELDS)
 console.log('Must match:   ' + [...Object.keys(POLICY.mustMatch).filter((f) => f !== 'validation.target'), ...mustMatchValidation].join(', ')
   + ', and both sides must carry a non-empty correction.');
 console.log('May differ:   ' + Object.keys(POLICY.mayDiffer).join(', '));
-console.log('Unreconciled: ' + Object.keys(POLICY.unreconciled).join(', ') + '  (reported, not enforced)');
+console.log('Unreconciled: ' + (Object.keys(POLICY.unreconciled).join(', ') || 'nothing. value, posture and applies_to were the last three and Carlos Robles ruled on them on 2026-09-20'));
+console.log(`Compared as sets, because their schema says uniqueItems and nothing reads their order: ${[...SET_FIELDS].join(', ')}.`);
+console.log('Their order is still exact, and enforced by scripts/backfill-container-sidecars.mjs --check.');
 console.log('');
 console.log(`Compared the shipped text of the same ${ids.length}: SKILL.md and references/, by git blob hash.`);
 

@@ -30,6 +30,8 @@
 //                        run for real rather than imagined
 //   correction, posture  authored here, from behaviour verified against a live
 //                        engine during the pilot. Message numbers are real.
+//                        posture was ruled skill by skill on 2026-09-20; the
+//                        reason for each is the comment above the literal.
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -42,11 +44,21 @@ const ROOT = 'skills';
 const CATALOG = 'catalog/catalog.json';
 
 // The container is Private Preview until November 2026, so every skill in this
-// family passes the value bar on "not in training data" automatically. The
-// correction is what it teaches on top of that.
+// family clears the value bar on "not in training data" alone. That was also, until
+// 2026-09-20, the only label any of the 17 carried: one answer filled in 17 times,
+// which cleared the bar and described nothing. Carlos Robles ruled on 2026-09-20
+// that the per-skill lists the pilot repository had written should be adopted where
+// they were better, and they were on 14 of the 17. The lists now live in
+// catalog/catalog.json, seeded from the planning workbook's Added value column, and
+// `not-in-training-data` stays on all 17 because every one of their value
+// declarations rests on exactly that claim.
 const AUTHORED = {
   'azuresql-db-container': {
-    posture: ['read', 'write', 'execute', 'provision'],
+    // posture ruled 2026-09-20: write out, inspect in. This is the lifecycle skill: it creates the
+    // container and appdb (provision), runs verify.sh and the container commands (execute), asserts
+    // the engine identity with SERVERPROPERTY (inspect) and connects to query it (read). Its one
+    // seed example hands off to azuresql-db-seed, which is where write belongs.
+    posture: ['read', 'inspect', 'execute', 'provision'],
     target: 'container',
     correction:
       'Asked for a local SQL database, an agent reaches for mcr.microsoft.com/mssql/server. That is SQL Server, not Azure SQL Database: the container runs the PaaS engine, where SERVERPROPERTY(\'EngineEdition\') returns 5 and Edition is \'SQL Azure\', and it does not auto-create databases, so a plan that connects straight after docker run has nothing to connect to.',
@@ -70,7 +82,9 @@ const AUTHORED = {
     assert: ['uses the Azure SQL Database container image', 'creates the user database', 'connection string targets the user database, not master'],
   },
   'azuresql-db-schema-migration': {
-    posture: ['read', 'write', 'execute'],
+    // posture ruled 2026-09-20: + provision. The skill's one rule is that the user database exists
+    // before the tool runs, and step one has the reader create it.
+    posture: ['read', 'write', 'execute', 'provision'],
     target: 'container',
     correction:
       'Migration tools get pointed at the server default, which is master, and the run appears to succeed while putting the schema in the wrong place. The user database must be provisioned first and named in the connection string.',
@@ -78,6 +92,8 @@ const AUTHORED = {
     assert: ['user database provisioned before migrating', 'connection string targets the user database'],
   },
   'azuresql-db-import': {
+    // posture ruled 2026-09-20: unchanged. The pilot repository drops read; step 2 is a validation
+    // query, so read stays.
     posture: ['read', 'write', 'execute', 'provision'],
     target: 'container',
     correction:
@@ -86,7 +102,9 @@ const AUTHORED = {
     assert: ['uses SqlPackage rather than RESTORE', 'target database created on master first'],
   },
   'azuresql-db-from-sql-server': {
-    posture: ['read', 'write', 'inspect'],
+    // posture ruled 2026-09-20: + provision. Step 4 has the reader start the container and create
+    // appdb before any connection string is re-pointed.
+    posture: ['read', 'write', 'inspect', 'provision'],
     target: 'container',
     correction:
       'An agent treats the SQL Server image and this engine as interchangeable and carries the whole configuration across. They are not: SQL Agent, FILESTREAM, full Service Broker, cross-server distributed transactions and Windows authentication do not exist here, and connection strings pointed at master need re-pointing at a provisioned user database.',
@@ -112,7 +130,9 @@ const AUTHORED = {
     assert: ['registry credentials handled as secrets', 'health check runs inside the container', 'user database provisioned before tests'],
   },
   'azuresql-db-testing': {
-    posture: ['read', 'write', 'execute'],
+    // posture ruled 2026-09-20: + provision. Every recipe creates a container and appdb per run,
+    // which is the lifecycle the skill is about.
+    posture: ['read', 'write', 'execute', 'provision'],
     target: 'container',
     correction:
       'Testcontainers has an MsSql preset, so an agent uses it and gets SQL Server. Testing against the Azure SQL Database engine means configuring a generic container with this image, its EULA and password requirements, and a readiness wait.',
@@ -120,7 +140,9 @@ const AUTHORED = {
     assert: ['does not use the Testcontainers MsSql preset', 'waits for readiness before running tests'],
   },
   'azuresql-db-seed': {
-    posture: ['read', 'write', 'execute'],
+    // posture ruled 2026-09-20: + provision. Step 1 provisions appdb before any seed. The pilot
+    // repository drops read, and seeding reads: parent keys are captured before children are inserted.
+    posture: ['read', 'write', 'execute', 'provision'],
     target: 'container',
     correction:
       'To load a CSV an agent writes BULK INSERT or OPENROWSET against a local path. The engine rejects that with Msg 12713, because it reads from Azure Blob Storage rather than the local filesystem. Local files go in through bcp or a driver.',
@@ -128,7 +150,9 @@ const AUTHORED = {
     assert: ['no local-file BULK INSERT or OPENROWSET', 'respects foreign key order when seeding related tables'],
   },
   'azuresql-db-connections': {
-    posture: ['read', 'write'],
+    // posture ruled 2026-09-20: + provision, not the pilot repository's execute. The first step
+    // creates appdb; nothing here runs a migration, a tool or a test.
+    posture: ['read', 'write', 'provision'],
     // validation.target and applies_to were taken from the pilot repository, which
     // was their parent until 2026-09-20 and where the probe lane that owes the run
     // lived. Every probe here runs on the
@@ -144,7 +168,10 @@ const AUTHORED = {
     assert: ['retry with backoff present', 'pool bounded explicitly'],
   },
   'azuresql-db-auth': {
-    posture: ['read', 'write', 'admin'],
+    // posture ruled 2026-09-20: write out, provision in. The skill creates a server login (admin)
+    // and a mapped, role-granted database user (provision) and verifies by querying (read). It
+    // changes no application data.
+    posture: ['read', 'provision', 'admin'],
     // validation.target and applies_to were taken from the pilot repository, which
     // was their parent until 2026-09-20 and where the probe lane that owes the run
     // lived. Every probe here runs on the
@@ -318,7 +345,7 @@ const MATURITY = {
 // same reason MATURITY must.
 const DECLARATIONS = {
   "azuresql-db-auth": {
-    "rationale": "This skill's kernel is an identity recipe that is the inverse of the published Azure SQL Database guidance, and the inversion is only visible from the engine's refusals. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach general least-privilege advice, role grants, and where a secret should be stored outside the repository, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted.",
+    "rationale": "This skill's kernel is an identity recipe that is the inverse of the published Azure SQL Database guidance, and the inversion is only visible from the engine's refusals. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach general least-privilege advice, role grants, and where a secret should be stored outside the repository, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted. AMENDED 2026-09-19, TEXT ONLY, AND THIS SENTENCE IS THE RECORD OF IT. Three lines in covers quoted error numbers that had never been read off the engine. The first live run of this skill's probes, on image tag 18.0.226_4_147, EngineEdition 5, Edition 'SQL Azure', build 12.0.2000.8, in a container started with no MSSQL_AAD_* configuration, answered Msg 33233 where they said Msg 15007, Msg 12824 where they said Msg 12844, and Msg 33134 where they said Msg 37525. The three numbers were corrected in place on 2026-09-19 and nothing else in this block was touched. The argument did not move: the engine refuses exactly what this declaration said it refuses, so what Carlos Robles signed on 2026-09-04 still stands. A signed argument that quotes a false error number would be worse than a signed argument that carries a correction on its face, which is why the numbers were fixed and this sentence was added rather than the numbers being left to rot or fixed silently.",
     "covers": [
       "the contained database user, CREATE USER WITH PASSWORD, being refused on this engine with Msg 33233, which inverts the cloud norm",
       "ALTER DATABASE SET CONTAINMENT = PARTIAL being refused with Msg 12824, so the contained route cannot be enabled either",
@@ -366,7 +393,7 @@ const DECLARATIONS = {
     "expires_when": "the-container-reaches-public-preview"
   },
   "azuresql-db-container": {
-    "rationale": "This skill's kernel is the whole set of ways this image behaves like the platform rather than like the boxed engine. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach Docker run and Compose syntax, port publishing, volume mounts and the shape of a readiness loop, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted.",
+    "rationale": "This skill's kernel is the whole set of ways this image behaves like the platform rather than like the boxed engine. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach Docker run and Compose syntax, port publishing, volume mounts and the shape of a readiness loop, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted. AMENDED 2026-09-19, TEXT ONLY, AND THIS SENTENCE IS THE RECORD OF IT. One line in covers said there is no msdb on this engine. The first live run of this skill's probes, on image tag 18.0.226_4_147, EngineEdition 5, Edition 'SQL Azure', build 12.0.2000.8, in a container started with no MSSQL_AAD_* configuration, lists msdb in sys.databases from master and from a user database alike. What is absent is the Agent job store: OBJECT_ID('msdb.dbo.sysjobs') is NULL. The line was corrected in place on 2026-09-19 to say that instead, and nothing else in this block was touched. The argument did not move: the parity claim it rests on is that there is no SQL Server Agent here, and that still stands, so what Carlos Robles signed on 2026-09-04 still stands. The claim was right and its stated evidence was wrong, which is the worse of the two failures and the reason this sentence is here rather than a silent edit.",
     "covers": [
       "the engine never creating a database when a connection names one, so it is created on a master connection first",
       "USE being refused in a user-database session with Msg 40508",
@@ -401,7 +428,7 @@ const DECLARATIONS = {
     "expires_when": "the-container-reaches-public-preview"
   },
   "azuresql-db-faq": {
-    "rationale": "This skill's kernel is a way to sort a capability question, and every bucket boundary is an engine refusal that only this engine produces. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach general Azure SQL Database and SQL Server feature knowledge, which is exactly what the buckets sort, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted.",
+    "rationale": "This skill's kernel is a way to sort a capability question, and every bucket boundary is an engine refusal that only this engine produces. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach general Azure SQL Database and SQL Server feature knowledge, which is exactly what the buckets sort, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted. AMENDED 2026-09-19, TEXT ONLY, AND THIS SENTENCE IS THE RECORD OF IT. One line in covers quoted two error numbers that had never been read off the engine. The first live run of this skill's probes, on image tag 18.0.226_4_147, EngineEdition 5, Edition 'SQL Azure', build 12.0.2000.8, in a container started with no MSSQL_AAD_* configuration, answered Msg 33233 where it said Msg 15007 and Msg 12824 where it said Msg 12844. Both numbers were corrected in place on 2026-09-19 and nothing else in this block was touched. The argument did not move: the engine refuses exactly what this declaration said it refuses, so what Carlos Robles signed on 2026-09-04 still stands. A signed argument that quotes a false error number would be worse than one that carries a correction on its face, which is why the numbers were fixed and this sentence was added rather than the numbers being left to rot or fixed silently.",
     "covers": [
       "BACKUP and RESTORE being refused with Msg 40510, which is the boundary of the managed-service bucket",
       "USE being refused with Msg 40508",
