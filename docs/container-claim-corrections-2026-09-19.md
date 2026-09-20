@@ -1,7 +1,12 @@
 # Four corrected claims, owed to `microsoft/azure-sql-database-container`
 
-**Recorded 2026-09-19. For Carlos Robles to hand over. Nothing in this document has been
-applied to the product repository.**
+**Recorded 2026-09-19. HANDED OVER THE SAME DAY.**
+`microsoft/azure-sql-database-container` took all four corrections in its pull request 161,
+merged as `c105046`. The parity debt this document was written against is therefore paid: the
+ten entries in [`catalog/container-parity-debt.jsonc`](../catalog/container-parity-debt.jsonc)
+were deleted when the parity check confirmed the two repositories agree again. What follows is
+the record of what moved and why, and it is kept as written rather than rewritten in the past
+tense, because the measurement is the point.
 
 Four claims in three of the 17 `azuresql-db-*` skills are wrong. In every case the engine
 refuses exactly what the skill says it refuses, so **no instruction in any skill changes**.
@@ -156,7 +161,10 @@ lines are the whole of it and can be reverted independently of everything else h
 
 ## What was not done
 
-- Nothing in `microsoft/azure-sql-database-container` was touched, by instruction.
+- `microsoft/azure-sql-database-container` was untouched when this was written, by instruction.
+  It has since taken all four corrections in its pull request 161, merged as `c105046` on
+  2026-09-19, and its own copies of the 17 skills' probes were run against the engine there:
+  104 of 104 pass.
 - `maturity` was not changed by hand anywhere. The three skills involved declare `preview`;
   whether their evidence now supports it is a reading of the lab's report, recorded with this
   change and not decided here.
