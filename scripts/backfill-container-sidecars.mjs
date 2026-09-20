@@ -129,8 +129,9 @@ const AUTHORED = {
   },
   'azuresql-db-connections': {
     posture: ['read', 'write'],
-    // validation.target and applies_to are taken from the product repository, which
-    // is where the probe lane that owes the run lives. Every probe here runs on the
+    // validation.target and applies_to were taken from the pilot repository, which
+    // was their parent until 2026-09-20 and where the probe lane that owes the run
+    // lived. Every probe here runs on the
     // container; there is no cloud lane, so 'both' and 'none' both said something
     // untrue about which runs are owed. applies_to is stated rather than derived
     // from target, because a skill can be written for the cloud as well and still
@@ -144,8 +145,9 @@ const AUTHORED = {
   },
   'azuresql-db-auth': {
     posture: ['read', 'write', 'admin'],
-    // validation.target and applies_to are taken from the product repository, which
-    // is where the probe lane that owes the run lives. Every probe here runs on the
+    // validation.target and applies_to were taken from the pilot repository, which
+    // was their parent until 2026-09-20 and where the probe lane that owes the run
+    // lived. Every probe here runs on the
     // container; there is no cloud lane, so 'both' and 'none' both said something
     // untrue about which runs are owed. applies_to is stated rather than derived
     // from target, because a skill can be written for the cloud as well and still
@@ -703,7 +705,7 @@ for (const [id, a] of Object.entries(AUTHORED)) {
     //
     // So this now checks the fields the generator actually authors, and says
     // nothing about the rest. The rest is not unpoliced: check-container-parity.mjs
-    // reads the product repository, and a field in neither of its lists fails its
+    // reads the pilot repository, and a field in neither of its lists fails its
     // run, so nothing crosses the two repositories unclassified.
     if (!existsSync(path)) {
       problems.push(`${path} does not exist`);
@@ -727,7 +729,7 @@ for (const [id, a] of Object.entries(AUTHORED)) {
     }
   } else {
     // Writing is still whole-file, so a run without --check would DISCARD the
-    // probes carried from the product repository. Merge them back in rather than
+    // probes already on disk here. Merge them back in rather than
     // silently dropping the evidence half of every sidecar.
     let carried = {};
     if (existsSync(path)) {
