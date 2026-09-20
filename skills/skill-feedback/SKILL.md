@@ -1,17 +1,16 @@
 ---
 name: skill-feedback
 description: >-
-  Turns a defect in an Azure SQL agent skill, or in this catalog itself, into a redacted,
-  prefilled GitHub issue the user reviews and submits. Use when a skill gave wrong or missing
-  instructions, the wrong skill fired or none did, a skill would not install, or a description,
-  example or routing in the catalog is itself wrong; also when the agent had to work around a
-  defect in the skill it was following, even though the task still succeeded. Triggers on "file a
-  bug", "report this", "open an issue", "give feedback on this skill". Not for an ordinary Azure
-  SQL Database or T-SQL failure where the skill's guidance was correct and only the service or the
-  query is misbehaving; that belongs to the skill that owns the topic, such as
-  diagnose-connection-errors or t-sql-correctness. Strips connection strings, passwords, tokens,
-  keys, server names, subscription and tenant ids, and real email addresses before building the
-  URL, and never submits anything without the user's explicit confirmation.
+  Turns a defect in an Azure SQL Database agent skill, or in this catalog itself, into a
+  redacted, prefilled GitHub issue the user reviews and submits. Use when a skill gave wrong or
+  missing instructions, the wrong skill fired or none did, a skill would not install, or a
+  description or routing in the catalog is wrong; also when the agent worked around a defect in
+  the skill it was following even though the task succeeded. Triggers on "file a bug", "report
+  this", "open an issue", "give feedback on this skill". Not for an ordinary Azure SQL Database
+  or T-SQL failure where the skill's guidance was correct and only the service or the query is
+  misbehaving; that belongs to the skill owning the topic, such as diagnose-connection-errors.
+  Strips connection strings, passwords, tokens, server names, subscription and tenant ids and
+  email addresses, and never submits without confirmation.
 ---
 
 

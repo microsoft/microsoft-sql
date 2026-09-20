@@ -1,17 +1,16 @@
 ---
 name: entra-id-auth
 description: >-
-  Takes an application identity to a working passwordless connection to Azure SQL Database, and
-  diagnoses it when that fails: sets the Microsoft Entra administrator, creates the database user
-  for a managed identity or service principal, grants roles, and writes the driver's
-  authentication keyword. Use when a user asks to "set up Microsoft Entra authentication for Azure
-  SQL", "connect with a managed identity", "stop putting the database password in configuration",
-  or "turn on Microsoft Entra-only authentication", and for the container's database side once its
-  MSSQL_AAD_ variables are set. Owns every failure arriving after a credential was evaluated: Msg
-  33134 "Principal could not be resolved", Msg 33131 "duplicate display name", 18456 "Login failed
-  for user" and a login naming a token-identified principal, and 4060 "Cannot open database". What
-  fails before that, transport, pre-login, certificates and timeouts, belongs to
-  diagnose-connection-errors, and drivers and pooling to the connect skills.
+  Takes an application identity to a passwordless connection to Azure SQL Database, and diagnoses
+  it when that fails: sets the Microsoft Entra administrator, creates the database user for a
+  managed identity or service principal, and grants roles. Use for "set up Microsoft Entra
+  authentication for Azure SQL", "connect with a managed identity", "stop putting the database
+  password in configuration", or "turn on Microsoft Entra-only authentication", and for the
+  container once its MSSQL_AAD_ variables are set. Owns failures after a credential was
+  evaluated: Msg 33134 "Principal could not be resolved", Msg 33131 "duplicate display name",
+  18456 "Login failed for user", 4060 "Cannot open database". What fails before that is
+  diagnose-connection-errors; the connection code itself is connect-from-dotnet,
+  connect-from-python or connect-from-typescript-and-node.
 ---
 
 # Microsoft Entra ID authentication for an application identity

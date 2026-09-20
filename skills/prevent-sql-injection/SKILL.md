@@ -1,17 +1,16 @@
 ---
 name: prevent-sql-injection
 description: >-
-  Handles SQL injection on Azure SQL Database past what an agent already gets right: a typed
-  sp_executesql parameter matches nothing where the same input concatenated into EXEC() returns
-  every row; QUOTENAME returns NULL above 128 characters, so the batch built from it becomes NULL
-  and runs as a silent no-op at no severity; one CASE over columns of different
-  types in a dynamic ORDER BY fails only for the sort key selecting the lower-precedence branch;
-  dynamic SQL breaks the ownership chain, so EXECUTE AS decides what a statement may touch and who
-  the engine thinks is running it; and Always Encrypted refuses a literal with Msg 206. Use for a
-  general injection question or a pre-production review, when a QUOTENAME-built statement returns
-  and raises nothing, when a sort-by-column feature throws an operand type clash for one
-  column only, when a procedure works until its query becomes dynamic, or when a query against an
-  encrypted column will not take a literal. Row level tenant isolation is rls-multi-tenant.
+  Handles SQL injection on Azure SQL Database beyond parameterisation: a typed sp_executesql
+  parameter matches nothing where the same input concatenated into EXEC() returns every row;
+  QUOTENAME returns NULL above 128 characters, so the batch built from it becomes NULL and does
+  nothing; a dynamic ORDER BY built from one CASE over mixed types fails only for the sort key on
+  the lower-precedence branch; dynamic SQL breaks the ownership chain, so EXECUTE AS decides what
+  it may touch; and Always Encrypted refuses a literal (Msg 206). Use for a general injection
+  question or a pre-production review, when a QUOTENAME-built statement returns and raises
+  nothing, when a sort-by-column feature throws an operand type clash for one column only, when a
+  procedure works until its query becomes dynamic, or when an encrypted column will not take a
+  literal. Row level tenant isolation is rls-multi-tenant.
 ---
 
 # Prevent SQL injection: the value, the identifier, and the context it runs under

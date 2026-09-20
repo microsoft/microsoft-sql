@@ -1,17 +1,16 @@
 ---
 name: diagnose-slow-query
 description: >-
-  Triages a slow Azure SQL Database query into one of four causes before anyone touches an index or
-  a service tier: volatile, duration swings across executions; blocked, waiting on another session
-  right now; regressed, a worse plan replaced a good one; or growing, duration rises with data
-  volume over time. Reads Query Store's runtime stats, plan history, and per-plan wait composition
-  to reach that verdict, and knows where the default AUTO capture mode silently drops the query
-  someone is asking about. Use when a query, report, or job "used to be fast" or runs
-  inconsistently: "this took a second yesterday and ten today", "sometimes it's fast and sometimes
-  it isn't", "did last night's deployment make this slower". Ends in a diagnosis, not a fix: CPU,
-  memory, IO and tier go to diagnose-resource-pressure, a blocking chain or deadlock goes to
-  diagnose-blocking-and-deadlocks, reading the plan operator by operator goes to
-  read-execution-plan, and a query Query Store missed goes to capture-with-extended-events.
+  Triages a slow Azure SQL Database query into one of four causes before anyone touches an index
+  or a service tier: volatile, duration swings across executions; blocked, waiting on another
+  session; regressed, a worse plan replaced a good one; or growing, duration rises with data
+  volume. Reads Query Store runtime stats, plan history and per-plan waits, and knows where AUTO
+  capture mode silently drops the query asked about. Use when a query "used to be fast" or runs
+  inconsistently: "this took a second yesterday and ten today", "sometimes it's fast and
+  sometimes it isn't", "did last night's deployment make this slower". Ends in a diagnosis, not a
+  fix: CPU, memory, IO and tier go to diagnose-resource-pressure, blocking and deadlocks to
+  diagnose-blocking-and-deadlocks, the plan itself to read-execution-plan, a query Query Store
+  missed to capture-with-extended-events.
 ---
 
 # Diagnose a slow Azure SQL Database query

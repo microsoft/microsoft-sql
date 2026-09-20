@@ -8,9 +8,9 @@ description: >-
   "CREATE VECTOR INDEX", "VECTOR_SEARCH" or "WITH APPROXIMATE"; when a vector column is rejected
   as a key, a constraint, a computed column or inside ORDER BY, GROUP BY, DISTINCT or UNION; and
   when a similarity query returns the right rows but scans the whole table. This skill owns the
-  type and the query surface. The end to end retrieval pipeline is rag-on-azure-sql, generating
-  embeddings and the external model endpoint are embeddings-and-external-models, and where a
-  vector column belongs in a wider design is design-azure-sql-schema.
+  type and the query surface. The end to end pipeline is rag-on-azure-sql, generating embeddings
+  embeddings-and-external-models, and a vector column's place in a wider design
+  design-azure-sql-schema.
 ---
 
 # Vector storage and search on Azure SQL Database

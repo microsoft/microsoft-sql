@@ -1,17 +1,16 @@
 ---
 name: restore-and-recover
 description: >-
-  Recovers an Azure SQL Database after data loss, an accidental drop, or a bad deployment, using
-  point-in-time restore, geo-restore, and long-term retention. Use when someone asks to
-  "restore my Azure SQL database", "undo a dropped table or database", "roll back to before this
-  migration ran", "recover from a region outage", or asks for RESTORE DATABASE or BACKUP DATABASE
-  syntax. There is no backup or restore T-SQL on Azure SQL Database: BACKUP DATABASE, RESTORE
-  DATABASE, and every RESTORE ... ONLY variant are refused outright, and restoring is a control
-  plane operation, never a query. Every restore creates a brand new database next to the one being
-  recovered rather than overwriting it in place, and this covers choosing the right restore type
-  and the rename or connection swap back that nothing does automatically. Not a schema rollback,
-  which is schema-migrations-safely, and not a logical export or import, which is
-  sqlpackage-import-export. Creating the database in the first place is provision-azure-sql-db.
+  Recovers an Azure SQL Database after data loss, an accidental drop or a bad deployment, using
+  point-in-time restore, geo-restore and long-term retention. Use when someone asks to "restore
+  my Azure SQL database", "undo a dropped table or database", "roll back to before this migration
+  ran", "recover from a region outage", or asks for RESTORE DATABASE or BACKUP DATABASE syntax.
+  There is no backup or restore T-SQL here: BACKUP DATABASE, RESTORE DATABASE and every RESTORE
+  ... ONLY variant are refused, and restoring is a control plane operation. Every restore creates
+  a new database beside the one being recovered rather than overwriting it, so this covers the
+  restore type and the rename or connection swap back. Not a schema rollback
+  (schema-migrations-safely), not a logical export or import (sqlpackage-import-export), not
+  creating it (provision-azure-sql-db).
 ---
 
 # Recover an Azure SQL Database

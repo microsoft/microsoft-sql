@@ -1,17 +1,16 @@
 ---
 name: t-sql-correctness
 description: >-
-  Writes T-SQL that returns the right answer on Azure SQL Database, and catches the statements that
-  return a wrong answer with no error at all: NULL compared using = or <> or NOT IN, ISNULL and
-  COALESCE differing in return type, integer division truncating, a string variable declared with
-  no length, and a session where QUOTED_IDENTIFIER is OFF. Also corrects PostgreSQL and MySQL habit
-  (LIMIT, RETURNING, SERIAL, ILIKE, NOW(), true, false, double-quoted string literals, TEXT
-  columns, ON CONFLICT, USE) and the opposite mistake of avoiding syntax the engine has supported
-  since 2025. Use when writing, porting or reviewing SQL for Azure SQL Database or the local
-  container, and for "why is that row missing", "why did NOT IN return nothing", "why is this
-  average wrong", "how do I paginate", "how do I get the id I just inserted", "is this comparison
-  case sensitive". Upserts belong to t-sql-upserts-merge, JSON to t-sql-json-and-openjson, and
-  column, index and collation design to design-azure-sql-schema.
+  Writes T-SQL that returns the right answer on Azure SQL Database, and catches statements that
+  return a wrong answer with no error: NULL compared using = or <> or NOT IN, ISNULL and COALESCE
+  differing in return type, integer division truncating, a string variable declared with no
+  length, and a session where QUOTED_IDENTIFIER is OFF. Also corrects PostgreSQL and MySQL habit
+  (LIMIT, RETURNING, SERIAL, ILIKE, NOW(), true, false, double-quoted literals, TEXT columns, ON
+  CONFLICT, USE) and the opposite mistake of avoiding syntax supported since 2025. Use when
+  writing, porting or reviewing SQL, and for "why is that row missing", "why did NOT IN return
+  nothing", "why is this average wrong", "how do I paginate", "how do I get the id I just
+  inserted", "is this comparison case sensitive". Upserts are t-sql-upserts-merge, JSON
+  t-sql-json-and-openjson, table design design-azure-sql-schema.
 ---
 
 # Write T-SQL that returns the right answer

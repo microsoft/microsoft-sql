@@ -3,15 +3,14 @@ name: rls-multi-tenant
 description: >-
   Builds tenant isolation on Azure SQL Database that a test can prove, with a row level security
   policy whose filter predicate and block predicate are written together, because a filter alone
-  still accepts a cross-tenant write and then hides the row from the application that made it.
-  Use when asked to add row level security, isolate tenants in a shared table, write a security
-  policy or predicate function, set the current tenant through SESSION_CONTEXT or a database user
-  per tenant, or prove one tenant cannot read another; and use when a multi-tenant application
-  returns the wrong tenant's rows under load, a policy is in place and everything is still
-  visible, or error 33504 appears on an insert or update. Covers what pooling does to a session-scoped
-  tenant id, who can turn a policy off, the tenant tables a healthy-looking policy
-  does not cover, and the isolation test that goes red when any of it breaks. Identity onto a
-  working connection is entra-id-auth; the table design under it is design-azure-sql-schema.
+  still accepts a cross-tenant write and hides the row from the app that made it. Use when asked
+  to add row level security, isolate tenants in a shared table, write a security policy or
+  predicate function, set the current tenant through SESSION_CONTEXT or a database user per
+  tenant, or prove one tenant cannot read another; and when a multi-tenant app returns the wrong
+  tenant's rows under load, retrieval returns another tenant's chunk, a policy is in place and
+  all rows are still visible, or error 33504 appears on an insert or update. Covers pooling
+  against a session-scoped tenant id, who can turn a policy off, and the isolation test. Identity
+  is entra-id-auth, the table design design-azure-sql-schema.
 ---
 
 # Tenant isolation that holds, and the test that proves it

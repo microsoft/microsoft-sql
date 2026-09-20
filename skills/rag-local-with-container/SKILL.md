@@ -1,17 +1,16 @@
 ---
 name: rag-local-with-container
 description: >-
-  Answers whether a retrieval augmented generation prototype proved against the local Azure SQL
-  Database container still holds in Azure SQL Database, and names the three things that do not
-  survive the move. Owns the offline loop, the embedding model on the developer's own machine, and
-  the parity claim. Use when someone asks to "prototype RAG offline with no cloud account", "use a
-  local embedding model with SQL", "develop against the container and deploy to Azure SQL
-  Database", or asks what will have to be redone after the move; and when the engine refuses a
-  local embedding endpoint, or a vector index and a security policy will not coexist. A plain
-  request to build RAG on the container, the first vector table and a top k search over it, belongs
-  to azuresql-db-rag; come here for the move. The cloud pipeline is rag-on-azure-sql, the type and
-  the query are vector-search-azure-sql, embedding inside the engine is
-  embeddings-and-external-models, and framework wiring is langchain-and-llamaindex-on-azure-sql.
+  Answers whether a retrieval augmented generation prototype proved on the local Azure SQL
+  Database container still holds in Azure SQL Database, and names what does not survive the move.
+  Owns the offline loop, the local embedding model, and the parity claim. Use when someone asks
+  to "prototype RAG offline with no cloud account", "use a local embedding model with SQL",
+  "develop against the container and deploy to Azure SQL Database", or asks what has to be redone
+  after the move; and when the engine refuses a local embedding endpoint, or a vector index and a
+  security policy will not coexist. A plain request to build RAG on the container belongs to
+  azuresql-db-rag; come here for the move. The cloud pipeline is rag-on-azure-sql, the type and
+  the query vector-search-azure-sql, embedding in the engine embeddings-and-external-models,
+  framework wiring langchain-and-llamaindex-on-azure-sql.
 ---
 
 # Local RAG on the Azure SQL Database container
