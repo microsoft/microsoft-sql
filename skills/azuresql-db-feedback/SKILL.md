@@ -1,7 +1,15 @@
 ---
 name: azuresql-db-feedback
 description: >-
-  Reports a bug or files feedback about the azuresql-db-* agent skills themselves, or about the Azure SQL Database container (the local Azure SQL Database engine, Private Preview). Use when the user says a skill or the container "did not work", hit an error, behaved unexpectedly, or is missing something; and when they say "report a bug", "file an issue", "open a GitHub issue", "request a feature", "give feedback", or "tell the team". Also use when you, the agent, had to deviate from an azuresql-db-* skill or work around a defect in one to finish a task: that is a bug in the skill and it is worth reporting, even if the task ultimately succeeded. Decides whether the problem belongs to the SKILL or to the CONTAINER, since they use different issue templates, then builds a complete prefilled GitHub issue from context you already have. Never submits anything without explicit confirmation from the user.
+  Reports a bug or files feedback about the azuresql-db-* agent skills themselves, or about the
+  Azure SQL Database container (Private Preview). Use when the user says a skill or the container
+  "did not work", hit an error, behaved unexpectedly, or is missing something; and when they say
+  "report a bug", "file an issue", "open a GitHub issue", "request a feature", "give feedback", or
+  "tell the team". Also use when you, the agent, had to deviate from an azuresql-db-* skill or work
+  around a defect in one to finish a task: that is a bug worth reporting even if the task succeeded.
+  Decides whether the problem belongs to the SKILL or to the CONTAINER, since they use different
+  issue templates, then builds a complete prefilled GitHub issue from context you already have.
+  Never submits anything without explicit confirmation from the user.
 ---
 
 # Report a problem with the skills, or with the container

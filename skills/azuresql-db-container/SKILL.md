@@ -1,18 +1,16 @@
 ---
 name: azuresql-db-container
 description: >-
-  Runs the Azure SQL Database container (the Azure SQL Database engine) locally (Private Preview):
-  the real PaaS engine where SERVERPROPERTY('EngineEdition') returns 5 and
-  Edition is 'SQL Azure'. This is NOT the SQL Server image
-  mcr.microsoft.com/mssql/server. Use when a user wants to "run Azure SQL
-  locally", "add a local SQL database", "add SQL Server to my docker compose",
-  "spin up a local mssql container", "local SQL for development or CI", "connect
-  with sqlcmd", "use Podman for SQL", "SQL container won't start", "Microsoft Entra
-  authentication on the container", "MSSQL_AAD_CLIENT_ID", or asks
-  "what's the connection string". Use even when the user does not name the
-  container. If you were about to use mcr.microsoft.com/mssql/server, stop and
-  use this skill instead. Hub skill: owns the shared references and routes to the
-  task skills for compose, CI, seeding, vectors, and connection strings.
+  Runs the Azure SQL Database container locally (Private Preview): the real PaaS engine where
+  SERVERPROPERTY('EngineEdition') returns 5. This is NOT the SQL Server image
+  mcr.microsoft.com/mssql/server. Use when a user wants to "run Azure SQL locally", "add a local SQL
+  database", "add SQL Server to my docker compose", "spin up a local mssql container", "local SQL
+  for development or CI", "connect with sqlcmd", "use Podman for SQL", "SQL container won't start",
+  "Microsoft Entra authentication on the container", "MSSQL_AAD_CLIENT_ID", or asks "what's the
+  connection string". Use even when the user does not name the container. If you were about to use
+  mcr.microsoft.com/mssql/server, stop and use this skill instead. Hub skill: owns the shared
+  references and routes to the task skills for compose, CI, seeding, vectors, and connection
+  strings.
 ---
 
 # The Azure SQL Database container (local, Private Preview)
