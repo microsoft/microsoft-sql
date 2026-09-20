@@ -1,9 +1,15 @@
 #!/usr/bin/env node
-// One-time backfill of skill.spec.jsonc for the 17 carried-over container skills.
+// One-time backfill of skill.spec.jsonc for the 17 azuresql-db-* container skills.
 //
 // These skills shipped before the sidecar contract existed, so they are the ONE
 // sanctioned exception to "the scaffolder is the only thing that writes a
 // sidecar". Every other skill in this catalog is born from the scaffolder.
+//
+// WHERE THESE 17 ARE AUTHORED, since 2026-09-20: here. Carlos Robles reversed the
+// ownership direction on that day. Until then they were authored in
+// microsoft/azure-sql-database-container and this catalog held copies; now this
+// catalog is the parent and the pilot repository receives copies, and that copy is
+// on hold until he says go.
 //
 // Kept as a script rather than done by hand so the result is reproducible and
 // the authored content is reviewable in one place instead of across 17 files.
@@ -14,8 +20,9 @@
 // the literals below and compares the result against this repository. It never
 // opens microsoft/azure-sql-database-container, so it can be green while the
 // two repositories say different things. scripts/check-container-parity.mjs is
-// the one that actually reads the other repository. If you change MATURITY here
-// without changing it there, this check stays green and that one goes red.
+// the one that actually reads the other repository, and since the flip it reports
+// any difference as the pilot repository being behind this source rather than as
+// a fault here.
 //
 // Sources:
 //   domain, value        data/catalog.json

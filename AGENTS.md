@@ -1,9 +1,17 @@
 # Working in this repository
 
-**Skills are not authored here.** They are written in
-[`microsoft/azure-sql-skills-lab`](https://github.com/microsoft/azure-sql-skills-lab) and promoted
-into this repository once they are gate-green. Read
-[how it works](https://github.com/microsoft/azure-sql-skills-lab/blob/main/docs/how-it-works.md)
+**Where each skill is authored, which is now two different answers.**
+
+- **The 40 authored skills are written in the workbench**,
+  [`microsoft/azure-sql-skills-lab`](https://github.com/microsoft/azure-sql-skills-lab), and
+  promoted into this repository once they are gate-green. Do not write one here.
+- **The 17 `azuresql-db-*` container skills are written HERE.** This repository is their parent:
+  they are authored, optimised, evaluated and tested in this repository, and
+  [`microsoft/azure-sql-database-container`](https://github.com/microsoft/azure-sql-database-container),
+  the pilot repository, receives copies. **That copy is ON HOLD** and needs Carlos Robles to say
+  go, so nothing is pushed downstream today.
+
+Read [how it works](https://github.com/microsoft/azure-sql-skills-lab/blob/main/docs/how-it-works.md)
 before proposing anything.
 
 ## What this repository holds
@@ -14,35 +22,34 @@ before proposing anything.
 
 ## Two rules that matter most here
 
-**Every skill folder needs a `skill.spec.jsonc`.** The scaffolder in the lab writes one; a
-hand-created folder will not have it, and CI fails. The 17 carried-over container skills are the
-one sanctioned exception, backfilled once by `scripts/backfill-container-sidecars.mjs`.
+**Every skill folder needs a `skill.spec.jsonc`.** The scaffolder in the lab writes one for an
+authored skill; a hand-created folder will not have it, and CI fails. The 17 container skills are
+the one sanctioned exception, backfilled once by `scripts/backfill-container-sidecars.mjs`.
 
-**The container family is carried over, not forked.** Every `skills/azuresql-db-*/` folder is
-byte-identical to `microsoft/azure-sql-database-container`, whose users install the same files
-until the product leaves Private Preview in November 2026. Changes originate there and arrive by
-sync. Editing them here forks the product.
+**The container family is authored here, and the pilot repository is downstream.** Every
+`skills/azuresql-db-*/` folder is this project's source copy. Write the change here, run the gates
+here, and the pilot repository takes it afterwards.
 
-`npm run sidecars:parity` enforces that, on the sidecar fields AND on the shipped text, meaning
-`SKILL.md` and everything under `references/`. It reads the product repository over HTTPS, or
-from a local checkout given as `--product-repo <path>`, and it fails rather than skipping when it
-cannot see it. Before 2026-09-08 it compared sidecars only, and all 17 `SKILL.md` files plus 5
-reference files had gone stale behind the product repository while every gate stayed green.
+**Until 2026-09-20 this said the opposite, and the history matters.** The 17 were authored in
+`microsoft/azure-sql-database-container`, this repository held byte-identical copies, and editing
+one here was called forking the product. Carlos Robles reversed the direction on 2026-09-20: the
+catalog is the parent, and the pilot repository receives copies. **The copy is ON HOLD** until he
+says go, so the pilot repository is expected to be behind and nothing is pushed to it.
 
-**There is exactly one way to differ, and it is a debt, not a licence.**
-`catalog/container-parity-debt.jsonc` names each file that this catalog knowingly carries ahead
-of the product repository, with the reason, the date, the engine build it was measured on and a
-link to the change. **The list is empty today, which is the resting state.** Ten entries were
-recorded on 2026-09-19, when four claims in three of the 17 were measured wrong against a live
-engine and corrected here first, and all ten were cleared the same day when
-`microsoft/azure-sql-database-container` took the corrections in its pull request 161. The list
-excuses named files
-and named sidecar fields, never a skill and never a pattern; anything not named still fails byte
-for byte; an entry whose difference has gone away **fails the run**, because the upstream fix has
-landed and the entry must be deleted. Every entry is owed to
-`microsoft/azure-sql-database-container`, and `docs/container-claim-corrections-2026-09-19.md` is
-the handover. Do not add an entry to make a gate quiet. Add one only when a measurement says the
-product is wrong and the correction cannot wait.
+`npm run sidecars:parity` measures that gap, on the sidecar fields AND on the shipped text,
+meaning `SKILL.md` and everything under `references/`. It reads the pilot repository over HTTPS, or
+from a local checkout given as `--pilot-repo <path>`, and it reports how many files are waiting and
+since when. **A difference never fails this repository**, because being ahead is the point. Two
+things still fail it: a defect on this side, such as a sidecar that will not parse or a field in no
+policy class, and a pilot repository it could not read at all, which is UNVERIFIED and never OK.
+
+**There is no debt file any more.** `catalog/container-parity-debt.jsonc` recorded every difference
+as a debt owed upstream, which was the right shape while the pilot repository was the parent. It
+was deleted on 2026-09-20, because the same set of differences is now simply the pending copy and
+`scripts/check-container-parity.mjs` computes it from the live comparison on every run. One
+representation, measured rather than typed in.
+`docs/container-claim-corrections-2026-09-19.md` stays as the record of the last hand-carry
+upstream, made the day before the flip.
 
 ## The sidecar installs with the skill, and that is expected
 
@@ -92,10 +99,16 @@ that looks correct and resolves to nothing.
 
 ## What this repository does NOT check
 
-Skill **content** rules are not gated here. The linter that enforces them lives in the authoring
-repository and this workflow cannot reach it, so nothing here checks frontmatter limits, body size,
+Skill **content** rules are not gated here. The linter that enforces them lives in the workbench
+and this workflow cannot reach it, so nothing here checks frontmatter limits, body size,
 reference depth, security patterns, or whether a skill earns its place, against the skills it
 ships.
+
+**That gap got sharper on 2026-09-20.** While the 17 container skills were authored elsewhere, an
+unlinted container skill was somebody else's file. They are authored here now, so the 18
+error-severity findings the content linter reports across them are this repository's to fix, and
+the `fail-on: never` in `.github/workflows/validate.yml` is a decision to be revisited rather than
+a fact about where the files come from.
 
 What IS checked here: structure, manifest parity in both directions, sidecar schema conformance,
 generated-surface parity, the feedback prefill contract, and the house rules on files this
@@ -114,8 +127,9 @@ less than it looks like it means.
 ## House conventions
 
 - **Feature branch and a pull request, always.** Never commit to `main`.
-- **No em-dashes** in files this repository authors, checked in CI. The carried-over container
-  skills are excluded: they are the product's files, not ours to reformat.
+- **No em-dashes** in files this repository authors, checked in CI. That includes the 17
+  `azuresql-db-*` skills, which this repository now authors. The exclusion list in
+  `scripts/check-house-rules.mjs` is empty and stays empty.
 - **No AI attribution in commits or pull requests.**
 - **Validate, do not assume.** `npm test` before opening a pull request, and if you are claiming an
   install behaviour, install it and look at where the files landed.

@@ -44,7 +44,7 @@ jobs:
       - name: Container sidecars are current
         run: node scripts/backfill-container-sidecars.mjs --check
 
-      # The real cross-repository check. Reads the 17 sidecars from
+      # The real cross-repository check. Reads the 17 skills from
       # microsoft/azure-sql-database-container over HTTPS, needs no token
       # because that repository is public, and FAILS rather than skips when it
       # cannot see them. Before this existed, the claim that the two
@@ -52,19 +52,19 @@ jobs:
       # nothing, which is the same shape as several other green-while-checking-
       # nothing failures found in this project.
       #
-      # The validation.target divergence this comment used to describe is gone;
-      # those three skills agree again.
+      # THE DIRECTION REVERSED ON 2026-09-20. This repository is now the parent
+      # of the 17 azuresql-db-* skills: they are authored, optimised, evaluated
+      # and tested here, and the pilot repository receives copies. The copy is ON
+      # HOLD until Carlos Robles says go, so the pilot repository is expected to
+      # be behind and a difference reports as PENDING SYNC and exits 0. The step
+      # still goes red for a defect on this side and for a pilot repository it
+      # could not read, which is UNVERIFIED and never OK.
       #
-      # IT NOW CARRIES RECORDED DEBT, AND PRINTS IT ON EVERY RUN. Ten files in
-      # three of the 17 differ on purpose, because four claims in them were
-      # measured wrong against a live engine on 2026-09-19 and corrected here
-      # before the product repository could take them. Each is named in
-      # catalog/container-parity-debt.jsonc with its reason, date, engine build
-      # and change link. The check still fails for any file that differs without
-      # an entry, and it ALSO fails for an entry whose difference has gone away,
-      # which is what stops the list outliving its reason and becoming the thing
-      # this check replaced.
-      - name: Container sidecars agree with the product repository
+      # catalog/container-parity-debt.jsonc went with the flip. It recorded
+      # differences as a debt owed upstream, which only made sense while the
+      # pilot repository was the parent; the same information is now the pending
+      # copy the script computes on every run.
+      - name: The pilot repository's copies, measured against this source
         run: node scripts/check-container-parity.mjs
 
       # Field ids in the issue form are what the feedback skill fills verbatim.
@@ -111,11 +111,15 @@ jobs:
       #
       # REPORTING, NOT BLOCKING, and that is a deliberate state rather than an
       # oversight. Pointed at 56 skills that had never been linted, it finds 18
-      # error-severity violations across 17 of them, and all 17 are the carried
-      # over container skills, whose files originate in another repository and
-      # are byte identical to it. Blocking on those would make every pull
-      # request here red for something its author did not write and cannot fix
-      # from this repository, and a gate in that state gets switched off.
+      # error-severity violations across 17 of them, and all 17 are the
+      # azuresql-db-* container skills.
+      #
+      # THE REASON FOR NOT BLOCKING CHANGED ON 2026-09-20 AND IS WEAKER NOW. It
+      # used to be that those files came from another repository and could not be
+      # fixed from here. This repository is now their parent, so they can be, and
+      # the only remaining reason is that turning this red today would block every
+      # pull request on 18 findings nobody has worked through yet. That is a
+      # backlog, not a boundary, and it should be said as one.
       #
       # The findings are still printed, still written to the job summary, and
       # still annotated on the diff at their real severity, so a green check
@@ -125,9 +129,10 @@ jobs:
       # TO MAKE IT BLOCK: change fail-on to error. Nothing else changes. What
       # has to happen first is that those 17 skills each gain a sentence giving
       # the date their claims were checked and what they were checked against,
-      # upstream, and one over-length reference file gains a table of contents.
-      # Anything promoted after that arrives already clean, because the
-      # workbench runs the same rules before it leaves.
+      # and one over-length reference file gains a table of contents. That work
+      # now happens in this repository, which authors them. Anything promoted
+      # from the workbench arrives already clean, because the workbench runs the
+      # same rules before it leaves.
       #
       # The reference resolves with no token because both repositories are
       # private in the same organisation and the gate repository allows access

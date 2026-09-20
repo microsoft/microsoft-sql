@@ -1,19 +1,28 @@
-# Four corrected claims, owed to `microsoft/azure-sql-database-container`
+# Four corrected claims, carried to `microsoft/azure-sql-database-container` on 2026-09-19
+
+> **Read this first, added 2026-09-20.** This document was written the day before the ownership
+> direction was reversed, and it describes the world as it stood then:
+> `microsoft/azure-sql-database-container` was the parent of the 17 `azuresql-db-*` skills, this
+> catalog held copies, and a correction landing here first was a **debt owed upstream** recorded in
+> `catalog/container-parity-debt.jsonc`. Carlos Robles reversed that on **2026-09-20**. This catalog
+> is now the parent: the 17 are authored, optimised, evaluated and tested here, the pilot repository
+> receives copies, and that copy is **on hold** until he says go. The debt file was deleted with the
+> flip, because a difference is no longer a debt, it is the pending copy that
+> `scripts/check-container-parity.mjs` measures on every run. **Nothing below is owed to anybody
+> now.** The rest is kept exactly as written, because the measurement is the point and rewriting a
+> record to match a later decision destroys the only thing it was for.
 
 **Recorded 2026-09-19. HANDED OVER THE SAME DAY.**
 `microsoft/azure-sql-database-container` took all four corrections in its pull request 161,
-merged as `c105046`. The parity debt this document was written against is therefore paid: the
-ten entries in [`catalog/container-parity-debt.jsonc`](../catalog/container-parity-debt.jsonc)
-were deleted when the parity check confirmed the two repositories agree again. What follows is
-the record of what moved and why, and it is kept as written rather than rewritten in the past
-tense, because the measurement is the point.
+merged as `c105046`. The parity debt this document was written against was therefore paid: the
+ten entries in `catalog/container-parity-debt.jsonc` were deleted when the parity check confirmed
+the two repositories agree again. What follows is the record of what moved and why.
 
 Four claims in three of the 17 `azuresql-db-*` skills are wrong. In every case the engine
 refuses exactly what the skill says it refuses, so **no instruction in any skill changes**.
 What changes is the error number, the message text, or the question a probe asks. They were
-corrected in `microsoft/azure-sql-skills` first, which makes those files differ from this
-repository, and every differing file is recorded in
-[`catalog/container-parity-debt.jsonc`](../catalog/container-parity-debt.jsonc) as debt
+corrected in `microsoft/azure-sql-skills` first, which made those files differ from that
+repository, and every differing file was recorded in `catalog/container-parity-debt.jsonc` as debt
 against this handover.
 
 ## How they were found, and how they were confirmed
@@ -123,11 +132,12 @@ Where it was printed: `azuresql-db-container/skill.spec.jsonc` probe 6 and
 `value_declaration.covers[4]`, `azuresql-db-container/SKILL.md`,
 `azuresql-db-container/references/paas-parity-checklist.md`.
 
-## Every file to change in the product repository
+## Every file that changed in the pilot repository
 
-Ten files, all under `skills/`. Each is also an entry in
-`catalog/container-parity-debt.jsonc`, and taking the fix means deleting that entry, which
-the parity check enforces: an entry that no longer excuses anything fails the run.
+Ten files, all under `skills/`. Each was also an entry in `catalog/container-parity-debt.jsonc`,
+and taking the fix meant deleting that entry, which the parity check enforced at the time: an
+entry that no longer excused anything failed the run. That file no longer exists; see the note at
+the top.
 
 | Skill | File | What changes |
 |---|---|---|
