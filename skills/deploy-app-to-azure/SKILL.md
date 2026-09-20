@@ -3,15 +3,14 @@ name: deploy-app-to-azure
 description: >-
   Takes a working local application and its Azure SQL Database to Azure with the Azure Developer
   CLI, reading its infrastructure rather than inheriting it. The one first-party template pairing
-  a web app with Azure SQL Database uses a database password and grants db_owner, and the firewall
-  rule it ships under an Azure services name spans the whole public address space. Use when a user
-  says "deploy my app to Azure", "azd up", "which azd template should I start from", "get this into
-  Azure without a password", or when a deployment reported success and the app then fails its first
-  database call with a login failure. Covers what each first-party template does about identity,
-  what init, provision, deploy and up each do, where the database-side grant belongs, why an
-  environment value is not an application setting, and what teardown leaves behind.
-  github-actions-for-sql owns pipelines, provision-azure-sql-db owns creating the server and
-  database, and entra-id-auth owns the database user and the grant.
+  a web app with Azure SQL Database uses a database password and grants db_owner, and the
+  firewall rule it ships under an Azure services name spans the whole public address space. Use
+  when a user says "deploy my app to Azure", "azd up", "which azd template should I start from",
+  "get this into Azure without a password", or when a deployment reported success and the app
+  then fails its first database call with a login failure. Covers what each template does about
+  identity, what init, provision, deploy and up each do, and what teardown leaves behind.
+  github-actions-for-sql owns pipelines, provision-azure-sql-db creating the server and database,
+  entra-id-auth the database user and the grant.
 ---
 
 # Deploy an application and its Azure SQL Database to Azure

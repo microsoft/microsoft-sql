@@ -2,16 +2,15 @@
 name: schema-migrations-safely
 description: >-
   Decides whether a schema change is safe to apply to a live Azure SQL Database, and rewrites the
-  migration script so it is. Use when someone asks "is this migration safe to run in production",
-  "can I add this column without downtime", "zero downtime schema change", "expand and contract",
-  "blue green database deploy", "make this migration re-runnable", "should the app run migrations
-  at startup", or "how do I roll this back"; and when a deployment blocked every query, several
-  instances fought over the same migration, or a retried migration applied its backfill twice.
-  Covers which alterations are metadata only and which rewrite the table, the schema lock that
-  blocks readers even under snapshot isolation, ONLINE and RESUMABLE and the setting that refuses
-  an offline change, why a guard is not a guard under concurrency or retry, and rollback as a
-  forward migration. The tools carrying the change are sql-database-projects,
-  github-actions-for-sql and the per ORM migration skills. The schema is design-azure-sql-schema.
+  migration so it is. Use when someone asks "is this migration safe to run in production", "can I
+  add this column without downtime", "zero downtime schema change", "expand and contract", "blue
+  green database deploy", "make this migration re-runnable", "should the app run migrations at
+  startup", or "how do I roll this back"; and when a deployment blocked every query, instances
+  fought over the same migration, or a retry applied its backfill twice. Covers metadata-only
+  versus table-rewriting alterations, the schema lock that blocks readers under snapshot
+  isolation, ONLINE and RESUMABLE, and why a guard is not a guard under concurrency or retry.
+  Tooling is sql-database-projects and github-actions-for-sql, ORM migrations their own skills,
+  the table design design-azure-sql-schema.
 ---
 
 # Apply a schema change to a live Azure SQL Database

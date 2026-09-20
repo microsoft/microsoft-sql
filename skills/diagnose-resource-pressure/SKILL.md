@@ -2,16 +2,15 @@
 name: diagnose-resource-pressure
 description: >-
   Answers whether an Azure SQL Database is slow because of CPU, data or log IO, memory, or a
-  worker and session limit, and what to actually do about each. Use when someone reports the
-  database as slow, throttled or timing out under load, pastes a resource governance error such
-  as "the request limit for the database is 200 and has been reached" or a raw error number
-  10928, 10929 or 10936, asks whether to scale up the service tier, or is reading
-  sys.dm_db_resource_stats, sys.dm_os_performance_counters or sys.dm_os_wait_stats and needs the
-  numbers interpreted. Covers Azure SQL Database and the local Azure SQL Database container, and
-  is explicit about which diagnostics exist in each. Does not read an execution plan (see
-  read-execution-plan), diagnose a blocking chain (see diagnose-blocking-and-deadlocks), rewrite a
-  slow individual query (see diagnose-slow-query), or resolve a connection or login failure (see
-  diagnose-connection-errors).
+  worker and session limit. Use when someone reports the database as slow, throttled or timing
+  out under load, pastes a resource governance error such as "the request limit for the database
+  is 200 and has been reached" or a raw error number 10928, 10929 or 10936, asks whether to scale
+  up the service tier, or is reading sys.dm_db_resource_stats, sys.dm_os_performance_counters or
+  sys.dm_os_wait_stats. Covers the local Azure SQL Database container too. Does not read an
+  execution plan (read-execution-plan), diagnose a blocking chain
+  (diagnose-blocking-and-deadlocks), rewrite a slow query (diagnose-slow-query), resolve a
+  connection failure (diagnose-connection-errors), size a connection pool (connect-to-azure-sql)
+  or speed up a bulk load (bulk-load-and-bulk-copy).
 ---
 
 # Diagnose Azure SQL Database resource pressure

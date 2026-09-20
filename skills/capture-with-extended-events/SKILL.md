@@ -2,16 +2,15 @@
 name: capture-with-extended-events
 description: >-
   Creates, starts, reads back and drops a database-scoped Extended Events session on Azure SQL
-  Database, and names the ways such a session reports success while capturing nothing. Use when
-  someone asks to capture query text, blocking or deadlocks with Extended Events, XEvents or an XE
-  session on Azure SQL Database, or pastes a session that ran without error and left an empty ring
-  buffer. Covers ON DATABASE scope and the error ON SERVER raises, the ring buffer shredded from
-  XML into a rowset, the event_file target's requirement for a blob URL and a credential named
-  after the container, the events and actions the service refuses, the per-database session and
-  memory limits, and the fact that there is no built-in system_health session to fall back on.
-  Does not diagnose slow queries, blocking or resource pressure once the data exists, which belong
-  to diagnose-slow-query, diagnose-blocking-and-deadlocks and diagnose-resource-pressure, and does
-  not read an execution plan, which belongs to read-execution-plan.
+  Database, and names the ways one reports success while capturing nothing. Use when someone asks
+  to capture query text, blocking or deadlocks with Extended Events, XEvents or an XE session on
+  Azure SQL Database, pastes a session that ran without error and left an empty ring buffer, or
+  has a session that never fires. Covers ON DATABASE scope and the error ON SERVER raises, the
+  ring buffer shredded from XML into a rowset, the event_file target's need for a blob URL and a
+  matching credential, the events and actions the service refuses, and the absence of a built-in
+  system_health session. Does not diagnose slow queries, blocking or resource pressure once the
+  data exists (diagnose-slow-query, diagnose-blocking-and-deadlocks, diagnose-resource-pressure)
+  or read a plan (read-execution-plan).
 ---
 
 # Capture with Extended Events on Azure SQL Database

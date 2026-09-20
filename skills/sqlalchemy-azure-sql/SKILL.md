@@ -3,14 +3,13 @@ name: sqlalchemy-azure-sql
 description: >-
   Uses SQLAlchemy correctly against Azure SQL Database, where the dialect appends an OUTPUT
   clause to INSERT statements and that single clause explains two failures agents never connect:
-  a hard error on any table carrying a trigger, and fast_executemany appearing to do nothing.
-  Use when a user says "SQLAlchemy with Azure SQL", "mssql+pyodbc", "implicit_returning",
+  a hard error on any table carrying a trigger, and fast_executemany appearing to do nothing. Use
+  when a user says "SQLAlchemy with Azure SQL", "mssql+pyodbc", "implicit_returning",
   "fast_executemany", "insertmanyvalues", "Alembic against Azure SQL", or pastes "the target
   table of the DML statement cannot have any enabled triggers if the statement contains an OUTPUT
-  clause without INTO clause". Also use when an ORM insert fails on one table only, or a bulk load
-  is no faster after fast_executemany was set. Covers the engine URL, the generated DML, type
-  mapping and Alembic. Driver choice belongs to connect-from-python and retry to connect-to-azure-sql;
-  the other object relational mappers have skills of their own.
+  clause without INTO clause". Also use when an ORM insert fails on one table only, or a bulk
+  load is no faster after fast_executemany was set. Covers the engine URL, the generated DML,
+  type mapping and Alembic. Driver choice is connect-from-python and retry connect-to-azure-sql.
 ---
 
 # SQLAlchemy on Azure SQL Database

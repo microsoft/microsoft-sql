@@ -1,17 +1,16 @@
 ---
 name: github-actions-for-sql
 description: >-
-  Ships schema changes to Azure SQL Database from a GitHub Actions workflow with `azure/sql-action`:
-  building the database project or publishing a prebuilt dacpac, federating the workflow's token
-  so no database password or client secret is stored, getting a runner with a changing address
-  through the server firewall, and gating the deployment on an environment. Use when a user asks
-  to "deploy my database project from GitHub Actions", "publish a dacpac on merge", "set up OIDC
-  login to Azure for my pipeline", "stop storing a SQL password in secrets", or "require an
-  approval before the schema deploys", and when a run fails with "no matching federated identity
-  record found for presented assertion subject", with a login error naming `auth-type`, or with
-  "unable to detect client IP address". sql-database-projects owns the project and the publish
-  options, entra-id-auth owns the database user and its grant, and deploy-app-to-azure owns
-  shipping the application.
+  Ships schema changes to Azure SQL Database from a GitHub Actions workflow with
+  `azure/sql-action`: building the database project or publishing a prebuilt dacpac, federating
+  the workflow's token so no database password or client secret is stored, getting a runner with
+  a changing address through the server firewall, and gating the deployment on an environment.
+  Use when a user asks to "deploy my database project from GitHub Actions", "publish a dacpac on
+  merge", "set up OIDC login to Azure for my pipeline", "stop storing a SQL password in secrets",
+  or "require an approval before the schema deploys", and when a run fails with "no matching
+  federated identity record found for presented assertion subject", a login error naming
+  `auth-type`, or "unable to detect client IP address". sql-database-projects owns the project
+  and publish options, entra-id-auth the database user and its grant.
 ---
 
 # Deploy schema to Azure SQL Database from GitHub Actions
