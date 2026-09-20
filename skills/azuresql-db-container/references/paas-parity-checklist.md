@@ -8,6 +8,12 @@ before declaring readiness.
 ## Not present (vs SQL Server)
 
 - **SQL Server Agent**: no Agent jobs/schedules. Use an external scheduler.
+  `msdb` **is** listed by `sys.databases` on this engine, from `master` and from a
+  user database alike, alongside `master`, `tempdb` and `model`. Do not read that as
+  an Agent: `OBJECT_ID('msdb.dbo.sysjobs')` is `NULL`, and a three-part reference to
+  another database is refused with `Msg 40515` in any case. Presence of the database
+  is not presence of the job store. Measured 2026-09-19 on image tag
+  `18.0.226_4_147`, `EngineEdition` 5, Edition `SQL Azure`, build `12.0.2000.8`.
 - **FILESTREAM / FileTable**: not available.
 - **Full Service Broker**: not the full SQL Server Service Broker surface; do
   not assume cross-instance broker messaging.

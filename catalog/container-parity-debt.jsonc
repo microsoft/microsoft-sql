@@ -1,0 +1,126 @@
+// CONTAINER PARITY DEBT. Read by scripts/check-container-parity.mjs.
+//
+// WHAT THIS IS. The 17 azuresql-db-* skills are carried over from
+// microsoft/azure-sql-database-container, not forked, and check-container-parity.mjs
+// enforces that by comparing every byte of the text they ship and every field that
+// must match. Every entry below is a place where this catalog KNOWINGLY DIFFERS from
+// that repository, because a claim was measured and found wrong and the correction
+// landed here first.
+//
+// EVERY ENTRY IS DEBT. It is not a settled exception, it is a promise that has not
+// been kept yet. The fix belongs upstream; until the container repository takes it,
+// a customer installing from the product repository still reads the wrong number.
+// The check prints this list loudly on every run, green or red, for that reason.
+//
+// WHAT THIS IS NOT. It is not a way to make the check quieter. Three things keep it
+// honest, and all three were watched failing before this file was committed:
+//
+//   1. A file that differs and is NOT listed here still fails the run.
+//   2. A listed file that no longer differs FAILS THE RUN, saying the upstream fix
+//      has landed and the entry must be deleted. An exception that outlives its
+//      reason is the failure this whole check was written to remove.
+//   3. An entry missing any required field fails the run. There is no partial entry.
+//
+// A sidecar entry lists the FIELDS it excuses, named exactly as the check reports
+// them. A field of that sidecar that differs and is not named still fails.
+{
+  "recorded_on": "2026-09-19",
+  "recorded_by": "Carlos Robles",
+  "upstream": "microsoft/azure-sql-database-container",
+  "why": "Lab pull request 110 in microsoft/azure-sql-skills-lab ran the 17 container skills' own probes against the engine for the first time. 98 of 104 passed. The six reds were four distinct claims where the engine refuses exactly what the skill says it refuses under a different number, plus one probe asking the wrong question in defence of a claim that holds. All four were re-measured by hand on 2026-09-19 before anything was edited, and the measurement agreed with the run.",
+  "entries": [
+    {
+      "skill": "azuresql-db-auth",
+      "path": "SKILL.md",
+      "reason": "corrected claim pending upstream sync: CREATE USER WITH PASSWORD is refused with Msg 33233 and not Msg 15007, SET CONTAINMENT = PARTIAL with Msg 12824 and not Msg 12844, CREATE USER FROM EXTERNAL PROVIDER with Msg 33134 and not Msg 37525. Measured 2026-09-19, engine build 18.0.226_4_147.",
+      "measured_on": "2026-09-19",
+      "engine_build": "18.0.226_4_147",
+      "change": "https://github.com/microsoft/azure-sql-skills/pull/53",
+      "clear_when": "microsoft/azure-sql-database-container takes the same three numbers into skills/azuresql-db-auth/SKILL.md"
+    },
+    {
+      "skill": "azuresql-db-auth",
+      "path": "references/auth-and-secrets.md",
+      "reason": "corrected claim pending upstream sync: the contained-user paragraph quoted Msg 15007 and Msg 12844 with message text this engine does not produce. Measured 2026-09-19, engine build 18.0.226_4_147.",
+      "measured_on": "2026-09-19",
+      "engine_build": "18.0.226_4_147",
+      "change": "https://github.com/microsoft/azure-sql-skills/pull/53",
+      "clear_when": "microsoft/azure-sql-database-container takes the corrected paragraph into skills/azuresql-db-auth/references/auth-and-secrets.md"
+    },
+    {
+      "skill": "azuresql-db-auth",
+      "path": "skill.spec.jsonc",
+      "fields": ["value_declaration", "validation.probes"],
+      "reason": "corrected claim pending upstream sync: probes 2, 3 and 4 asserted Msg 15007, 12844 and 37525; the engine returns 33233, 12824 and 33134. value_declaration.covers quotes the same three numbers, so the substance Carlos Robles accepted on 2026-09-04 is unchanged and only the numbers in it move. Measured 2026-09-19, engine build 18.0.226_4_147.",
+      "measured_on": "2026-09-19",
+      "engine_build": "18.0.226_4_147",
+      "change": "https://github.com/microsoft/azure-sql-skills/pull/53",
+      "clear_when": "microsoft/azure-sql-database-container takes the corrected probe expectations and the three covers lines into skills/azuresql-db-auth/skill.spec.jsonc"
+    },
+    {
+      "skill": "azuresql-db-faq",
+      "path": "SKILL.md",
+      "reason": "corrected claim pending upstream sync: the contained-user answer quoted Msg 15007, Msg 12844 and Msg 37525; the engine returns Msg 33233, Msg 12824 and Msg 33134. Measured 2026-09-19, engine build 18.0.226_4_147.",
+      "measured_on": "2026-09-19",
+      "engine_build": "18.0.226_4_147",
+      "change": "https://github.com/microsoft/azure-sql-skills/pull/53",
+      "clear_when": "microsoft/azure-sql-database-container takes the corrected numbers into skills/azuresql-db-faq/SKILL.md"
+    },
+    {
+      "skill": "azuresql-db-faq",
+      "path": "references/faq.md",
+      "reason": "corrected claim pending upstream sync: the least-privilege answer quoted Msg 15007 and Msg 12844 with message text this engine does not produce. Measured 2026-09-19, engine build 18.0.226_4_147.",
+      "measured_on": "2026-09-19",
+      "engine_build": "18.0.226_4_147",
+      "change": "https://github.com/microsoft/azure-sql-skills/pull/53",
+      "clear_when": "microsoft/azure-sql-database-container takes the corrected answer into skills/azuresql-db-faq/references/faq.md"
+    },
+    {
+      "skill": "azuresql-db-faq",
+      "path": "skill.spec.jsonc",
+      "fields": ["value_declaration", "validation.probes"],
+      "reason": "corrected claim pending upstream sync: probes 5 and 6 asserted Msg 15007 and Msg 12844; the engine returns Msg 33233 and Msg 12824. value_declaration.covers quotes the same two numbers. Measured 2026-09-19, engine build 18.0.226_4_147.",
+      "measured_on": "2026-09-19",
+      "engine_build": "18.0.226_4_147",
+      "change": "https://github.com/microsoft/azure-sql-skills/pull/53",
+      "clear_when": "microsoft/azure-sql-database-container takes the corrected probe expectations and the covers line into skills/azuresql-db-faq/skill.spec.jsonc"
+    },
+    {
+      "skill": "azuresql-db-container",
+      "path": "SKILL.md",
+      "reason": "corrected claim pending upstream sync: the verification paragraph now records that the no-Agent check asked the wrong question. sys.databases does list msdb on this engine; OBJECT_ID('msdb.dbo.sysjobs') is NULL, which is what the parity claim rests on. Measured 2026-09-19, engine build 18.0.226_4_147.",
+      "measured_on": "2026-09-19",
+      "engine_build": "18.0.226_4_147",
+      "change": "https://github.com/microsoft/azure-sql-skills/pull/53",
+      "clear_when": "microsoft/azure-sql-database-container takes the corrected verification paragraph into skills/azuresql-db-container/SKILL.md"
+    },
+    {
+      "skill": "azuresql-db-container",
+      "path": "references/paas-parity-checklist.md",
+      "reason": "corrected claim pending upstream sync: the SQL Server Agent entry now states that msdb IS listed by sys.databases and that the absence of the job store, not the absence of the database, is the parity fact. Measured 2026-09-19, engine build 18.0.226_4_147.",
+      "measured_on": "2026-09-19",
+      "engine_build": "18.0.226_4_147",
+      "change": "https://github.com/microsoft/azure-sql-skills/pull/53",
+      "clear_when": "microsoft/azure-sql-database-container takes the corrected Agent entry into skills/azuresql-db-container/references/paas-parity-checklist.md"
+    },
+    {
+      "skill": "azuresql-db-container",
+      "path": "references/entra-auth.md",
+      "reason": "corrected claim pending upstream sync: this page told a reader to tell a configured engine from an unconfigured one by getting Msg 33134 rather than Msg 37525. On this build a container with zero MSSQL_AAD_* variables also answers Msg 33134, so the number does not separate the two states and the page now points at the message detail. Measured 2026-09-19, engine build 18.0.226_4_147.",
+      "measured_on": "2026-09-19",
+      "engine_build": "18.0.226_4_147",
+      "change": "https://github.com/microsoft/azure-sql-skills/pull/53",
+      "clear_when": "microsoft/azure-sql-database-container takes the corrected verification step into skills/azuresql-db-container/references/entra-auth.md"
+    },
+    {
+      "skill": "azuresql-db-container",
+      "path": "skill.spec.jsonc",
+      "fields": ["value_declaration", "validation.probes"],
+      "reason": "corrected claim pending upstream sync: probe 6 read sys.databases for msdb and expected no row. msdb is listed, so the probe now asks OBJECT_ID('msdb.dbo.sysjobs') IS NULL, which is the question the no-Agent claim actually rests on. value_declaration.covers carried the same false premise. Measured 2026-09-19, engine build 18.0.226_4_147.",
+      "measured_on": "2026-09-19",
+      "engine_build": "18.0.226_4_147",
+      "change": "https://github.com/microsoft/azure-sql-skills/pull/53",
+      "clear_when": "microsoft/azure-sql-database-container takes the rewritten probe 6 and the covers line into skills/azuresql-db-container/skill.spec.jsonc"
+    }
+  ]
+}

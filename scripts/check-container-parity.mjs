@@ -192,6 +192,78 @@ const POLICY = {
 // hundred did.
 const VALIDATION_SUBFIELDS = { target: 'mustMatch', assert: 'mayDiffer', probes: 'mustMatch' };
 
+// ---- RECORDED DEBT ------------------------------------------------------
+//
+// WHY THIS EXISTS, 2026-09-19. Everything above says the correct state is
+// identical, and that stays true. But a claim in three of the 17 was MEASURED
+// WRONG, and the correction had to land somewhere before it could land
+// everywhere: lab pull request 110 ran the 17 skills' own probes against the
+// engine for the first time and six of them went red, four distinct claims where
+// the engine refuses exactly what the skill says it refuses under a different
+// number. Correcting them here makes these files differ from the product
+// repository, which is precisely what this script is built to refuse.
+//
+// The two wrong answers were both available. Weaken the check so a difference in
+// these files stops failing, and the next real drift walks through the same hole.
+// Leave the check alone and revert the correction, and the catalog keeps
+// publishing numbers a live engine contradicts. So instead: name every differing
+// file, with the reason, the date, the engine build and a link to the change, and
+// treat the list as DEBT rather than as a settled exception.
+//
+// THE THREE PROPERTIES THAT KEEP THIS FROM BECOMING THE DEFECT IT REPLACES, each
+// of which was watched failing on a planted difference before this shipped:
+//
+//   1. A file that differs and is not listed still FAILS. The list excuses named
+//      files, never a directory, never a skill, never a pattern.
+//   2. A listed file that no longer differs FAILS, saying the upstream fix has
+//      landed and the entry must be deleted. An exception that outlives its
+//      reason is exactly the green-while-verifying-nothing shape this project
+//      keeps hitting, and this is what stops this list acquiring one.
+//   3. An entry missing any required field FAILS. There is no partial entry and
+//      no default reason.
+//
+// The debt is printed on EVERY run, green or red, loudly, because a customer
+// installing from the product repository is still being served the wrong number
+// until each entry is cleared.
+const DEBT_FILE = 'catalog/container-parity-debt.jsonc';
+const DEBT_REQUIRED = ['skill', 'path', 'reason', 'measured_on', 'engine_build', 'change', 'clear_when'];
+
+// The debt file is the one .jsonc in this repository that carries actual comments,
+// because it is the one file whose entries are arguments rather than data. Only
+// WHOLE-LINE comments are stripped, so the `https://` inside a reason or a change
+// link is never touched.
+function loadDebt() {
+  if (!existsSync(DEBT_FILE)) return { entries: [], meta: null };
+  const raw = readFileSync(DEBT_FILE, 'utf8').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  let doc;
+  try { doc = JSON.parse(raw); }
+  catch (e) { fail([`${DEBT_FILE} will not parse: ${e.message}`, '', 'A debt list that cannot be read is not a debt list, and this run cannot tell', 'an excused difference from an unexcused one, so it stops here.']); }
+
+  const problems = [];
+  const entries = Array.isArray(doc.entries) ? doc.entries : null;
+  if (!entries) problems.push(`${DEBT_FILE} has no "entries" array`);
+  for (const [i, e] of (entries ?? []).entries()) {
+    for (const key of DEBT_REQUIRED) {
+      if (typeof e?.[key] !== 'string' || e[key].trim() === '') problems.push(`entry ${i + 1} has no ${key}`);
+    }
+    if (e?.measured_on && !/^\d{4}-\d{2}-\d{2}$/.test(e.measured_on)) problems.push(`entry ${i + 1} measured_on "${e.measured_on}" is not a YYYY-MM-DD date`);
+    if (e?.path === SIDECAR && !Array.isArray(e.fields)) problems.push(`entry ${i + 1} excuses ${SIDECAR} and names no "fields". A sidecar entry says WHICH fields it excuses; the rest of that sidecar is still enforced.`);
+    if (e?.path !== SIDECAR && e?.fields) problems.push(`entry ${i + 1} names "fields" on ${e.path}, which is shipped text and has no fields. Drop it.`);
+    if (e?.skill && !ids.includes(e.skill)) problems.push(`entry ${i + 1} names "${e.skill}", which is not one of the ${ids.length} skills in domain ${DOMAIN}`);
+  }
+  if (problems.length) {
+    fail([
+      `${problems.length} problem(s) in ${DEBT_FILE}:`,
+      ...problems.map((p) => `  x ${p}`),
+      '',
+      'Every entry states what differs, why, when it was measured, on which engine',
+      'build, the change that made it differ, and what clears it. An entry that does',
+      'not is not reviewable, so it is refused rather than honoured.',
+    ]);
+  }
+  return { entries, meta: doc };
+}
+
 const args = process.argv.slice(2);
 const flagIndex = args.indexOf('--product-repo');
 const localPath = flagIndex !== -1 ? args[flagIndex + 1] : process.env.AZURE_SQL_CONTAINER_REPO;
@@ -207,6 +279,21 @@ const ids = JSON.parse(readFileSync(CATALOG, 'utf8'))
   .skills.filter((s) => s.domain === DOMAIN)
   .map((s) => s.id)
   .sort();
+
+const DEBT = loadDebt();
+
+// An entry excuses one named file of one named skill, and for a sidecar one named
+// field of it. Nothing broader. `used` is what turns a stale entry into a failure
+// below: an entry nothing matched is an entry whose reason has expired.
+const debtUsed = new Set();
+function excused(skill, path, field) {
+  const hit = DEBT.entries.find((e) =>
+    e.skill === skill && e.path === path && (path !== SIDECAR || e.fields.includes(field)));
+  if (!hit) return null;
+  debtUsed.add(`${skill}|${path}|${path === SIDECAR ? field : ''}`);
+  return hit;
+}
+const debtNotes = [];
 
 if (ids.length === 0) {
   fail([`No skills in domain ${DOMAIN} in ${CATALOG}. Nothing to compare, which is itself wrong.`]);
@@ -427,7 +514,9 @@ for (const id of ids) {
     }
     if (canon(a[field]) === canon(b[field])) continue;
     if (cls === 'mustMatch') {
-      errors.push(`${id}: ${field} differs and must match, at ${firstDiff(a[field], b[field])}`);
+      const e = excused(id, SIDECAR, field);
+      if (e) debtNotes.push({ id, what: `${SIDECAR} ${field}`, e });
+      else errors.push(`${id}: ${field} differs and must match, at ${firstDiff(a[field], b[field])}`);
     } else if (cls === 'unreconciled') {
       notes.push({ id, field });
     }
@@ -446,6 +535,8 @@ for (const id of ids) {
     const av = a.validation?.[sub], bv = b.validation?.[sub];
     if (cls !== 'mustMatch') continue;
     if (canon(av) !== canon(bv)) {
+      const e = excused(id, SIDECAR, `validation.${sub}`);
+      if (e) { debtNotes.push({ id, what: `${SIDECAR} validation.${sub}`, e }); continue; }
       // firstDiff, not a whole-value dump. validation.probes is now mustMatch and
       // a skill carries up to twelve probes with a paragraph of prose each, so
       // dumping both sides prints tens of thousands of characters and hides the
@@ -469,6 +560,10 @@ for (const id of ids) {
 
   for (const rel of [...new Set([...Object.keys(mine), ...Object.keys(theirs)])].sort()) {
     if (mine[rel] === theirs[rel]) continue;
+    // A recorded entry excuses THIS file of THIS skill and nothing else. Everything
+    // below still runs for every file nobody wrote down.
+    const e = excused(id, rel, null);
+    if (e) { debtNotes.push({ id, what: rel, e }); continue; }
     if (!theirs[rel]) { textErrors.push({ id, rel, why: 'is in this catalog and not in the product repository. It was either deleted there and not here, or added here, which forks the product.' }); continue; }
     if (!mine[rel]) { textErrors.push({ id, rel, why: 'exists in the product repository and is missing here, so this catalog is serving a skill whose own links point at a file it does not carry.' }); continue; }
     textErrors.push({ id, rel, why: 'differs' });
@@ -501,6 +596,19 @@ if (textErrors.length) {
   }
 }
 
+// ---- the debt, and the entries that have outlived their reason -----------
+//
+// A recorded entry that matched nothing means the two repositories now agree on
+// that file. That is the GOOD outcome and it is still a failure here, because the
+// entry is now an open-ended licence to differ that nobody would notice. Clearing
+// the debt means deleting the entry, and this is what makes somebody do it.
+const staleDebt = [];
+for (const e of DEBT.entries) {
+  const keys = e.path === SIDECAR ? e.fields.map((f) => `${e.skill}|${e.path}|${f}`) : [`${e.skill}|${e.path}|`];
+  const unused = keys.filter((k) => !debtUsed.has(k));
+  if (unused.length) staleDebt.push({ e, unused });
+}
+
 // ---- report --------------------------------------------------------------
 
 console.log(`Compared ${ids.length} container sidecars in ${ROOT}/ against ${origin}.`);
@@ -528,6 +636,43 @@ if (notes.length) {
   console.log('  Rule each of these into mustMatch or mayDiffer and this section goes away.');
 }
 
+if (debtNotes.length) {
+  console.log('');
+  console.log('='.repeat(78));
+  console.log(`RECORDED PARITY DEBT: ${debtNotes.length} difference(s) this catalog is carrying ALONE.`);
+  console.log(`Recorded in ${DEBT_FILE} on ${DEBT.meta.recorded_on} by ${DEBT.meta.recorded_by}.`);
+  console.log('');
+  console.log('These are NOT settled exceptions. Until the product repository takes each');
+  console.log('fix, a customer installing from it still reads the claim this catalog has');
+  console.log('already measured as wrong. Every entry is owed upstream.');
+  console.log('='.repeat(78));
+  for (const n of debtNotes) {
+    console.log(`  ! ${n.id}/${n.what}`);
+    console.log(`      ${n.e.reason}`);
+    console.log(`      clears when: ${n.e.clear_when}`);
+    console.log(`      change: ${n.e.change}`);
+  }
+  console.log('');
+  console.log(`  Everything NOT named in ${DEBT_FILE} is still enforced byte for byte,`);
+  console.log('  and an entry whose difference has gone away fails this run.');
+  console.log('='.repeat(78));
+}
+
+if (staleDebt.length) {
+  console.error('');
+  console.error(`${staleDebt.length} entry/entries in ${DEBT_FILE} no longer excuse anything:`);
+  for (const { e, unused } of staleDebt) {
+    console.error(`  x ${e.skill}/${e.path}${e.path === SIDECAR ? ` (${unused.map((k) => k.split('|')[2]).join(', ')})` : ''}`);
+    console.error(`      recorded because: ${e.reason}`);
+    console.error(`      and it would clear when: ${e.clear_when}`);
+  }
+  console.error('');
+  console.error('This is the outcome the list was written for: the product repository has');
+  console.error('taken the fix and the two now agree. DELETE THE ENTRY. An exception kept');
+  console.error('past its reason is a standing licence to differ that nobody is reading,');
+  console.error('which is the green-while-verifying-nothing defect this check exists to stop.');
+}
+
 if (textErrors.length) {
   console.error('');
   console.error(`${textErrors.length} shipped file(s) differ from ${SOURCE.repo} at ${SOURCE.ref}:`);
@@ -548,10 +693,11 @@ if (errors.length) {
   for (const e of errors) console.error(`  x ${e}`);
 }
 
-if (errors.length || textErrors.length) {
+if (errors.length || textErrors.length || staleDebt.length) {
   console.error('');
   process.exit(1);
 }
 
 console.log('');
-console.log(`All ${ids.length} agree on every field that must match, and on every byte of the text they ship.`);
+console.log(`All ${ids.length} agree on every field that must match, and on every byte of the text they ship`
+  + (debtNotes.length ? `, apart from the ${debtNotes.length} recorded difference(s) above, which are owed upstream.` : '.'));

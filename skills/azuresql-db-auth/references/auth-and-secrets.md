@@ -47,12 +47,17 @@ ALTER ROLE db_datawriter ADD MEMBER appuser;
 ```
 
 **This does not work on the container today, and you cannot turn it on.**
-`CREATE USER ... WITH PASSWORD` returns `Msg 15007` ('...' is not a valid login or
-you do not have permission). `ALTER DATABASE appdb SET CONTAINMENT = PARTIAL`
-returns `Msg 12844` ("ALTER DATABASE statement failed; this functionality is not
-available in the current edition of SQL Server"). The container's edition does not
-have partial containment, so there is no contained database authentication setting
-for you to configure. Locally, use the login-plus-user recipe above; the app code and connection string
+`CREATE USER ... WITH PASSWORD` returns `Msg 33233` ("You can only create a user
+with a password in a contained database"). `ALTER DATABASE appdb SET CONTAINMENT =
+PARTIAL` returns `Msg 12824` ("The sp_configure value 'contained database
+authentication' must be set to 1 in order to alter a contained database"), followed
+by `Msg 5069` ("ALTER DATABASE statement failed"). The setting that message asks for
+cannot be reached: `sp_configure` does not exist on this engine and returns
+`Msg 2812`, so there is no contained database authentication setting for you to
+configure. Measured 2026-09-19 on image tag `18.0.226_4_147`, `EngineEdition` 5,
+Edition `SQL Azure`, build `12.0.2000.8`; the numbers `Msg 15007` and `Msg 12844`
+printed here before that date were wrong, though the refusals themselves were not.
+Locally, use the login-plus-user recipe above; the app code and connection string
 are identical either way (username plus password). This is the inverse of the
 cloud, where contained users are preferred and server logins are limited.
 

@@ -52,13 +52,18 @@ jobs:
       # nothing, which is the same shape as several other green-while-checking-
       # nothing failures found in this project.
       #
-      # RED TODAY, ON PURPOSE. validation.target disagrees on three skills:
-      # azuresql-db-auth and azuresql-db-connections are 'both' here and
-      # 'container' upstream, and azuresql-db-feedback is 'none' here and
-      # 'container' upstream. Those are real divergences and a correction is in
-      # flight. They were NOT added to an exception list, because an exception
-      # list that outlives its reason is how this check would become the thing
-      # it replaced.
+      # The validation.target divergence this comment used to describe is gone;
+      # those three skills agree again.
+      #
+      # IT NOW CARRIES RECORDED DEBT, AND PRINTS IT ON EVERY RUN. Ten files in
+      # three of the 17 differ on purpose, because four claims in them were
+      # measured wrong against a live engine on 2026-09-19 and corrected here
+      # before the product repository could take them. Each is named in
+      # catalog/container-parity-debt.jsonc with its reason, date, engine build
+      # and change link. The check still fails for any file that differs without
+      # an entry, and it ALSO fails for an entry whose difference has gone away,
+      # which is what stops the list outliving its reason and becoming the thing
+      # this check replaced.
       - name: Container sidecars agree with the product repository
         run: node scripts/check-container-parity.mjs
 
