@@ -32,8 +32,11 @@ reference files had gone stale behind the product repository while every gate st
 **There is exactly one way to differ, and it is a debt, not a licence.**
 `catalog/container-parity-debt.jsonc` names each file that this catalog knowingly carries ahead
 of the product repository, with the reason, the date, the engine build it was measured on and a
-link to the change. Ten entries were recorded on 2026-09-19, when four claims in three of the 17
-were measured wrong against a live engine and corrected here first. The list excuses named files
+link to the change. **The list is empty today, which is the resting state.** Ten entries were
+recorded on 2026-09-19, when four claims in three of the 17 were measured wrong against a live
+engine and corrected here first, and all ten were cleared the same day when
+`microsoft/azure-sql-database-container` took the corrections in its pull request 161. The list
+excuses named files
 and named sidecar fields, never a skill and never a pattern; anything not named still fails byte
 for byte; an entry whose difference has gone away **fails the run**, because the upstream fix has
 landed and the entry must be deleted. Every entry is owed to
