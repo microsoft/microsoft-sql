@@ -47,13 +47,14 @@ const ROOTS = [
   'README.md', 'AGENTS.md', 'llms.txt', 'apm.yml', '.github/CODEOWNERS',
 ];
 
-// The 17 carried-over container skills are excluded deliberately. They are the
-// product's files, byte-identical to microsoft/azure-sql-database-container,
-// and this repository does not get to reformat them. A change there originates
-// upstream.
-// Nothing is excluded. This used to skip skills/azure-sql-database-container/,
-// a path that stopped existing when the layout went flat, so the exclusion had
-// been doing nothing for some time while skills/ was outside ROOTS entirely.
+// Nothing is excluded, and as of 2026-09-20 nothing should be. This list once
+// carried the 17 azuresql-db-* skills, on the argument that they were the pilot
+// repository's files and not ours to reformat. It had in fact been doing nothing
+// for some time: it named skills/azure-sql-database-container/, a path that
+// stopped existing when the layout went flat, while skills/ was outside ROOTS
+// entirely. The argument behind it is gone too. Carlos Robles made this
+// repository the parent of those 17 on 2026-09-20, so they are files this
+// repository authors and the house rules apply to them like anything else here.
 const EXCLUDE = [];
 
 const SKIP_DIRS = new Set(['node_modules', '.git']);
