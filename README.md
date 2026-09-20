@@ -304,7 +304,7 @@ Makes an app's database connections reliable against the local Azure SQL Databas
 
 **[azuresql-db-container](skills/azuresql-db-container/SKILL.md)**
 
-Runs the Azure SQL Database container (the Azure SQL Database engine) locally (Private Preview): the real PaaS engine where SERVERPROPERTY('EngineEdition') returns 5 and Edition is 'SQL Azure'.
+Runs the Azure SQL Database container locally (Private Preview): the real PaaS engine where SERVERPROPERTY('EngineEdition') returns 5.
 
 **[azuresql-db-dab](skills/azuresql-db-dab/SKILL.md)**
 
@@ -316,7 +316,7 @@ Answers questions about what the Azure SQL Database container (Private Preview) 
 
 **[azuresql-db-feedback](skills/azuresql-db-feedback/SKILL.md)**
 
-Reports a bug or files feedback about the azuresql-db-* agent skills themselves, or about the Azure SQL Database container (the local Azure SQL Database engine, Private Preview).
+Reports a bug or files feedback about the azuresql-db-* agent skills themselves, or about the Azure SQL Database container (Private Preview).
 
 **[azuresql-db-from-sql-server](skills/azuresql-db-from-sql-server/SKILL.md)**
 
