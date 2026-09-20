@@ -7,8 +7,15 @@
   "value_probe": {
     "gate": "The answer identifies a database-side prerequisite the monitored table must carry before this can ever fire, and treats a healthy app whose other functions work as entirely consistent with this one never starting.",
     "task": "I wrote a function that is meant to run whenever a row changes in one of our Azure SQL Database tables. The function app deploys, starts, and every other function in the same app works normally. This one has never run once, and I cannot find an error anywhere obvious in the logs. I have updated rows by hand to test it and nothing happens. The app connects with its managed identity, which we granted read and write on the database. What is wrong and how do I confirm it?",
+    // 2026-09-19: the first statement used to read "A tracking mechanism has to be enabled on the
+    // monitored table, because it is what the trigger reads to find changes." It measured the
+    // change tracking prerequisite, which the model already asserts 8 of 10 times with no skill
+    // loaded, so it had no room to show the skill adding anything and could only fall. The
+    // prerequisite itself is still enforced, by the gate and by three of the four refutes
+    // statements. The replacement names the mechanism behind it: no answer in the ten no-skill
+    // runs named the minimum valid version call, while all ten skill-loaded answers did.
     "states": [
-      "A tracking mechanism has to be enabled on the monitored table, because it is what the trigger reads to find changes.",
+      "The listener's startup check asks the database for the monitored table's minimum valid change tracking version, and that call answers with nothing rather than an error when the prerequisite is missing, which is what the listener throws on.",
       "The listener fails at startup and is retried in the background, so the app stays up and every other function keeps serving.",
       "This trigger needs more than reading and writing data, including the ability to create and maintain its own state tables."
     ],
