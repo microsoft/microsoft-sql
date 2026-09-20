@@ -146,7 +146,7 @@ const AUTHORED = {
     target: 'container',
     applies_to: ['azure-sql-db', 'azure-sql-db-container'],
     correction:
-      'Asked for a least-privilege user, an agent writes CREATE USER ... WITH PASSWORD, which fails here with Msg 15007, and then tries SET CONTAINMENT = PARTIAL, which fails with Msg 12844. Contained users are not available: create a server login and map a database user to it.',
+      'Asked for a least-privilege user, an agent writes CREATE USER ... WITH PASSWORD, which fails here with Msg 33233, and then tries SET CONTAINMENT = PARTIAL, which fails with Msg 12824. Contained users are not available: create a server login and map a database user to it.',
     implicit: ['my app connects as sa, set up a least-privilege database user instead'],
     assert: ['uses CREATE LOGIN plus CREATE USER FOR LOGIN', 'application does not connect as sa'],
   },
@@ -311,9 +311,9 @@ const DECLARATIONS = {
   "azuresql-db-auth": {
     "rationale": "This skill's kernel is an identity recipe that is the inverse of the published Azure SQL Database guidance, and the inversion is only visible from the engine's refusals. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach general least-privilege advice, role grants, and where a secret should be stored outside the repository, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted.",
     "covers": [
-      "the contained database user, CREATE USER WITH PASSWORD, being refused on this engine with Msg 15007, which inverts the cloud norm",
-      "ALTER DATABASE SET CONTAINMENT = PARTIAL being refused with Msg 12844, so the contained route cannot be enabled either",
-      "CREATE USER FROM EXTERNAL PROVIDER being refused with Msg 37525 on this build",
+      "the contained database user, CREATE USER WITH PASSWORD, being refused on this engine with Msg 33233, which inverts the cloud norm",
+      "ALTER DATABASE SET CONTAINMENT = PARTIAL being refused with Msg 12824, so the contained route cannot be enabled either",
+      "CREATE USER FROM EXTERNAL PROVIDER being refused with Msg 33134 on this build",
       "the server login plus mapped database user being the identity recipe that actually works here",
       "the connection being encrypted on this engine, which the skill asserts rather than assumes"
     ],
@@ -363,7 +363,7 @@ const DECLARATIONS = {
       "USE being refused in a user-database session with Msg 40508",
       "BACKUP and RESTORE being refused with Msg 40510",
       "sp_configure being absent rather than blocked, so the engine answers Msg 2812 and there is nothing to be permitted to call",
-      "there being no msdb and therefore no SQL Server Agent on this engine",
+      "there being no SQL Server Agent job store on this engine, so OBJECT_ID('msdb.dbo.sysjobs') is NULL, even though sys.databases does list an msdb database",
       "/docker-entrypoint-initdb.d being absent from the image, so a seed placed there runs silently never",
       "the native VECTOR(n) type and VECTOR_DISTANCE being present on this build",
       "a container reporting Up while the engine inside it never started, which is what a password failing the complexity policy produces"
@@ -396,7 +396,7 @@ const DECLARATIONS = {
     "covers": [
       "BACKUP and RESTORE being refused with Msg 40510, which is the boundary of the managed-service bucket",
       "USE being refused with Msg 40508",
-      "the contained user refused with Msg 15007 and CONTAINMENT PARTIAL refused with Msg 12844",
+      "the contained user refused with Msg 33233 and CONTAINMENT PARTIAL refused with Msg 12824",
       "BULK INSERT from a local path refused with Msg 12713, because this engine reads bulk data from Azure Blob Storage only"
     ],
     "does_not_cover": [

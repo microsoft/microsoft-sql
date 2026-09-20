@@ -20,7 +20,7 @@
       "USE being refused in a user-database session with Msg 40508",
       "BACKUP and RESTORE being refused with Msg 40510",
       "sp_configure being absent rather than blocked, so the engine answers Msg 2812 and there is nothing to be permitted to call",
-      "there being no msdb and therefore no SQL Server Agent on this engine",
+      "there being no SQL Server Agent job store on this engine, so OBJECT_ID('msdb.dbo.sysjobs') is NULL, even though sys.databases does list an msdb database",
       "/docker-entrypoint-initdb.d being absent from the image, so a seed placed there runs silently never",
       "the native VECTOR(n) type and VECTOR_DISTANCE being present on this build",
       "a container reporting Up while the engine inside it never started, which is what a password failing the complexity policy produces"
@@ -88,15 +88,15 @@
         "why": "Measured on this image in a sibling project: sp_configure is absent rather than refusing, so the engine answers with Msg 2812, could not find stored procedure. It is worth a round trip because the failure mode is misread constantly. An agent that sees a refusal assumes a permission or a filter and goes looking for a way to be allowed, when there is nothing there to be allowed to call. The parity checklist used to list RECONFIGURE among the statements the Azure filter blocks, which read as a refusal and blurred the two failures together; it now records the absence instead, and this probe pins it. If this ever returns a different number, the surface has changed and the parity checklist needs re-reading rather than the probe being patched."
       },
       {
-        "sql": "SELECT COUNT(*) AS msdb_present FROM sys.databases WHERE name = 'msdb';",
+        "sql": "SELECT CASE WHEN OBJECT_ID('msdb.dbo.sysjobs') IS NULL THEN 1 ELSE 0 END AS no_agent_job_store;",
         "expect": {
           "rows": [
             [
-              0
+              1
             ]
           ]
         },
-        "why": "references/paas-parity-checklist.md states there is no SQL Server Agent on this engine and that an external scheduler is required. In a user-database session on this engine sys.databases lists master and the current database only, so msdb, the database every Agent job lives in, cannot appear. A non-zero result would mean the lane is on a boxed SQL Server engine, which is the same finding the identity probe makes and the reason the parity list exists at all."
+        "why": "references/paas-parity-checklist.md states there is no SQL Server Agent on this engine and that an external scheduler is required. THE PROBE ASKED THE WRONG QUESTION UNTIL 2026-09-19. It read sys.databases for a row named msdb and expected none, on the belief that a user-database session on this engine lists master and the current database only. It does not: from a user database sys.databases returns master, tempdb, model, msdb and the scratch database, and from master the same five. msdb is present. The claim underneath was never affected, because the database is not the job store: OBJECT_ID('msdb.dbo.sysjobs') is NULL, and this probe now asks that instead, which is the question the parity claim actually rests on. A three-part reference into msdb is refused with Msg 40515 in any case. A NOT NULL here would mean an Agent job store exists on an engine whose parity list says it cannot, which is the finding this probe is for. Re-measured 2026-09-19 on image tag 18.0.226_4_147, EngineEdition 5, Edition 'SQL Azure', build 12.0.2000.8, in a scratch container started with no MSSQL_AAD_* configuration."
       },
       {
         "sql": "CREATE TABLE dbo.probe_container_vector (id int NOT NULL PRIMARY KEY, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_container_vector (id, v) VALUES (1, CAST(CAST(N'[1.0,2.0,3.0]' AS nvarchar(max)) AS vector(3)));\nSELECT CASE WHEN VECTOR_DISTANCE('cosine', v, CAST(CAST(N'[1.0,2.0,3.0]' AS nvarchar(max)) AS vector(3))) < 0.000001 THEN 1 ELSE 0 END AS distance_to_self_is_zero\nFROM dbo.probe_container_vector;",

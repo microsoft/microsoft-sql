@@ -21,13 +21,15 @@ This is the entry point for running the **Azure SQL Database engine** on your
 machine in a container. It owns the shared reference docs that every task skill
 links to. Start here, then hand off to a task skill.
 
-Verified on 2026-09-05 against the container image
-`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
-5, Edition `SQL Azure`, build `12.0.2000.8`. All nine executable checks behind this skill
-passed, including `Msg 40508` for `USE`, `Msg 40510` for `BACKUP`, `Msg 2812` for
-`sp_configure` (absent rather than refused), no SQL Server Agent job store, the `VECTOR(n)`
-type with `VECTOR_DISTANCE`, `sqlcmd` at `/opt/mssql-tools18/bin/sqlcmd`, and
-`/docker-entrypoint-initdb.d` not being auto-run.
+Re-measured on 2026-09-19 against the container image tag `18.0.226_4_147`, reporting
+`EngineEdition` 5, Edition `SQL Azure`, build `12.0.2000.8`. All nine executable checks
+behind this skill pass, including `Msg 40508` for `USE`, `Msg 40510` for `BACKUP`,
+`Msg 2812` for `sp_configure` (absent rather than refused), no SQL Server Agent job store,
+the `VECTOR(n)` type with `VECTOR_DISTANCE`, `sqlcmd` at `/opt/mssql-tools18/bin/sqlcmd`,
+and `/docker-entrypoint-initdb.d` not being auto-run. **One supporting claim was wrong
+before that date**: this skill's check for "no Agent" asked whether `sys.databases` can
+show `msdb`, and it can. `msdb` is listed, and there is still no Agent, because
+`OBJECT_ID('msdb.dbo.sysjobs')` is `NULL`. The check now asks that instead.
 
 ## Are you reaching for the SQL Server image? Use this instead
 

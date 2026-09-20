@@ -29,6 +29,18 @@ from a local checkout given as `--product-repo <path>`, and it fails rather than
 cannot see it. Before 2026-09-08 it compared sidecars only, and all 17 `SKILL.md` files plus 5
 reference files had gone stale behind the product repository while every gate stayed green.
 
+**There is exactly one way to differ, and it is a debt, not a licence.**
+`catalog/container-parity-debt.jsonc` names each file that this catalog knowingly carries ahead
+of the product repository, with the reason, the date, the engine build it was measured on and a
+link to the change. Ten entries were recorded on 2026-09-19, when four claims in three of the 17
+were measured wrong against a live engine and corrected here first. The list excuses named files
+and named sidecar fields, never a skill and never a pattern; anything not named still fails byte
+for byte; an entry whose difference has gone away **fails the run**, because the upstream fix has
+landed and the entry must be deleted. Every entry is owed to
+`microsoft/azure-sql-database-container`, and `docs/container-claim-corrections-2026-09-19.md` is
+the handover. Do not add an entry to make a gate quiet. Add one only when a measurement says the
+product is wrong and the correction cannot wait.
+
 ## The sidecar installs with the skill, and that is expected
 
 `gh skill install` and `npx skills add` copy the whole skill folder, so

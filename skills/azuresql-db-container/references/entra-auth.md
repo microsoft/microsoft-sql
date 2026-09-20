@@ -107,10 +107,17 @@ docker logs sqldb 2>&1 | grep -i "authentication manager initialization failed"
 Expect no matches.
 
 2. Functional check: on a **master** connection as `sa`, run
-`CREATE LOGIN [some-principal] FROM EXTERNAL PROVIDER;`. Entra is configured when
-you get **Msg 33134** (principal could not be resolved) rather than **Msg 37525**
-(AAD not configured for this instance). Use a real UPN or object name when you
-intend to create the login.
+`CREATE LOGIN [some-principal] FROM EXTERNAL PROVIDER;` and **read the message text,
+not only the number**. On a container with no `MSSQL_AAD_*` configuration at all, this
+build answers **Msg 33134** with the detail `'Unable to query Azure AD certificate from
+local cert store.'`, which names the missing certificate. Once Entra is configured, the
+same statement resolves the principal or fails naming the principal rather than the
+cert store. Measured 2026-09-19 on image tag `18.0.226_4_147`, `EngineEdition` 5,
+Edition `SQL Azure`, build `12.0.2000.8`, on a container started with zero `MSSQL_AAD_*`
+variables. This page previously said the unconfigured state answers **Msg 37525** and
+that 33134 therefore means configured; on this build that is wrong, and the number alone
+does not tell the two states apart. Use a real UPN or object name when you intend to
+create the login.
 
 ## Do not
 
