@@ -43,6 +43,15 @@ since when. **A difference never fails this repository**, because being ahead is
 things still fail it: a defect on this side, such as a sidecar that will not parse or a field in no
 policy class, and a pilot repository it could not read at all, which is UNVERIFIED and never OK.
 
+**Every sidecar field is now ruled on.** `value`, `posture` and `applies_to` sat in the script's
+`unreconciled` class from the day it was written: reported on every run, enforced by nothing,
+because nobody had decided. Carlos Robles decided on 2026-09-20 and all three are `mustMatch`, so
+the class is empty. The three are compared as SETS, because their schema declares them
+`uniqueItems` and nothing reads their order; their order is still exact and
+`npm run sidecars:check` fails this repository on a reordering. Adding a field to a sidecar without
+classifying it in `POLICY` still fails the run, which is the guard that makes an empty
+`unreconciled` safe rather than a hole.
+
 **There is no debt file any more.** `catalog/container-parity-debt.jsonc` recorded every difference
 as a debt owed upstream, which was the right shape while the pilot repository was the parent. It
 was deleted on 2026-09-20, because the same set of differences is now simply the pending copy and

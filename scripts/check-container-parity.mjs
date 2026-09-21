@@ -34,6 +34,15 @@
 //      empty id or correction here, or a field in neither mustMatch, mayDiffer
 //      nor unreconciled. Those are defects in the source, and the source is here.
 //
+// EVERY FIELD IS RULED ON, SINCE 2026-09-20. `value`, `posture` and `applies_to`
+// were reported on every run and enforced by nothing, sitting in the
+// `unreconciled` class below because nobody had looked at them rather than
+// because anyone had decided they may differ. Carlos Robles looked and decided:
+// the pilot repository's per-skill `value` labels were adopted where they were
+// better, `posture` was ruled skill by skill on what each one has a reader do,
+// and `applies_to` differed only in key order. All three are mustMatch now and
+// the `unreconciled` class is empty.
+//
 // WHAT REPLACED THE DEBT FILE. catalog/container-parity-debt.jsonc recorded every
 // place this catalog knowingly differed from the pilot repository, as a debt owed
 // upstream, because under the old direction a difference was a fault that had to
