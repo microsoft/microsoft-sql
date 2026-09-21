@@ -250,12 +250,73 @@ const j = (o) => JSON.stringify({ $comment: BANNER, ...o }, null, 2) + '\n';
 const STORE_NAME = 'Azure SQL';
 
 emit('.claude-plugin/plugin.json', j({ displayName: STORE_NAME, ...base }));
+
+// ---------------------------------------------------------------------------
+// EXPERIMENTAL, 2026-09-21: scoped collections from ONE skills tree.
+//
+// The question this answers is whether several marketplace entries can share a
+// single copy of skills/ and each carry a different subset, with no file
+// copying. Claude Code documents that for an entry whose `source` resolves to
+// the marketplace root, a `skills` array REPLACES the default scan, so the
+// entry loads exactly the listed paths. Every entry below therefore keeps
+// `source: "./"` and differs only in its list.
+//
+// The Agent Plugins specification takes the other position: discovery is fixed
+// at skills/ and a manifest cannot override it. A client that follows the
+// specification rather than the Claude Code reading will load all 57 into every
+// entry. Which clients do which is measured per client, not assumed here.
+//
+// The two entries below are EXPERIMENTAL and must not ship without that
+// measurement. The everything entry is unchanged and stays first.
+//
+// Data API builder skills are excluded from the Visual Studio Code collection
+// because they clash with Data API builder tooling already present in GitHub
+// Copilot inside the MSSQL extension for Visual Studio Code.
+// ---------------------------------------------------------------------------
+const DAB_SKILLS = ['dab-rest-and-graphql', 'azuresql-db-dab'];
+const pathsWhere = (keep) => present.filter((p) => keep(p.name)).map((p) => `./skills/${p.name}`);
+
+const vscodeSkills = pathsWhere((n) => !DAB_SKILLS.includes(n));
+const containerSkills = pathsWhere((n) => n.startsWith('azuresql-db-'));
+
+// Fail loudly rather than emit a silently empty or unfiltered collection: an
+// entry that resolves to nothing, or to everything, is the failure mode this
+// repository keeps finding late.
+for (const [label, list, expected] of [
+  ['vscode', vscodeSkills, present.length - DAB_SKILLS.length],
+  ['container', containerSkills, 17],
+]) {
+  if (list.length !== expected) {
+    console.error(`x the ${label} collection resolved ${list.length} skills, expected ${expected}`);
+    process.exit(1);
+  }
+}
+
 emit('.claude-plugin/marketplace.json', j({
   name: NAME,
   owner: { name: 'Microsoft', url: REPO },
   metadata: { description: SUMMARY },
-  // Wave 2 adds one entry per persona, each with its own skills array.
-  plugins: [{ name: NAME, source: './', description: SUMMARY, version: PKG.version, skills: skillPaths }],
+  plugins: [
+    { name: NAME, source: './', description: SUMMARY, version: PKG.version, skills: skillPaths },
+    {
+      name: `${NAME}-vscode`,
+      source: './',
+      description:
+        'EXPERIMENTAL. The collection without the Data API builder skills, for the MSSQL extension ' +
+        'for Visual Studio Code, where GitHub Copilot already carries Data API builder tooling.',
+      version: PKG.version,
+      skills: vscodeSkills,
+    },
+    {
+      name: `${NAME}-container`,
+      source: './',
+      description:
+        'EXPERIMENTAL. The Azure SQL Database container skills only, for local development against ' +
+        'the container rather than a provisioned database.',
+      version: PKG.version,
+      skills: containerSkills,
+    },
+  ],
 }));
 
 // PER-TOOL MANIFESTS, and why there are now two of them.
