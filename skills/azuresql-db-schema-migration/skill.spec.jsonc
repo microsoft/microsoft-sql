@@ -3,13 +3,16 @@
   "id": "azuresql-db-schema-migration",
   "domain": "azure-sql-database-container",
   "value": [
-    "not-in-training-data"
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "multi-step-with-silent-failures"
   ],
   "correction": "Migration tools get pointed at the server default, which is master, and the run appears to succeed while putting the schema in the wrong place. The user database must be provisioned first and named in the connection string.",
   "posture": [
     "read",
     "write",
-    "execute"
+    "execute",
+    "provision"
   ],
   "maturity": "preview",
   "value_declaration": {

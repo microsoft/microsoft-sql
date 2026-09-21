@@ -3,7 +3,9 @@
   "id": "azuresql-db-import",
   "domain": "azure-sql-database-container",
   "value": [
-    "not-in-training-data"
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "multi-step-with-silent-failures"
   ],
   "correction": "Handed a .bacpac, an agent reaches for RESTORE. The engine rejects RESTORE with Msg 40510, because it is the Azure SQL Database engine rather than SQL Server. Import is SqlPackage against a database that has already been created on master.",
   "posture": [

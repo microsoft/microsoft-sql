@@ -156,18 +156,31 @@ the top.
 `value_declaration` as literals and was updated in step with the sidecars. If the product
 repository has its own generator, it needs the same six strings.
 
-## One thing that needs Carlos Robles specifically
+## The signed text, and what was decided about it on 2026-09-20
 
 `value_declaration` is a **written acceptance signed by a named person on a named date**, and
-four of its `covers` lines quoted these numbers. They were corrected, so
-`azuresql-db-auth` `covers[0..2]`, `azuresql-db-faq` `covers[2]` and `azuresql-db-container`
-`covers[4]` now read differently from the text accepted on 2026-09-04.
+five of its `covers` lines quoted these numbers: `azuresql-db-auth` `covers[0..2]`,
+`azuresql-db-faq` `covers[2]` and `azuresql-db-container` `covers[4]`. Correcting them made the
+signed text read differently from the text accepted on 2026-09-04. This section used to leave
+that open for Carlos Robles. It is settled.
 
 **The substance is unchanged.** The same claims are covered; only the error number cited
 inside the sentence moved, and in claim 4 the false premise was replaced by the true fact it
-was standing in for. Nothing was added to or removed from what the declaration reaches. If the
-preference is that signed text stays frozen word for word and is re-signed instead, those five
-lines are the whole of it and can be reverted independently of everything else here.
+was standing in for. Nothing was added to or removed from what the declaration reaches.
+
+**The corrected numbers stay, and the change is recorded rather than silent.** Freezing the
+signed words would have left three declarations quoting error numbers an engine had already
+contradicted, and a signed argument that quotes a false number is worse than one that carries a
+correction on its face. Re-signing was not needed either, because the argument did not move: the
+engine refuses exactly what the declarations said it refuses. So on 2026-09-20 each of the three
+`rationale` strings gained a dated sentence naming what moved, when, and on which build, while
+`decided_by` and `decided_on` keep naming the 2026-09-04 signature. A reader can tell what was
+signed from what has changed since, which is the property that was actually at stake.
+
+The rule this produced is written into the `rationale` description in
+`catalog/skill.spec.schema.json`, so the next amendment does not have to rediscover it: a
+correction to a FACT is annotated in place; a correction that changes what the declaration
+CONCLUDES is re-signed, not annotated.
 
 ## What was not done
 

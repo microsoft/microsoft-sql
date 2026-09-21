@@ -3,18 +3,20 @@
   "id": "azuresql-db-container",
   "domain": "azure-sql-database-container",
   "value": [
-    "not-in-training-data"
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "changes-too-fast-to-memorize"
   ],
   "correction": "Asked for a local SQL database, an agent reaches for mcr.microsoft.com/mssql/server. That is SQL Server, not Azure SQL Database: the container runs the PaaS engine, where SERVERPROPERTY('EngineEdition') returns 5 and Edition is 'SQL Azure', and it does not auto-create databases, so a plan that connects straight after docker run has nothing to connect to.",
   "posture": [
     "read",
-    "write",
+    "inspect",
     "execute",
     "provision"
   ],
   "maturity": "preview",
   "value_declaration": {
-    "rationale": "This skill's kernel is the whole set of ways this image behaves like the platform rather than like the boxed engine. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach Docker run and Compose syntax, port publishing, volume mounts and the shape of a readiness loop, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted.",
+    "rationale": "This skill's kernel is the whole set of ways this image behaves like the platform rather than like the boxed engine. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach Docker run and Compose syntax, port publishing, volume mounts and the shape of a readiness loop, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted. AMENDED 2026-09-19, TEXT ONLY, AND THIS SENTENCE IS THE RECORD OF IT. One line in covers said there is no msdb on this engine. The first live run of this skill's probes, on image tag 18.0.226_4_147, EngineEdition 5, Edition 'SQL Azure', build 12.0.2000.8, in a container started with no MSSQL_AAD_* configuration, lists msdb in sys.databases from master and from a user database alike. What is absent is the Agent job store: OBJECT_ID('msdb.dbo.sysjobs') is NULL. The line was corrected in place on 2026-09-19 to say that instead, and nothing else in this block was touched. The argument did not move: the parity claim it rests on is that there is no SQL Server Agent here, and that still stands, so what Carlos Robles signed on 2026-09-04 still stands. The claim was right and its stated evidence was wrong, which is the worse of the two failures and the reason this sentence is here rather than a silent edit.",
     "covers": [
       "the engine never creating a database when a connection names one, so it is created on a master connection first",
       "USE being refused in a user-database session with Msg 40508",

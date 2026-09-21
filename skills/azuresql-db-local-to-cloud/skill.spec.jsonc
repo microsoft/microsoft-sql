@@ -3,7 +3,8 @@
   "id": "azuresql-db-local-to-cloud",
   "domain": "azure-sql-database-container",
   "value": [
-    "not-in-training-data"
+    "not-in-training-data",
+    "corrects-a-wrong-assumption"
   ],
   "correction": "Asked whether local code will work in Azure, an agent starts rewriting the data layer. It should not: the local container and Azure SQL Database are the same engine, so the code does not change and only the connection string does, including the switch from SQL auth locally to Microsoft Entra in the cloud.",
   "posture": [

@@ -3,7 +3,9 @@
   "id": "azuresql-db-sidecar",
   "domain": "azure-sql-database-container",
   "value": [
-    "not-in-training-data"
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "multi-step-with-silent-failures"
   ],
   "correction": "In a compose stack an agent points the app at localhost and treats the database as ready the moment the container starts. Neither holds: the app must reach the engine by service name, a healthcheck is required so dependents wait for the engine rather than the process, and the user database needs a one-shot init service because the engine creates nothing on its own.",
   "posture": [

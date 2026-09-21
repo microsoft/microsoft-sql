@@ -3,7 +3,9 @@
   "id": "azuresql-db-scaffold",
   "domain": "azure-sql-database-container",
   "value": [
-    "not-in-training-data"
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "multi-step-with-silent-failures"
   ],
   "correction": "Scaffolding a new app, an agent defaults to SQLite or PostgreSQL, or to the SQL Server image if it hears \"SQL\". For a project targeting Azure SQL Database the local engine should be the same engine, and the scaffold has to create the user database rather than assume the ORM will.",
   "posture": [

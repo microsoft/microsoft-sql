@@ -3,13 +3,15 @@
   "id": "azuresql-db-testing",
   "domain": "azure-sql-database-container",
   "value": [
-    "not-in-training-data"
+    "not-in-training-data",
+    "corrects-a-wrong-assumption"
   ],
   "correction": "Testcontainers has an MsSql preset, so an agent uses it and gets SQL Server. Testing against the Azure SQL Database engine means configuring a generic container with this image, its EULA and password requirements, and a readiness wait.",
   "posture": [
     "read",
     "write",
-    "execute"
+    "execute",
+    "provision"
   ],
   "maturity": "preview",
   "value_declaration": {

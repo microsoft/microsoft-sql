@@ -53,7 +53,7 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "description": "Why this skill is worth shipping. It must claim at least one of the first four. Claiming only `convenience-only` is a reject, meaning the model already does this correctly and a skill would add a description to the selection surface and nothing else. That rejection is enforced by the linter rather than by this schema, so it can explain itself instead of only failing validation.",
+      "description": "Why this skill is worth shipping, ONE ENTRY PER REASON, and a list that says the same thing for every skill in a family is a bulk fill rather than an answer. The 17 azuresql-db-* container skills said `not-in-training-data` and nothing else until 2026-09-20, which cleared the bar and described none of them; Carlos Robles ruled that day that the per-skill lists the pilot repository carried be adopted where they were better, checked one label at a time against each skill's own `correction` sentence and body. It must claim at least one of the first four. Claiming only `convenience-only` is a reject, meaning the model already does this correctly and a skill would add a description to the selection surface and nothing else. That rejection is enforced by the linter rather than by this schema, so it can explain itself instead of only failing validation.",
       "items": {
         "enum": [
           "not-in-training-data",
@@ -125,7 +125,7 @@
         "rationale": {
           "type": "string",
           "minLength": 400,
-          "description": "The argument itself, in prose, and it must contain its own boundary rather than leave it to `covers` and `does_not_cover` to imply. A reader who finds this block a year from now gets the paragraph, not the arrays, so a paragraph that says value was accepted and stops has recorded a conclusion and thrown away the reasoning. State what makes the measurement redundant, state what the argument does NOT reach, and state what would end it. The length floor is deliberately high for the same reason the `<id>.decision.md` floor is forty characters: a declaration that overrides a measurement while explaining almost nothing is worse than no declaration."
+          "description": "The argument itself, in prose, and it must contain its own boundary rather than leave it to `covers` and `does_not_cover` to imply. A reader who finds this block a year from now gets the paragraph, not the arrays, so a paragraph that says value was accepted and stops has recorded a conclusion and thrown away the reasoning. State what makes the measurement redundant, state what the argument does NOT reach, and state what would end it. The length floor is deliberately high for the same reason the `<id>.decision.md` floor is forty characters: a declaration that overrides a measurement while explaining almost nothing is worse than no declaration. AMENDING A SIGNED ARGUMENT. A declaration is signed prose, so a later edit to it is a second thing the reader has to be able to see. It happened on 2026-09-19: five `covers` lines across azuresql-db-auth, azuresql-db-container and azuresql-db-faq quoted error numbers that had never been read off an engine, and the first live probe run contradicted them. The rule that came out of it is that the corrected fact stays, because a signed argument quoting a false error number is worse than one carrying a correction on its face, and the rationale gains a dated sentence saying what moved, when, and on which build. `decided_by` and `decided_on` keep naming the signature, so a reader can always tell what was signed from what has changed since. What may never be amended this way is the ARGUMENT: if the correction changes what the declaration concludes, it is re-signed, not annotated."
         },
         "covers": {
           "type": "array",
@@ -169,7 +169,7 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "description": "Descriptive only. NEVER an authorization control: a persona changes what is installed, never what is permitted.",
+      "description": "What the skill has a reader DO, decided from the skill's own steps rather than from how it feels. `read` its steps query data; `write` its steps change data; `inspect` its steps examine engine or server state rather than application data; `execute` its steps run a tool, a migration or a test against the engine; `provision` its steps create a database, a container or a principal; `admin` its steps act at server scope, on logins, roles or server configuration. These six were a vocabulary with no definitions until 2026-09-20, when the 17 container skills were ruled one by one and the definitions had to be written down to do it. Descriptive only. NEVER an authorization control: a persona changes what is installed, never what is permitted.",
       "items": {
         "enum": [
           "read",
@@ -199,7 +199,7 @@
           "azure-sql-db-container"
         ]
       },
-      "description": "Scope is fixed and the linter enforces it. Managed Instance, Fabric SQL and SQL Server on VMs are not values here and never will be."
+      "description": "Who the guidance is for, which is not the same question as `validation.target`, the substrate it was run on. Scope is fixed and the linter enforces it. Managed Instance, Fabric SQL and SQL Server on VMs are not values here and never will be. This is a SET: `uniqueItems` is the point and the order carries no meaning, which is why scripts/check-container-parity.mjs compares it, `value` and `posture` as sets across the two repositories while the house order stays exact inside this one."
     },
     "related": {
       "type": "array",
