@@ -1,0 +1,21 @@
+{
+  "name": "azure-sql",
+  "displayName": "Azure SQL Database",
+  "version": "1.0.0",
+  "description": "Fifty-seven skills for building on Azure SQL Database and the Azure SQL Database container: provisioning, connecting from .NET, Python and TypeScript, schema design and migrations, bulk load, RAG and vector search, Data API Builder, Azure Functions, CI, security, diagnostics, and T-SQL correctness.",
+  "author": {
+    "name": "Microsoft"
+  },
+  "repository": "https://msdata.visualstudio.com/DefaultCollection/Database%20Systems/_git/AgentSkills",
+  "keywords": [
+    "azure-sql",
+    "sql-server",
+    "database",
+    "container",
+    "rag",
+    "vector-search",
+    "t-sql",
+    "diagnostics"
+  ],
+  "skills": "skills/"
+}

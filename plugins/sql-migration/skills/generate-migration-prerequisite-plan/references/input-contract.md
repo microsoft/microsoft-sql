@@ -1,0 +1,271 @@
+# Input contract — `generate-migration-prerequisite-plan`
+
+> **Schema version:** `1.0`
+> **Prerequisite knowledge-base line:** `v1.11`
+
+This contract accepts either the structured result of `recommend-migration-path` or a standalone
+target-and-method selection. Both modes normalize into a **method path** from
+[`path-catalog.json`](path-catalog.json) plus any **overlays** the route also requires, then collect
+only the facts that can change a prerequisite status for that combination.
+
+**One path is not always enough, and assuming it was is what lost prerequisites.** An AVS-hosted
+SQL Server needs the method path *and* `P27`: the method path alone describes a generic SQL Server,
+and `P27` alone describes a platform nobody migrates to. A physical seed transport such as `P14`
+rides alongside the method that actually cuts over. Resolve `selectedMethodPath` and
+`appliedOverlays[]` together, and apply the prerequisites of all of them.
+
+## 1. Modes
+
+| Mode | Required input | Behavior |
+| --- | --- | --- |
+| `advisor_handoff` | The Advisor JSON object or its recommendation fields | Preserve the Advisor target, tier, method, assumptions, blockers, unknowns, evidence requirements and provenance. Do not re-ask a fact already present. |
+| `standalone` | Target and migration method | Resolve the pair to one catalog path, then ask the path's unresolved prerequisite questions. |
+
+If the target/method pair resolves to zero paths, return `unresolved_path`. If it resolves to more
+than one path, ask only the catalog's disambiguation question. Never choose a path by guessing.
+
+## 2. Accepted Advisor shapes
+
+The canonical shape is the one `skills/recommend-migration-path/references/output.schema.json`
+validates, and it is the only shape the Advisor emits:
+
+- `metadata.knowledgeBaseVersion`, `metadata.decisionRulesVersion`, `metadata.recommendationStatus`,
+  `metadata.confidence`;
+- `normalizedProfile`, `eligibilityTrace[]`;
+- `recommendation.target`, `.tier`, `.method`, `.targetAvailabilityDuringSync`,
+  `.businessCutoverDowntime`, `.controlPlane`;
+- `alternative`, `methodCandidates[]`, `methodGateTrace`, `blockers`, `unknowns`, `assumptions`,
+  `evidenceRequired`, `nextActions`, `evidenceLinks`, `largestRisk`.
+
+A second shape is still accepted for the regression mirror, which reports flat fields:
+`primary_target`, `tier`, `method`, `targetAvailabilityDuringSync`,
+`businessCutoverDowntime`, `controlPlane`, `methodGateStatus`, `recommendationStatus`,
+`confidence`, `eligibility`, `methodCandidates`, `shortlist`, `knowledgeBaseVersion`,
+`decisionRulesVersion`, `evaluatedAt` and `sourceCommit`.
+
+**`primary_target` and `recommendation.target` name the same eight families, and both are
+enumerated.** They were free strings, which is what let the phrase `provisional shortlist only` sit
+in a field typed for a target name. Closing that field on the producing side alone would have left
+the value refused where it is written and accepted where it is read, so the vocabulary is shared and
+a check compares the two typings rather than only the enumerations they draw on.
+
+**The two shapes are exclusive, not merely alternative.** Both are closed and their required keys
+are disjoint, so an object is the canonical shape or the mirror and never a blend. They used to sit
+under `anyOf` with neither one closed, so a mixed object satisfied the public branch while carrying
+mirror fields, and a value the public branch would have refused arrived through a key it never
+declared.
+
+**Both shapes carry the provenance the plan is obliged to echo.** The plan's
+`metadata.sourceAdvisor` requires the knowledge base line, the decision-rules line and the
+evaluation date. The mirror declared none of the three, so a handoff that validated on the way in
+produced a plan that could not validate on the way out unless someone invented the provenance. A
+consumer requirement that no accepted producer shape can satisfy is not a requirement, it is a
+trap, and the fix is on the producing side because those facts exist.
+
+**This list is derived from the mirror schema, not written beside it.** It used to name `unknowns`,
+`hardBlockers` and `evidenceRequired`, which the mirror declares nowhere and never emits, so a
+producer following the page sent three fields the consumer could not read. The check that guards
+this ran in one direction only, from the schema to the prose, which is why prose naming a field
+that does not exist went unnoticed.
+
+**`primary_target` is the only accepted spelling.** This page also advertised `primaryTarget`
+while the schema defined and required the snake_case form alone, so a producer following the
+camelCase reading failed validation before its path was ever resolved. One canonical spelling is
+cheaper than a normalization layer that has to be kept in step with both sides.
+
+**A `recommendation.primary` wrapper is not one of them.** It was advertised here while the schema
+required `recommendation.target`, so a producer following this page emitted an object its own
+schema rejected. If an input carries `recommendation.primary`, treat it as a stale producer, read
+the fields underneath it, and say that the shape was out of date rather than failing silently.
+
+**A shortlist is not a handoff.** The Advisor emits `recommendationStatus: shortlist` when no rule
+separates the candidates, and that output carries no chosen target: nothing to resolve to a catalog
+path. Both accepted shapes branch on the status, so an object names a target or carries a
+`shortlist[]` and never both — a handoff that declared it had refused to choose while naming the
+target it chose was expressible until now. Return `unresolved_path` naming the families the
+shortlist carries and what the Advisor said would separate them. Do not pick one, and do not ask the
+path questions of a path nobody chose.
+
+**`controlPlane` is a prerequisite selector, not a label.** `azure-arc` pulls in the Arc extension,identity and batch requirements and changes which source-version matrix governs the method —
+standalone Log Replay Service is documented for SQL Server 2008-2022 while the Arc path lists 2025.
+It is required by both accepted shapes, so a handoff cannot arrive without one. This page used to
+say that an absent value should be read as `standalone`, which is the defect it was written to
+prevent: a route orchestrated by Arc would have been planned as a standalone migration, missing the
+extension, identity and batch prerequisites. There is no default. An input with no `controlPlane`
+is a contract failure and is reported as one.
+
+**`methodCandidates[]` is the list of methods the Advisor weighed.** When the user prefers a
+candidate marked `available` over the recommended one, resolve that candidate's
+`prerequisitePaths` instead. Do not re-run the ranking.
+
+**Inherited facts are resolved through [`advisor-fact-mappings.json`](advisor-fact-mappings.json), not by guesswork.**
+The two skills name and type their facts differently, so "do not ask again" was impossible to apply
+consistently: `size` is a band here and a number in gigabytes there, `downtime` is
+`downtime_tolerance`, and `mi_link_ports` is free text against a status. The crosswalk states, for
+every field, whether it converts directly, needs a vocabulary translation, or **cannot convert at
+all**. The last case is the important one: a qualitative note about performance is not a captured
+baseline, and a list of dependencies the user happened to mention is not a completed inventory. For
+those fields the question is still asked, and the Advisor's answer may be offered as the default.
+
+Normalize the shapes before applying prerequisite rules. The handoff is a recommendation, not
+proof that its assumptions or user-reported evidence were verified.
+
+## 3. Absence and evidence semantics
+
+| Value | Meaning | Prerequisite effect |
+| --- | --- | --- |
+| `CONFIRMED` | A typed answer or an inherited Advisor fact satisfies the requirement, as **stated**. The skill makes no network calls and cannot check the claim against Azure | `confirmed` |
+| `MISSING` | A typed answer establishes that the requirement is not met | `missing` |
+| `UNKNOWN` | Not assessed, blank, declined, ambiguous or unrecognized | `unknown` |
+| `NOT_APPLICABLE` | The applicability condition is demonstrably false | `not_applicable` |
+
+Never convert free prose such as “network should be fine” into `CONFIRMED`. A confirmation that
+requires evidence needs an evidence record containing its type, date, origin and a shareable
+reference or hash. A self-declared Advisor evidence flag remains a claim until that record exists.
+
+## 4. Top-level request
+
+```json
+{
+  "schemaVersion": "1.0",
+  "mode": "advisor_handoff",
+  "requestedOutput": "both",
+  "language": "en",
+  "advisorOutput": {
+    "primary_target": "Azure SQL Managed Instance",
+    "tier": "General Purpose",
+    "method": "MI Link",
+    "targetAvailabilityDuringSync": "read-only",
+    "businessCutoverDowntime": "<1min",
+    "controlPlane": "standalone",
+    "methodGateStatus": "passed",
+    "recommendationStatus": "provisional",
+    "confidence": "medium",
+    "knowledgeBaseVersion": "v3.13",
+    "decisionRulesVersion": "v3.13",
+    "evaluatedAt": "2026-09-12T09:00:00Z"
+  },
+  "standaloneSelection": null,
+  "knownFacts": {},
+  "evidence": []
+}
+```
+
+`requestedOutput` is `markdown`, `json`, or `both`. Markdown and JSON render the same normalized
+decision state; neither format may add an inference missing from the other.
+
+`knownFacts` is keyed by question id, and every value is checked against the vocabulary or the type
+that question accepts. The mapping is derived from `questions.json`, not written twice: an
+enumerated question types as its own values, a count as an integer of at least one, a size as a
+number of at least zero, and everything else as a string with something in it. Unrecognised fields
+are refused outright.
+
+It used to be one open union of the readiness enum, any non-empty string, any number, any integer,
+a boolean and any object. `tde_status: true`, `database_count: -5` and
+`mi_link_ports_status: "BANANA"` all validated, and a value that validates is a typed fact, so any
+of them could confirm a prerequisite and clear a blocker on its way to a go decision.
+
+**Omitting a key and answering `UNKNOWN` are different statements.** Absence means the question was
+never asked; `UNKNOWN` means it was asked and not answered. Every enumerated field carries an
+`UNKNOWN` value so the two stay distinguishable, and a check refuses any that does not.
+
+## 5. Canonical facts
+
+The authoritative field-to-path mapping is in `path-catalog.json`. Ask a field only when it is
+listed in `commonQuestionFields` or the selected path's `questionFields`, is not already answered,
+and can still change at least one applicable prerequisite.
+
+**Disambiguation exception.** A field named in a path's `disambiguation` block is askable even
+before a path is selected, because it exists to choose between candidate paths. `ha_migration_pattern`
+(P01 vs P02) and `arc_restore_entrypoint` (P17 vs P18) are askable only through this exception;
+neither field is listed in `commonQuestionFields` or in any path's `questionFields`. `bulk_copy_tool`,
+`dms_migration_mode` and `azure_migrate_intent` need no exception because their disambiguation field
+is already inside the `questionFields` of the paths they distinguish.
+
+`azure_migrate_intent` exists because `Azure Migrate` on its own names two different pieces of work:
+the assessment that discovers an estate (P28) and the replication that moves a machine (P06). Both
+paths answer to the bare name and both can apply to a SQL Server on Azure VM, so without the field
+the catalog resolves one of them by accident. Assessment prerequisites are not replication
+prerequisites, and a reader handed the wrong set finds out at cutover.
+
+### Common source, target and operational facts
+
+| Field | Type | Purpose |
+| --- | --- | --- |
+| `source_version` | version label or absence marker | Product and method version floors |
+| `source_edition` | edition or absence marker | HA, MI Link and feature eligibility |
+| `source_os` | OS family/version or absence marker | Windows/Linux/container/platform gates |
+| `source_location` | location or absence marker | On-premises, hosted VM and managed-source constraints |
+| `database_count` | positive integer or absence marker | Link, restore and batching limits |
+| `largest_database_size_gb` | non-negative number or absence marker | Capacity, transfer and time-window feasibility |
+| `target_region` | Azure/Fabric region or absence marker | Regional service and capacity availability |
+| `target_tier` | target service tier or absence marker | Capacity, cutover and HA prerequisites |
+| `source_permissions` | structured role/status | Source-side operations |
+| `target_permissions` | structured role/status | Azure, Fabric, SQL and Kubernetes operations |
+| `downtime_tolerance` | duration/class or absence marker | Cutover feasibility |
+| `rpo` / `rto` | duration or absence marker | Synchronization, cutover and rollback gates |
+| `peak_change_rate` | measured rate or absence marker | Catch-up feasibility |
+| `performance_baseline_status` | readiness status | Target sizing evidence |
+| `tde_status` | enabled/disabled/unknown | Encryption-material prerequisites |
+| `authentication_model` | SQL/Windows/Entra/mixed/unknown | Identity and application remediation |
+| `feature_inventory_status` | readiness status | Database feature compatibility |
+| `instance_object_inventory_status` | readiness status | Logins, jobs, credentials and linked objects |
+| `network_path_status` | readiness status | End-to-end reachability |
+| `dns_status` | readiness status | Name resolution and listener/endpoint use |
+| `validation_plan_status` | readiness status | Technical and business validation |
+| `rollback_plan_status` | readiness status | Reversibility and decision point |
+| `application_cutover_owner` | named role or absence marker | Connection-string and traffic switch ownership |
+
+### Path-specific facts
+
+| Area | Fields |
+| --- | --- |
+| AG / DAG | `ha_migration_pattern`, `source_ha_topology`, `domain_model`, `ag_endpoint_status`, `quorum_status` |
+| Backup / restore | `recovery_model`, `backup_chain_status`, `blob_https_status`, `blob_access_model`, `tde_material_status` |
+| Azure Migrate / AVS | `azure_migrate_intent`, `azure_migrate_platform`, `azure_migrate_appliance_status`, `test_migration_status`, `hcx_service_mesh_status` |
+| MI Link / LRS | `mi_link_ports_status`, `mi_link_capacity_status`, `lrs_window_days`, `lrs_storage_layout_status` |
+| SQL DB schema/data | `schema_compatibility_status`, `bacpac_consistency_status`, `dms_runtime_status`, `bulk_target_schema_status` |
+| Replication / CDC | `replication_primary_keys_status`, `replication_topology`, `striim_runtime_status` |
+| Data Box | `data_box_device_status`, `delta_sync_method` |
+| Fabric | `fabric_capacity_status`, `fabric_workspace_role`, `fabric_gateway_type`, `fabric_dacpac_size_mb` |
+| Arc / containers | `arc_cluster_support_status`, `arc_connectivity_mode`, `arc_backup_storage_class_status`, `arc_external_endpoint_status`, `arc_restore_entrypoint`, `container_image_status`, `container_volume_status` |
+| Bulk / pipelines | `bulk_copy_tool`, `adf_integration_runtime_status`, `adf_connection_status` |
+| Modern DMS | `dms_migration_mode`, `dms_backup_landing_zone`, `recovery_model_status` |
+
+Question definitions, accepted values, consumers and distinct status effects are machine-readable in
+[`questions.json`](questions.json). A question absent from that file must not be asked.
+
+## 6. Evidence records
+
+```json
+{
+  "id": "EV-001",
+  "type": "connectivity_test",
+  "status": "verified",
+  "collectedAt": "2026-08-13T10:00:00Z",
+  "origin": "customer-run preflight",
+  "tool": "Test-NetConnection",
+  "toolVersion": null,
+  "reference": "sha256:…",
+  "supports": ["P08-004"]
+}
+```
+
+`status` is `reported` or `verified`. Only `verified` can confirm an evidence-gated prerequisite.
+Never include credentials, connection strings, secrets, certificate private keys, customer names,
+server names, tenant IDs or subscription IDs in the generated plan.
+
+## 7. Asking rules
+
+- Use `ask_user`; ask one compact question at a time.
+- Never use a multi-select. Use a single choice, typed number, or short structured text.
+- Ask each field at most once. A declined, blank or ambiguous answer becomes `UNKNOWN`.
+- Ask in the user's language; store canonical values.
+- Do not ask for a fact inherited from the Advisor unless the two supplied values conflict.
+- When values conflict, show both values and mark the field `UNKNOWN`; do not silently choose one.
+- Stop asking when remaining answers cannot change an applicable prerequisite status.
+
+## 8. Out of scope
+
+This contract does not authorize provisioning, configuration changes, migration execution,
+remediation, credential collection, target selection or architecture approval.

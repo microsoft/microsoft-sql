@@ -1,0 +1,32 @@
+{
+  "name": "sql-agent-skills",
+  "interface": {
+    "displayName": "SQL agent skills"
+  },
+  "plugins": [
+    {
+      "name": "azure-sql",
+      "source": {
+        "source": "local",
+        "path": "./plugins/azure-sql"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Databases"
+    },
+    {
+      "name": "sql-migration",
+      "source": {
+        "source": "local",
+        "path": "./plugins/sql-migration"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Databases"
+    }
+  ]
+}
