@@ -21,7 +21,21 @@
     ]
   },
   "posture": ["read", "write", "execute"],
-  "maturity": "preview",
+  // Demoted from preview to draft on 2026-09-20, and the reason is a direction
+  // rather than a verdict. The value measurement of 2026-09-05, ten runs per arm,
+  // returned UNCLEAR, and inside it the skill makes the answer worse twice. The
+  // statement that the provider is resolved during the login exchange reads 1 of 10
+  // with the skill against 6 of 10 without, so loading the skill costs a fact the
+  // model already had. A falsehood, that the connection string keyword is spelled
+  // wrong or wants a different Active Directory value, reads 4 of 10 with against 2
+  // of 10 without, so loading it also nudges the reader toward the one edit that
+  // cannot fix this. The gate is 10 of 10 in both arms.
+  // This is an author declaring below the ceiling, which the ladder permits, and
+  // it is not the skill failing. Its engine probes still pass and nothing here is
+  // unverified. Do not raise this field to clear the promotion backlog. It moves
+  // when the skill is rewritten to say something the model does not already know
+  // and a fresh measurement shows lift, and not before.
+  "maturity": "draft",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "connect-to-azure-sql",

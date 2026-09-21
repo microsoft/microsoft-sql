@@ -23,7 +23,25 @@
       ]
     },
   "posture": ["inspect"],
-  "maturity": "preview",
+  // Demoted from preview to draft on 2026-09-20, and this one is a trade rather
+  // than a clean loss, which is why the numbers are written out here. The value
+  // measurement of 2026-09-05, ten runs per arm, returned UNCLEAR. The skill helps
+  // in three places: the gate reads 10 of 10 against 6 of 10, the statement that
+  // catching the next occurrence means creating the capture in advance 10 of 10
+  // against 5 of 10, and it removes the falsehood that a deadlock graph can be
+  // recovered after the fact, 0 of 10 against 6 of 10. Against that, the statement
+  // that a login without the database scoped state permission sees only its own
+  // sessions falls to 5 of 10 with the skill from 10 of 10 without, and that is the
+  // fact a reader most needs when the blocking view comes back empty. Carlos took
+  // the trade on 2026-09-20: losing that one costs more than the three gains earn.
+  // The three gains are real, so this skill is a rewrite candidate rather than a
+  // deletion candidate.
+  // This is an author declaring below the ceiling, which the ladder permits, and
+  // it is not the skill failing. Its engine probes still pass and nothing here is
+  // unverified. Do not raise this field to clear the promotion backlog. It moves
+  // when the skill is rewritten to say something the model does not already know
+  // and a fresh measurement shows lift, and not before.
+  "maturity": "draft",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "diagnose-slow-query",
