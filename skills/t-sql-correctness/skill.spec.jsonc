@@ -23,10 +23,20 @@
   "posture": ["read", "write"],
   // Held at draft below a preview ceiling, on purpose. The reading of 2026-09-06
   // rested on three runs per arm, so it was re-measured on 2026-09-20 at ten before
-  // this field moved. UNCLEAR, and nothing moved: three statements at 10 of 10 in
-  // both arms, the fourth 8 of 10 against 7 of 10, every falsehood at 0 of 10 in
-  // both. The gate reads 9 of 10 with the skill against 10 of 10 without, so the
-  // model reaches this skill's own approach unaided.
+  // this field moved. Three statements at 10 of 10 in both arms, the fourth 8 of 10
+  // against 7 of 10, every falsehood at 0 of 10 in both. The gate reads 9 of 10
+  // with the skill against 10 of 10 without, so the model reaches this skill's own
+  // approach unaided.
+  //
+  // THE VERDICT IS NOW NEITHER, AND THAT IS WORSE FOR THIS SKILL, NOT BETTER.
+  // It read UNCLEAR until 2026-09-21 for one reason: the rule compared the gap
+  // as a proportion, and `0.8 - 0.7 > 0.1` is TRUE in binary floating point, so
+  // eight against seven fell out of "level" and into "undecided". The comparison
+  // is now made in whole counts, one tenth is one tenth, and the verdict
+  // re-derived from the same stored readings is NEITHER. UNCLEAR is a verdict a
+  // person may resolve with a decision file beside the report; NEITHER is not.
+  // Nothing about the skill changed. The arithmetic stopped hiding what the
+  // numbers already said.
   // This is an author declaring below the ceiling, which the ladder permits, and
   // it is not the skill failing. Its engine probes still pass and nothing here is
   // unverified. Do not raise this field to clear the promotion backlog. It moves

@@ -32,10 +32,14 @@
   // what the rule asks for, so the skill does change the answer and the earlier
   // reading was the sample size talking.
   //
-  // It stays at draft only because raising a maturity is a judgement nobody has
-  // made yet, not because the evidence is missing. The evidence now supports
-  // preview and the promotion backlog in check-maturity-drift.mjs says so.
-  "maturity": "draft",
+  // RAISED TO GA on 2026-09-21. It had stayed at draft only because raising a
+  // maturity is a judgement nobody had made yet, not because the evidence was
+  // missing. All ten of its engine checks pass in the live run of 2026-09-20 and
+  // the value verdict is LIFT at ten runs per arm, which is both rungs, so
+  // scripts/check-maturity-drift.mjs computes a ga ceiling and this field is now
+  // at it. The earlier three-run reading that demoted it is superseded and
+  // nothing should be decided from it again.
+  "maturity": "ga",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "sql-database-projects",
