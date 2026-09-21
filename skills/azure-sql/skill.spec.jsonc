@@ -118,7 +118,13 @@
       "how do I paginate a query in T-SQL",
       "expose my tables as a REST API",
       "convert my database to Hyperscale",
-      "run the engine locally in a container"
+      "run the engine locally in a container",
+      // The orienting skill is the one most likely to answer for a product this
+      // catalog does not cover, because it is the skill that takes a bare product
+      // name. No skill here owns Azure SQL Managed Instance, so the right answer
+      // is to say so rather than to hand over a skill written for Azure SQL
+      // Database. Added 2026-09-20 alongside the boundary in the description.
+      "which service tier should I pick for Azure SQL Managed Instance"
     ]
   }
 }
