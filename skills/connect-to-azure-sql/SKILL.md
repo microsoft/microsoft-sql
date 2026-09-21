@@ -1,15 +1,15 @@
 ---
 name: connect-to-azure-sql
 description: >-
-  Connects an application to Azure SQL Database durably: chooses the Microsoft driver for the
-  language, sets encryption and certificate validation, sizes the connection pool against the
-  worker limit rather than the session limit, and makes retry part of the first version of the
-  code instead of later hardening. Use when a user asks "how do I connect to Azure SQL", "which
-  driver should I use", "what goes in the connection string", "add retry logic", "handle
-  transient faults", "the connection keeps dropping", "should I set TrustServerCertificate", or
+  Connects an application to Azure SQL Database: picks the Microsoft driver for the language,
+  sets encryption and certificate validation, sizes the pool against the worker limit not the
+  session limit, and makes retry part of the first version of the code. Use when a user asks "how
+  do I connect to Azure SQL", "which driver should I use", "what goes in the connection string",
+  "add retry logic", "the connection keeps dropping", "should I set TrustServerCertificate", or
   "my app times out connecting to Azure". Also use when a first connection to a free or
-  serverless database fails with error 40613, documented resume behaviour, not an outage. Driver
-  installation, per-language connection string syntax and pooling belong to connect-from-dotnet,
+  serverless database fails with error 40613, documented resume behaviour, not an outage.
+  Azure SQL Database only, not Azure SQL Managed Instance and not self-managed SQL Server. Driver
+  installation, connection strings and pooling per language belong to connect-from-dotnet,
   connect-from-python and connect-from-typescript-and-node.
 ---
 

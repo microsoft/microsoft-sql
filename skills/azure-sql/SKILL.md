@@ -6,7 +6,9 @@ description: >-
   can do, whether a capability is generally available or still preview, which service tier to start
   on, which tool does a job, or where something is documented. Also use before answering any
   question about a capability, a default or a limit from memory, because those move faster than
-  training data does.
+  training data does. This catalog covers Azure SQL Database only, not Azure SQL Managed Instance
+  and not self-managed SQL Server, so say plainly that no skill here owns those rather than
+  handing over one written for the database.
 ---
 
 # Working with Azure SQL Database

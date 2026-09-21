@@ -104,7 +104,7 @@ Connects a TypeScript or JavaScript application to Azure SQL Database with the m
 
 **[connect-to-azure-sql](skills/connect-to-azure-sql/SKILL.md)**
 
-Connects an application to Azure SQL Database durably: chooses the Microsoft driver for the language, sets encryption and certificate validation, sizes the connection pool against the worker limit rather than the session limit, and makes retry part of the first version of the code instead of later hardening.
+Connects an application to Azure SQL Database: picks the Microsoft driver for the language, sets encryption and certificate validation, sizes the pool against the worker limit not the session limit, and makes retry part of the first version of the code.
 
 **[diagnose-connection-errors](skills/diagnose-connection-errors/SKILL.md)**
 

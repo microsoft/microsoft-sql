@@ -124,6 +124,11 @@
       "install the ODBC driver in my Alpine Python image",
       "set the max pool size in my Node.js app",
       "create an Azure SQL database and open the firewall for my IP",
+      // No skill in this catalog owns this prompt. Azure SQL Managed Instance is a
+      // different product and nothing here covers it, so declining is the whole
+      // correct answer and there is no neighbour to hand it to. Measured
+      // 2026-09-20 across three models: claude-sonnet-5 named nothing, gpt-5.6-sol
+      // named this skill, which is why the description now states the boundary.
       "connect to my Azure SQL Managed Instance",
       "run Azure SQL locally in a container",
       "what does error 40615 mean and how do I fix it"
