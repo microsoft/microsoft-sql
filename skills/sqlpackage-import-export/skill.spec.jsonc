@@ -23,15 +23,18 @@
     ]
   },
   "posture": ["read", "write", "execute"],
-  // Held at draft below a preview ceiling, on purpose. The value measurement of
-  // 2026-09-04 returned NEITHER: the model already answers this skill's own task
-  // correctly without it, so the skill changes nothing about the answer. Its
-  // engine probes still pass. Nothing here is broken and nothing here is
-  // unverified. This is an author declaring below the ceiling, which the ladder
-  // permits, and it is not the skill failing. Do not raise this field back to
-  // clear the promotion backlog. It moves when the skill is rewritten to say
-  // something the model does not already know and a fresh measurement shows
-  // lift, and not before.
+  // REPRIEVED 2026-09-20, and this comment replaces one that is now wrong. The
+  // reading of 2026-09-05 returned NEITHER and this field was lowered on it, but
+  // that reading rested on three runs per arm. Re-measured at ten, the verdict is
+  // LIFT: the statement that a principal the target cannot honour fails the export
+  // only after schema extraction has already run reads 9 of 10 with the skill
+  // against 6 of 10 without. A thirty point gap with ten runs behind it is exactly
+  // what the rule asks for, so the skill does change the answer and the earlier
+  // reading was the sample size talking.
+  //
+  // It stays at draft only because raising a maturity is a judgement nobody has
+  // made yet, not because the evidence is missing. The evidence now supports
+  // preview and the promotion backlog in check-maturity-drift.mjs says so.
   "maturity": "draft",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [

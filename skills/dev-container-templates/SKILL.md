@@ -107,7 +107,7 @@ Where that difference shows, measured in the same session:
 |---|---|---|
 | `SELECT TOP 1 * FROM sys.dm_db_resource_stats` | `Msg 208, Invalid object name` | a cloud-only view. Resource and throttling questions cannot be rehearsed here |
 | `ALTER DATABASE Library MODIFY (SERVICE_OBJECTIVE = 'S0')` | `Msg 102, Incorrect syntax near '('` | there is no service objective on this engine |
-| `CREATE USER [probe@example.com] FROM EXTERNAL PROVIDER` | `Msg 37525, Azure Active Directory is not configured for this instance` | Microsoft Entra principals stay a cloud concern here |
+| `CREATE USER [probe@example.com] FROM EXTERNAL PROVIDER` | `Msg 33134, Unable to query Azure AD certificate from local cert store` | Microsoft Entra principals stay a cloud concern here |
 | `BACKUP DATABASE Library TO DISK = '/var/opt/mssql/probe.bak'` | accepted, 554 pages | Azure SQL Database refuses it outright. Do not learn a backup habit here |
 | `USE Library` | accepted | Azure SQL Database refuses a database switch on a connection |
 | `CREATE TABLE #v (id int, e vector(3))` with `VECTOR_DISTANCE('cosine', ...)` | accepted, returned `0.285714328289032` | the vector type and the distance function are present |

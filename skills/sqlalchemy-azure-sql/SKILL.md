@@ -115,6 +115,11 @@ Find them before mapping one, with the query under Check it worked.
 
 ## fast_executemany, and what changed in 2.0
 
+**Same cause as the trigger error above: the generated returning clause.** An ORM insert of a
+mapped class with a server generated key carries one, because that is the OUTPUT clause, and that
+is the case the flag does not reach, so by default it changes nothing for exactly the bulk
+inserts people set it for.
+
 `fast_executemany=True` has existed since SQLAlchemy 1.3; what changed is what it does, and the
 boundary is measurable with no database:
 
@@ -129,15 +134,13 @@ precedence over the driver's array binding and the flag stopped having any effec
 effect back for multi-parameter INSERT statements **carrying no returning clause**, switching
 insertmanyvalues off here entirely to do it; 2.0.10 restored it, so **2.0.10 is the floor**.
 
-The consequence agents miss: an ORM insert of a mapped class with a server generated key **does**
-carry a returning clause, because that is the OUTPUT clause above, so on the default configuration
-the flag changes nothing for exactly the bulk inserts people set it for. It bites only where the
-INSERT carries no returning clause: the rows already hold their keys, or the table is declared
-`implicit_returning=False`, or the load goes through Core rather than tracked ORM objects.
+So the flag bites only where the INSERT carries no returning clause: the rows already hold their
+keys, or the table is declared `implicit_returning=False`, or the load goes through Core rather
+than tracked ORM objects.
 
-Two documented costs make this a decision, not a default: the batch must **fit in memory**,
-the parameter is honoured for the Microsoft ODBC driver only, and `setinputsizes` is **not used**
-for those calls, which is where the surprising type handling on large loads comes from.
+Documented costs make this a decision, not a default: the batch must **fit in memory**, the
+parameter is honoured for the Microsoft ODBC driver only, and `setinputsizes` is **not used**
+there, which is where the surprising type handling on large loads comes from.
 
 ## Type mapping, before the first migration
 

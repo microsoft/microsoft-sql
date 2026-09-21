@@ -180,9 +180,10 @@ SELECT VECTORPROPERTY(@v, 'Dimensions') AS dims,       -- 3
 ```
 
 - **Dimensions are 1 to 1998**, which Learn states and the engine enforces: `vector(1999)` is
-  `Msg 2717`, `vector(0)` is `Msg 1001`. A populated `vector(1998)` has `DATALENGTH` 8000. That
-  ceiling is a design constraint: a 3072 dimension model does not fit, and the fix belongs at
-  embedding time.
+  `Msg 2717`, `vector(0)` is `Msg 1001`. A populated `vector(1998)` has `DATALENGTH` 8000.
+  **The declared dimension cannot be changed later**, even on an empty table: `ALTER COLUMN` is
+  `Msg 42204`, so it is drop and recreate. A 3072 dimension model does not fit, and that fix
+  belongs at embedding time.
 - **Base type is `float32`** unless `float16` is stated. Half precision is preview and is a surface
   Learn does gate on `PREVIEW_FEATURES`, it crosses TDS as a JSON string rather than in binary, and
   it cannot be compared with a `float32` vector.
@@ -210,7 +211,7 @@ No model infers this: a `vector` column looks like a column. Every row was measu
 | Alias type with `CREATE TYPE` | `Msg 42212` |
 | Assignment to `sql_variant` | `Msg 206` |
 | Memory optimized table | Not supported |
-| `ALTER COLUMN` to a different dimension, **even on an empty table** | `Msg 42204`. Drop and recreate |
+| `ALTER COLUMN` to a different dimension | `Msg 42204` |
 
 **Allowed, though widely assumed otherwise:** `SPARSE`, a non-persisted
 computed column, an `INCLUDE` column on a nonclustered index, a system versioned temporal table, a

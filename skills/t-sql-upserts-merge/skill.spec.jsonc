@@ -18,7 +18,18 @@
     ]
   },
   "posture": ["read", "write"],
-  "maturity": "preview",
+  // Demoted from preview to draft on 2026-09-20. The reading of 2026-09-06 rested
+  // on three runs per arm, so it was re-measured at ten before this field moved.
+  // UNCLEAR, and nothing moved in the skill's favour: the gate reads 10 of 10 in
+  // both arms, and the statement that the check and the write have to be one atomic
+  // operation falls to 8 of 10 with the skill from 10 of 10 without. The model
+  // already answers this skill's own task correctly without it.
+  // This is an author declaring below the ceiling, which the ladder permits, and
+  // it is not the skill failing. Its engine probes still pass and nothing here is
+  // unverified. Do not raise this field to clear the promotion backlog. It moves
+  // when the skill is rewritten to say something the model does not already know
+  // and a fresh measurement shows lift, and not before.
+  "maturity": "draft",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "t-sql-correctness",
