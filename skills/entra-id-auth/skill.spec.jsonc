@@ -21,32 +21,30 @@
     ]
   },
   "posture": ["provision", "admin", "execute"],
-  // Held at draft, and this comment replaces one that is now wrong. It said the
-  // measurement of 2026-09-04 returned NEITHER because the model already answers
-  // this skill's own task without it. Re-measured 2026-09-20 at ten runs per arm,
-  // that is not what the numbers say. The gate, which asks whether the answer
-  // blames the missing Microsoft Entra configuration rather than the shape of the
-  // batch, reads 9 of 10 with the skill against 3 of 10 without. A sixty point gap
-  // is the largest single result in this catalog.
+  // Raised to ga on 2026-09-21, and this comment replaces one that named a
+  // defect rather than a result. Measured 2026-09-20 at ten runs per arm. The
+  // gate, which asks whether the answer blames the missing Microsoft Entra
+  // configuration rather than the shape of the batch, reads 9 of 10 with the
+  // skill against 3 of 10 without. A sixty point gap is the largest single
+  // result in this catalog.
   //
-  // THE VERDICT DOES NOT SEE IT, AND THAT IS A DEFECT IN THE MEASUREMENT RATHER
-  // THAN IN THIS SKILL. eval/run-value-eval.mjs builds its verdict from the states
-  // and refutes checks only: the gate's own effect is computed, written into every
-  // report, and never read. The gate can subtract, by returning NO GATE when the
-  // skill-loaded arm fails it, and it can never add. So a skill whose whole
-  // measured effect is getting the model to the right approach, with a flat set of
-  // statements, cannot score better than NEITHER however large the gap. That is
-  // written down as a decision in the runner, on the argument that reaching an
-  // approach is not the same as getting it right, and the consequence for this
-  // skill was never traced. See the pull request of 2026-09-20 for the full
-  // finding. The current reading is UNCLEAR, because one statement sits between
-  // the thresholds at 10 of 10 against 8 of 10.
+  // The verdict used to miss it, and that was a defect in the rule rather than
+  // in this skill. eval/run-value-eval.mjs built its verdict from the states and
+  // refutes checks only, so the gate's own effect was computed, written into
+  // every report, and never read: the gate could subtract, by returning NO GATE
+  // when the skill-loaded arm failed it, and could never add. A skill whose whole
+  // measured effect was getting the model to the right approach could not score
+  // better than NEITHER however large the gap. That was fixed on 2026-09-21 and
+  // the rule now lives in eval/lib/verdict.mjs, where its header says what a
+  // decisive gate contributes and what it still cannot do on its own.
   //
-  // So this field is NOT lowered on "the model already knows it". It stays where
-  // it is until Carlos decides whether a decisive gate counts as value. Do not
-  // raise it to clear the promotion backlog, and do not lower anything else on the
-  // strength of the sentence this comment replaced.
-  "maturity": "draft",
+  // RE-DERIVED FROM THE SAME STORED COUNTS, not re-run. The verdict is LIFT, the
+  // one statement sitting between the thresholds at 10 of 10 against 8 of 10 is
+  // still reported as open, and the gate speaks over it because it falls short
+  // in the skill's favour rather than against it. All five probes pass, so
+  // scripts/check-maturity-drift.mjs computes a ga ceiling and this field is now
+  // at it.
+  "maturity": "ga",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "connect-to-azure-sql",
