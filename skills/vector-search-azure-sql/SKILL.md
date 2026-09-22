@@ -8,9 +8,9 @@ description: >-
   "CREATE VECTOR INDEX", "VECTOR_SEARCH" or "WITH APPROXIMATE"; when a vector column is rejected
   as a key, a constraint, a computed column or inside ORDER BY, GROUP BY, DISTINCT or UNION; and
   when a similarity query returns the right rows but scans the whole table. This skill owns the
-  type and the query surface. The end to end retrieval pipeline is rag-on-azure-sql, generating
-  embeddings and the external model endpoint are embeddings-and-external-models, and where a
-  vector column belongs in a wider design is design-azure-sql-schema.
+  type and the query surface. The end to end pipeline is rag-on-azure-sql, generating embeddings
+  embeddings-and-external-models, and a vector column's place in a wider design
+  design-azure-sql-schema.
 ---
 
 # Vector storage and search on Azure SQL Database
@@ -180,9 +180,10 @@ SELECT VECTORPROPERTY(@v, 'Dimensions') AS dims,       -- 3
 ```
 
 - **Dimensions are 1 to 1998**, which Learn states and the engine enforces: `vector(1999)` is
-  `Msg 2717`, `vector(0)` is `Msg 1001`. A populated `vector(1998)` has `DATALENGTH` 8000. That
-  ceiling is a design constraint: a 3072 dimension model does not fit, and the fix belongs at
-  embedding time.
+  `Msg 2717`, `vector(0)` is `Msg 1001`. A populated `vector(1998)` has `DATALENGTH` 8000.
+  **The declared dimension cannot be changed later**, even on an empty table: `ALTER COLUMN` is
+  `Msg 42204`, so it is drop and recreate. A 3072 dimension model does not fit, and that fix
+  belongs at embedding time.
 - **Base type is `float32`** unless `float16` is stated. Half precision is preview and is a surface
   Learn does gate on `PREVIEW_FEATURES`, it crosses TDS as a JSON string rather than in binary, and
   it cannot be compared with a `float32` vector.
@@ -210,7 +211,7 @@ No model infers this: a `vector` column looks like a column. Every row was measu
 | Alias type with `CREATE TYPE` | `Msg 42212` |
 | Assignment to `sql_variant` | `Msg 206` |
 | Memory optimized table | Not supported |
-| `ALTER COLUMN` to a different dimension, **even on an empty table** | `Msg 42204`. Drop and recreate |
+| `ALTER COLUMN` to a different dimension | `Msg 42204` |
 
 **Allowed, though widely assumed otherwise:** `SPARSE`, a non-persisted
 computed column, an `INCLUDE` column on a nonclustered index, a system versioned temporal table, a

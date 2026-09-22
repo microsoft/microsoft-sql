@@ -21,15 +21,16 @@
     ]
   },
   "posture": ["read", "inspect"],
-  // Held at draft below a preview ceiling, on purpose. The value measurement of
-  // 2026-09-04 returned NEITHER: the model already answers this skill's own task
-  // correctly without it, so the skill changes nothing about the answer. Its
-  // engine probes still pass. Nothing here is broken and nothing here is
-  // unverified. This is an author declaring below the ceiling, which the ladder
-  // permits, and it is not the skill failing. Do not raise this field back to
-  // clear the promotion backlog. It moves when the skill is rewritten to say
-  // something the model does not already know and a fresh measurement shows
-  // lift, and not before.
+  // Held at draft below a preview ceiling, on purpose. Re-measured 2026-09-19 at
+  // ten runs per arm: UNCLEAR, and nothing moved. The gate and three of the four
+  // statements read 10 of 10 with the skill and 10 of 10 without, the fourth 10 of
+  // 10 against 8 of 10, and every falsehood 0 of 10 in both arms. The model
+  // already answers this skill's own task correctly without it.
+  // This is an author declaring below the ceiling, which the ladder permits, and
+  // it is not the skill failing. Its engine probes still pass and nothing here is
+  // unverified. Do not raise this field to clear the promotion backlog. It moves
+  // when the skill is rewritten to say something the model does not already know
+  // and a fresh measurement shows lift, and not before.
   "maturity": "draft",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [

@@ -1,17 +1,16 @@
 ---
 name: prevent-sql-injection
 description: >-
-  Handles SQL injection on Azure SQL Database past what an agent already gets right: a typed
-  sp_executesql parameter matches nothing where the same input concatenated into EXEC() returns
-  every row; QUOTENAME returns NULL above 128 characters, so the batch built from it becomes NULL
-  and runs as a silent no-op at no severity; one CASE over columns of different
-  types in a dynamic ORDER BY fails only for the sort key selecting the lower-precedence branch;
-  dynamic SQL breaks the ownership chain, so EXECUTE AS decides what a statement may touch and who
-  the engine thinks is running it; and Always Encrypted refuses a literal with Msg 206. Use for a
-  general injection question or a pre-production review, when a QUOTENAME-built statement returns
-  and raises nothing, when a sort-by-column feature throws an operand type clash for one
-  column only, when a procedure works until its query becomes dynamic, or when a query against an
-  encrypted column will not take a literal. Row level tenant isolation is rls-multi-tenant.
+  Handles SQL injection on Azure SQL Database beyond parameterisation: a typed sp_executesql
+  parameter matches nothing where the same input concatenated into EXEC() returns every row;
+  QUOTENAME returns NULL above 128 characters, so the batch built from it becomes NULL and does
+  nothing; a dynamic ORDER BY built from one CASE over mixed types fails only for the sort key on
+  the lower-precedence branch; dynamic SQL breaks the ownership chain, so EXECUTE AS decides what
+  it may touch; and Always Encrypted refuses a literal (Msg 206). Use for a general injection
+  question or a pre-production review, when a QUOTENAME-built statement returns and raises
+  nothing, when a sort-by-column feature throws an operand type clash for one column only, when a
+  procedure works until its query becomes dynamic, or when an encrypted column will not take a
+  literal. Row level tenant isolation is rls-multi-tenant.
 ---
 
 # Prevent SQL injection: the value, the identifier, and the context it runs under
@@ -51,10 +50,9 @@ can only be constants or variables, never expressions built with operators.
 
 `EXEC sp_executesql N'SELECT * FROM @t', N'@t sysname', @t = @name` cannot work: `@t` is a value,
 not a table. A dynamic identifier has to enter the SQL text, so `QUOTENAME`'s documented edges are
-load bearing. Learn: `character_string` is **sysname**, limited to 128 characters, and inputs
-greater than 128 characters return `NULL`; an unacceptable quote character returns `NULL` too.
-Escaping is not the defect: an embedded `]` is doubled correctly. Crossing 128 is, because a
-`NULL` concatenated into a batch makes the whole batch `NULL`:
+load bearing. Learn: `character_string` is **sysname**, and an input over 128 characters returns
+`NULL`, as does an unacceptable quote character. Escaping is not the defect: an embedded `]` is
+doubled correctly. Crossing 128 is, because a `NULL` in a batch makes the whole batch `NULL`:
 
 ```sql
 DECLARE @n129 nvarchar(200) = REPLICATE(N'a', 129);
@@ -75,28 +73,28 @@ sqlcmd -S <server-name>.database.windows.net,1433 -d <database> -U <user> -C -b 
   -Q "DECLARE @s nvarchar(max)=N'SELECT 1 FROM '+QUOTENAME(REPLICATE(N'x',129)); EXEC sp_executesql @s; SELECT @@ERROR AS err;"
 ```
 
-`-b` exits non-zero only at severity 11 and above, and `-m-1` lowers the level at which messages
-print, but there is no message at any level: `err` is 0 and so is the exit code. The `NULL` has to
-be the check.
+`-b` exits non-zero at severity 11 and above and `-m-1` lowers the print level, but there is no
+message at any level: `err` is 0 and so is the exit code. The `NULL` has to be the check.
 
-**`PARSENAME` splits a qualified name and validates nothing.** Learn: each part is **sysname**, a
-part over 256 bytes comes back `NULL`, and it does not indicate whether an object of that name
-exists. Resolve the caller's string against the catalog and build the identifier from
-what the catalog returned:
+**Neither helper checks that the object exists.** `QUOTENAME` brackets a string and `PARSENAME`
+splits a qualified name; Learn says each part is **sysname**, a part over 256 bytes comes back
+`NULL`, and it does not indicate whether an object of that name exists. Only a catalog lookup
+decides existence, so resolve the caller's string against the catalog and build from what it
+returned:
 
 ```sql
 DECLARE @requested nvarchar(400) = N'dbo.Users', @safe nvarchar(300);
 SELECT @safe = QUOTENAME(s.name) + N'.' + QUOTENAME(o.name)
 FROM sys.objects AS o JOIN sys.schemas AS s ON s.schema_id = o.schema_id
 WHERE s.name = PARSENAME(@requested, 2) AND o.name = PARSENAME(@requested, 1) AND o.type = 'U';
-IF @safe IS NULL THROW 50001, 'No such table, or the name is not a valid identifier.', 1;
+IF @safe IS NULL THROW 50001, 'No row in the catalog matched that name.', 1;
 
 DECLARE @sql nvarchar(max) = N'SELECT COUNT(*) AS n FROM ' + @safe;
 EXEC sp_executesql @sql;
 ```
 
-That has no ceiling to cross: an over-long or unquotable name matches no row and is thrown. Where
-the legal identifiers are known in advance, an allowlist is simpler.
+The rejection there is the lookup's, not `QUOTENAME`'s: an over-long name matches no row because no
+table can carry one. Where the legal identifiers are known in advance, an allowlist is simpler.
 
 ## 3. One CASE over mixed types in a dynamic ORDER BY fails for some sort keys and not others
 
@@ -128,10 +126,9 @@ OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY;
 
 ## 4. Dynamic SQL breaks the ownership chain, so EXECUTE AS is part of the answer
 
-Learn: executing dynamically created SQL in procedural code breaks the ownership chain, so the
-engine checks the caller's permissions against every object the dynamic statement touches. A
-procedure a caller could run yesterday stops working the day its query becomes dynamic, and
-parameterising does not bring it back.
+Learn: dynamic SQL in procedural code breaks the ownership chain, so the engine checks the caller's
+permissions against every object the statement touches. A procedure a caller could run yesterday
+stops working the day its query becomes dynamic, and parameterising does not bring it back.
 
 ```sql
 CREATE TABLE dbo.Ledger (id int NOT NULL PRIMARY KEY);
@@ -185,15 +182,15 @@ DECLARE @batch nvarchar(max) = N'SELECT * FROM ' + QUOTENAME(REPLICATE(N'x', 129
 IF @batch IS NULL SELECT 'rejected before execution' AS result ELSE EXEC sp_executesql @batch;
 ```
 
-Then re-run section 1's pair against the real table: parameterised must match zero rows,
-concatenated every row. Finally run the generated `ORDER BY` once per sort key a caller may send,
-not only the one tested. Any one raising `Msg 206`, `241` or `245` means a mixed-type `CASE` is
-still there.
+Then re-run section 1's pair against the real table: parameterised matches zero rows, concatenated
+every row. Run the generated `ORDER BY` once per sort key a caller may send, not only the one
+tested: any raising `Msg 206`, `241` or `245` means a mixed-type `CASE` is still there.
 
 ## Do not
 
 - Do not present `QUOTENAME` as sufficient for a caller-supplied identifier without checking its
   result for `NULL`, and do not say it truncates a long name. It returns `NULL`.
+- Do not say either helper checks that an object exists. Neither reads the catalog.
 - Do not build a caller-chosen `ORDER BY` from one `CASE` spanning columns of different types, even
   when the columns tried in testing share a type.
 - Do not add `WITH EXECUTE AS OWNER` to clear a permission error without saying what the module can

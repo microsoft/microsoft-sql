@@ -3,13 +3,16 @@
   "id": "azuresql-db-from-sql-server",
   "domain": "azure-sql-database-container",
   "value": [
-    "not-in-training-data"
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "multi-step-with-silent-failures"
   ],
   "correction": "An agent treats the SQL Server image and this engine as interchangeable and carries the whole configuration across. They are not: SQL Agent, FILESTREAM, full Service Broker, cross-server distributed transactions and Windows authentication do not exist here, and connection strings pointed at master need re-pointing at a provisioned user database.",
   "posture": [
     "read",
     "write",
-    "inspect"
+    "inspect",
+    "provision"
   ],
   "maturity": "preview",
   "value_declaration": {

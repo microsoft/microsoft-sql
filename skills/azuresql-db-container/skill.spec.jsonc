@@ -3,24 +3,26 @@
   "id": "azuresql-db-container",
   "domain": "azure-sql-database-container",
   "value": [
-    "not-in-training-data"
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "changes-too-fast-to-memorize"
   ],
   "correction": "Asked for a local SQL database, an agent reaches for mcr.microsoft.com/mssql/server. That is SQL Server, not Azure SQL Database: the container runs the PaaS engine, where SERVERPROPERTY('EngineEdition') returns 5 and Edition is 'SQL Azure', and it does not auto-create databases, so a plan that connects straight after docker run has nothing to connect to.",
   "posture": [
     "read",
-    "write",
+    "inspect",
     "execute",
     "provision"
   ],
   "maturity": "preview",
   "value_declaration": {
-    "rationale": "This skill's kernel is the whole set of ways this image behaves like the platform rather than like the boxed engine. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach Docker run and Compose syntax, port publishing, volume mounts and the shape of a readiness loop, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted.",
+    "rationale": "This skill's kernel is the whole set of ways this image behaves like the platform rather than like the boxed engine. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach Docker run and Compose syntax, port publishing, volume mounts and the shape of a readiness loop, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted. AMENDED 2026-09-19, TEXT ONLY, AND THIS SENTENCE IS THE RECORD OF IT. One line in covers said there is no msdb on this engine. The first live run of this skill's probes, on image tag 18.0.226_4_147, EngineEdition 5, Edition 'SQL Azure', build 12.0.2000.8, in a container started with no MSSQL_AAD_* configuration, lists msdb in sys.databases from master and from a user database alike. What is absent is the Agent job store: OBJECT_ID('msdb.dbo.sysjobs') is NULL. The line was corrected in place on 2026-09-19 to say that instead, and nothing else in this block was touched. The argument did not move: the parity claim it rests on is that there is no SQL Server Agent here, and that still stands, so what Carlos Robles signed on 2026-09-04 still stands. The claim was right and its stated evidence was wrong, which is the worse of the two failures and the reason this sentence is here rather than a silent edit.",
     "covers": [
       "the engine never creating a database when a connection names one, so it is created on a master connection first",
       "USE being refused in a user-database session with Msg 40508",
       "BACKUP and RESTORE being refused with Msg 40510",
       "sp_configure being absent rather than blocked, so the engine answers Msg 2812 and there is nothing to be permitted to call",
-      "there being no msdb and therefore no SQL Server Agent on this engine",
+      "there being no SQL Server Agent job store on this engine, so OBJECT_ID('msdb.dbo.sysjobs') is NULL, even though sys.databases does list an msdb database",
       "/docker-entrypoint-initdb.d being absent from the image, so a seed placed there runs silently never",
       "the native VECTOR(n) type and VECTOR_DISTANCE being present on this build",
       "a container reporting Up while the engine inside it never started, which is what a password failing the complexity policy produces"
@@ -88,15 +90,15 @@
         "why": "Measured on this image in a sibling project: sp_configure is absent rather than refusing, so the engine answers with Msg 2812, could not find stored procedure. It is worth a round trip because the failure mode is misread constantly. An agent that sees a refusal assumes a permission or a filter and goes looking for a way to be allowed, when there is nothing there to be allowed to call. The parity checklist used to list RECONFIGURE among the statements the Azure filter blocks, which read as a refusal and blurred the two failures together; it now records the absence instead, and this probe pins it. If this ever returns a different number, the surface has changed and the parity checklist needs re-reading rather than the probe being patched."
       },
       {
-        "sql": "SELECT COUNT(*) AS msdb_present FROM sys.databases WHERE name = 'msdb';",
+        "sql": "SELECT CASE WHEN OBJECT_ID('msdb.dbo.sysjobs') IS NULL THEN 1 ELSE 0 END AS no_agent_job_store;",
         "expect": {
           "rows": [
             [
-              0
+              1
             ]
           ]
         },
-        "why": "references/paas-parity-checklist.md states there is no SQL Server Agent on this engine and that an external scheduler is required. In a user-database session on this engine sys.databases lists master and the current database only, so msdb, the database every Agent job lives in, cannot appear. A non-zero result would mean the lane is on a boxed SQL Server engine, which is the same finding the identity probe makes and the reason the parity list exists at all."
+        "why": "references/paas-parity-checklist.md states there is no SQL Server Agent on this engine and that an external scheduler is required. THE PROBE ASKED THE WRONG QUESTION UNTIL 2026-09-19. It read sys.databases for a row named msdb and expected none, on the belief that a user-database session on this engine lists master and the current database only. It does not: from a user database sys.databases returns master, tempdb, model, msdb and the scratch database, and from master the same five. msdb is present. The claim underneath was never affected, because the database is not the job store: OBJECT_ID('msdb.dbo.sysjobs') is NULL, and this probe now asks that instead, which is the question the parity claim actually rests on. A three-part reference into msdb is refused with Msg 40515 in any case. A NOT NULL here would mean an Agent job store exists on an engine whose parity list says it cannot, which is the finding this probe is for. Re-measured 2026-09-19 on image tag 18.0.226_4_147, EngineEdition 5, Edition 'SQL Azure', build 12.0.2000.8, in a scratch container started with no MSSQL_AAD_* configuration."
       },
       {
         "sql": "CREATE TABLE dbo.probe_container_vector (id int NOT NULL PRIMARY KEY, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_container_vector (id, v) VALUES (1, CAST(CAST(N'[1.0,2.0,3.0]' AS nvarchar(max)) AS vector(3)));\nSELECT CASE WHEN VECTOR_DISTANCE('cosine', v, CAST(CAST(N'[1.0,2.0,3.0]' AS nvarchar(max)) AS vector(3))) < 0.000001 THEN 1 ELSE 0 END AS distance_to_self_is_zero\nFROM dbo.probe_container_vector;",

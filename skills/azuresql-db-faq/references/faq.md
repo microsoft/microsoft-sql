@@ -135,11 +135,17 @@ a target database for a one-shot validation pass.
 
 **How do I create a least-privilege app user, and why does `CREATE USER ... WITH
 PASSWORD` fail?** On the container, a SQL **contained** user
-(`CREATE USER appuser WITH PASSWORD = '...'`) fails with **Msg 15007**, and you
-cannot turn containment on. `ALTER DATABASE appdb SET CONTAINMENT = PARTIAL` fails
-with **Msg 12844**, "ALTER DATABASE statement failed; this functionality is not
-available in the current edition of SQL Server". The container's edition does not
-have partial containment, so there is nothing to configure.
+(`CREATE USER appuser WITH PASSWORD = '...'`) fails with **Msg 33233**, "You can
+only create a user with a password in a contained database", and you cannot turn
+containment on. `ALTER DATABASE appdb SET CONTAINMENT = PARTIAL` fails with
+**Msg 12824**, "The sp_configure value 'contained database authentication' must be
+set to 1 in order to alter a contained database", followed by **Msg 5069**, "ALTER
+DATABASE statement failed". The setting it names cannot be reached, because
+`sp_configure` does not exist on this engine and returns **Msg 2812**, so there is
+nothing to configure. Measured 2026-09-19 on image tag `18.0.226_4_147`,
+`EngineEdition` 5, Edition `SQL Azure`, build `12.0.2000.8`; the numbers
+**Msg 15007** and **Msg 12844** printed here before that date were wrong, though the
+refusals themselves were not.
 Create the app identity as a **server login mapped to a database
 user** instead: `CREATE LOGIN applogin WITH PASSWORD = '...'` on a `master`
 connection, then `CREATE USER appuser FOR LOGIN applogin` plus role grants

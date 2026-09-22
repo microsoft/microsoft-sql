@@ -1,17 +1,16 @@
 ---
 name: diagnose-connection-errors
 description: >-
-  Diagnoses an Azure SQL Database connection refused before a credential was evaluated, reading the
-  error number and its severity to name the layer that refused: the IP firewall (40615), a virtual
-  network rule (40914), public network access disabled (47073, 42101), the gateway declining a
-  server name or login format (40532, 40531), a TLS version under the server minimum (47072), plus
-  the transport, pre-login, timeout and certificate failures that carry no usable number. Use when
-  someone pastes an error naming an IP address, a firewall, the gateway, a certificate chain, the
-  pre-login handshake or a bare timeout, and before anyone edits a connection string over one: none
-  of them is a connection-string problem. Not for what the server decided after reading the
-  credential: a login evaluated and refused, or a valid login with no user in the database, is
-  entra-id-auth's, and a database answering that it is not currently available and asking for a
-  retry is expected serverless resume, which connect-to-azure-sql owns.
+  Diagnoses an Azure SQL Database connection refused before a credential was evaluated, reading
+  the error number to name the layer that refused: the IP firewall (40615), a virtual network
+  rule (40914), public network access disabled (47073, 42101), the gateway declining a server
+  name or login format (40532, 40531), a TLS version under the server minimum (47072), plus the
+  transport, pre-login, timeout and certificate failures that carry no number. Use when someone
+  pastes an error naming an IP address, a firewall, the gateway, a certificate chain, the
+  pre-login handshake or a bare timeout, before anyone edits a connection string: none of these
+  is a connection-string problem. Not what the server decided after reading the credential: a
+  login refused, or a valid login with no database user, is entra-id-auth's; a database asking
+  for a retry while it resumes is connect-to-azure-sql's.
 ---
 
 # Diagnose an Azure SQL Database connection error

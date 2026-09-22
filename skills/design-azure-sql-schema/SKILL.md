@@ -1,17 +1,16 @@
 ---
 name: design-azure-sql-schema
 description: >-
-  Designs tables for Azure SQL Database so the first index, the first long value or the first
-  failover does not force a rebuild. Covers index key limits counted in bytes, why Unicode sizing
-  makes NVARCHAR(850) and NVARCHAR(450) the real ceilings, collation as a decision taken once at
-  CREATE DATABASE, the implicit conversion that turns a lookup into a full index scan, identity
-  gaps of a thousand across a restart, unique columns that accept exactly one NULL, and where a
-  json or vector column belongs. Use when creating or reviewing tables, choosing a key, a string
-  length or a database collation, or when someone reports a warning about maximum key length, an
-  insert failing long after its migration succeeded, a lookup that suddenly scans, identity values
-  that jumped, or a duplicate key on NULL. This is the engine rule underneath the mappers:
-  ef-core-azure-sql and sqlalchemy-azure-sql own how each one expresses it, t-sql-correctness owns
-  query syntax, and vector-search-azure-sql owns vector search.
+  Designs tables for Azure SQL Database so the first index or long value does not force a
+  rebuild. Covers index key limits in bytes, why Unicode sizing makes NVARCHAR(850) and
+  NVARCHAR(450) the real ceilings, collation decided once at CREATE DATABASE, the implicit
+  conversion that turns a lookup into a scan, identity gaps of a thousand after a restart, unique
+  columns that accept exactly one NULL. Use when creating or reviewing tables, porting a
+  PostgreSQL or MySQL schema to Azure SQL Database, choosing a key, a string length or a
+  collation, or reports a warning about maximum key length, an insert failing long after its
+  migration, a lookup that suddenly scans, identity values that jumped, or a duplicate key on
+  NULL. The engine rule under the mappers: ef-core-azure-sql and sqlalchemy-azure-sql own how
+  each expresses it, t-sql-correctness syntax, vector-search-azure-sql vector columns.
 ---
 
 # Design a schema Azure SQL Database will not make you rebuild

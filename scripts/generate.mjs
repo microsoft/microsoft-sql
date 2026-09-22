@@ -19,10 +19,12 @@ const TAXONOMY = JSON.parse(readFileSync('catalog/taxonomy.json', 'utf8'));
 const PKG = JSON.parse(readFileSync('package.json', 'utf8'));
 
 // Two names, because an install reads `<plugin>@<marketplace>` and Carlos chose
-// `microsoft@microsoft-sql` on 2026-09-18. The plugin name is the stable id that
+// `microsoft-sql@microsoft-sql` on 2026-09-21: the plugin takes the repository name,
+// which Codex also requires, since it refuses an entry whose plugin.json name differs
+// from the marketplace entry name. The plugin name is the stable id that
 // settings and install commands reference. The marketplace name is what
 // `marketplace add` registers the repository as.
-const PLUGIN_NAME = 'microsoft';
+const PLUGIN_NAME = 'microsoft-sql';
 const MARKETPLACE_NAME = 'microsoft-sql';
 const DISPLAY = 'Microsoft SQL';
 // The publisher name every manifest shows beside the version. Carlos, 2026-09-18.

@@ -1,17 +1,16 @@
 ---
 name: build-app-on-azure-sql
 description: >-
-  Sequences the work of standing up a new application on Azure SQL Database and routes each
-  decision to the skill that owns it. Use at the start of a project, when a user says "build an
-  app on Azure SQL", "add Azure SQL Database to my app", "which stack should I use with Azure
-  SQL", "where do I start", "generate an API over my database", or "get this into Azure without a
-  password in the repo". It establishes the order that works: three server-side prerequisites
-  verified before any code, an identity instead of a password, schema through a migration instead
-  of at startup, and a generated data API considered before hand-written CRUD. It routes rather
-  than repeats. provision-azure-sql-db creates the database, connect-to-azure-sql and the
-  per-language connect skills own drivers, retry and pooling, entra-id-auth owns the identity,
-  dab-rest-and-graphql and azure-functions-sql-bindings own the API layer, deploy-app-to-azure
-  owns shipping, and azuresql-db-scaffold owns the local container version.
+  Sequences standing up a new application on Azure SQL Database and routes each decision to the
+  skill that owns it. Use at the start of a project, when a user says "build an app on Azure
+  SQL", "add Azure SQL Database to my app", "which stack should I use with Azure SQL", "where do
+  I start", "generate an API over my database", or "get this into Azure without a password in the
+  repo". It establishes the order that works: server-side prerequisites before any code, an
+  identity instead of a password, schema through a migration not at startup, and a generated data
+  API before hand-written CRUD. It routes rather than repeats: provision-azure-sql-db creates the
+  database, connect-to-azure-sql drivers and retry, entra-id-auth the identity,
+  dab-rest-and-graphql and azure-functions-sql-bindings the API layer, deploy-app-to-azure
+  shipping, azuresql-db-scaffold the local container version.
 ---
 
 # Build an application on Azure SQL Database

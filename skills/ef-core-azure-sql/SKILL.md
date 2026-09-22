@@ -2,16 +2,15 @@
 name: ef-core-azure-sql
 description: >-
   Configures Entity Framework Core against Azure SQL Database, where retry is on by default and
-  that redefines a transaction: the execution strategy refuses a user-initiated transaction, and
-  the wrapper the exception tells you to write replays the whole unit, so a fault arriving after
-  the commit writes the row twice and reports success. Also covers UseAzureSql versus UseSqlServer
-  with a hand written EnableRetryOnFailure, the compatibility level behind JSON mapping, and split
-  versus single queries. Use when a DbContext targets Azure SQL Database, and when someone asks
-  "EnableRetryOnFailure", "connection resiliency for EF Core", "UseAzureSql or UseSqlServer",
-  "AsSplitQuery", reports "does not support user-initiated transactions", reports duplicated rows
-  after a retry, or asks why a migration retypes JSON columns. Not general EF Core: pooling is
-  connect-from-dotnet, connection retry is connect-to-azure-sql, identity is entra-id-auth, and
-  the other object relational mappers have skills of their own.
+  redefines a transaction: the execution strategy refuses a user-initiated transaction, and the
+  wrapper it tells you to write replays the whole unit, so a fault after the commit writes the
+  row twice and reports success. Also covers UseAzureSql versus UseSqlServer,
+  EnableRetryOnFailure, JSON mapping and split queries. Use when a DbContext targets Azure SQL
+  Database, and for "EnableRetryOnFailure", "connection resiliency for EF Core", "UseAzureSql or
+  UseSqlServer", "AsSplitQuery", an Include returning tens of thousands of rows, "does not
+  support user-initiated transactions", duplicated rows after a retry, or a migration that
+  retypes JSON columns. Not general EF Core: pooling is connect-from-dotnet, retry
+  connect-to-azure-sql, identity entra-id-auth, a pipeline github-actions-for-sql.
 ---
 
 # EF Core against Azure SQL Database

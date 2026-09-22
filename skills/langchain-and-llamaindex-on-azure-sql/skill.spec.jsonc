@@ -11,8 +11,16 @@
   "value_probe": {
     "gate": "The answer puts every fix outside the model's behaviour: T-SQL aware prompting or dialect handling for the row cap, a change to the table's structure for the index refusal, and the login's own grants for the safety boundary, rather than more prompt wording and more retries.",
     "task": "We pointed a LangChain SQL agent at our Azure SQL Database through a SQLAlchemy URL and gave it the standard toolkit. It answers simple questions fine, but as soon as a question needs a row cap it produces a query ending in LIMIT 10 and the database returns Incorrect syntax near '10'. The agent then changes the number and tries again, forever, and the checker tool it is told to call first never flags it.\n\nSeparately we used the vector store integration for that same database to hold about 900000 chunks. Retrieval is exact and slow, and when I tried to add the index that is supposed to speed that up the database refused it.\n\nWe also told our security team this setup is safe because we passed include_tables so it only sees three tables and the prompt says it is read only. Please explain the retry loop, the retrieval problem, and whether that safety claim holds.",
+    // 2026-09-19: the first statement used to read "The dialect the framework reports is correct
+    // while the shipped agent prompt still asks for LIMIT, so the error originates in the prompt
+    // rather than in a missing or wrong dialect." It measured where the LIMIT clause comes from,
+    // which the model already asserts 7 of 10 times with no skill loaded, so it had no room to show
+    // the skill adding anything and could only fall. That diagnosis is still enforced, by the gate
+    // and by the first refutes statement. The replacement measures the third question the task
+    // asks, whether the safety claim holds: the schema tool returns real rows by default, which no
+    // answer in the ten no-skill runs mentioned and all ten skill-loaded answers did.
     "states": [
-      "The dialect the framework reports is correct while the shipped agent prompt still asks for LIMIT, so the error originates in the prompt rather than in a missing or wrong dialect.",
+      "The tool that shows the agent the schema returns real rows out of those tables by default, so live data reaches the model's context and whatever records the trace before any question is asked.",
       "The syntax error points at the number instead of the offending keyword, which is why the retry loop can never diagnose itself.",
       "The table the vector store integration creates is a heap because its primary key is nonclustered, which is why the index is refused.",
       "The integration's retrieval path is an exact full scan and offers no approximate form, so it stays a scan for the life of the table.",

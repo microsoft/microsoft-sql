@@ -6,12 +6,11 @@ description: >-
   validates, pre and post deployment scripts, the refactorlog, and code analysis. Use when a user
   asks to "create a SQL database project", "build a dacpac", "publish a dacpac to Azure SQL",
   "add a post-deployment script", "rename a column without losing its data", or "turn on code
-  analysis", and when a user reports that "the build passed but the publish failed", "the deploy
-  said success and the data is gone", or "the post-deployment script failed and the table already
-  changed". Covers what `dotnet build` does and does not check, what SqlPackage does with a
-  mismatched target platform, and which publish options change data rather than schema.
-  github-actions-for-sql owns running this from a pipeline, schema-migrations-safely owns the
-  change doctrine, and deploy-app-to-azure owns application deployment.
+  analysis", and reports "the build passed but the publish failed", "the deploy said success and
+  the data is gone", or "the post-deployment script failed and the table already changed". Covers
+  what `dotnet build` does not check, what SqlPackage does with a mismatched target platform, and
+  which publish options change data rather than schema. github-actions-for-sql owns the pipeline,
+  schema-migrations-safely the change doctrine.
 ---
 
 # Build and publish a SQL database project

@@ -126,11 +126,11 @@ Connects a TypeScript or JavaScript application to Azure SQL Database with the m
 
 **[connect-to-azure-sql](skills/connect-to-azure-sql/SKILL.md)**
 
-Connects an application to Azure SQL Database correctly and durably: chooses the Microsoft driver for the language, sets encryption and certificate validation, sizes the connection pool against the worker limit rather than the session limit, and makes retry part of the first version of the code instead of later hardening.
+Connects an application to Azure SQL Database: picks the Microsoft driver for the language, sets encryption and certificate validation, sizes the pool against the worker limit not the session limit, and makes retry part of the first version of the code.
 
 **[diagnose-connection-errors](skills/diagnose-connection-errors/SKILL.md)**
 
-Diagnoses an Azure SQL Database connection refused before a credential was evaluated, reading the error number and its severity to name the layer that refused: the IP firewall (40615), a virtual network rule (40914), public network access disabled (47073, 42101), the gateway declining a server name or login format (40532, 40531), a TLS version under the server minimum (47072), plus the transport, pre-login, timeout and certificate failures that carry no usable number.
+Diagnoses an Azure SQL Database connection refused before a credential was evaluated, reading the error number to name the layer that refused: the IP firewall (40615), a virtual network rule (40914), public network access disabled (47073, 42101), the gateway declining a server name or login format (40532, 40531), a TLS version under the server minimum (47072), plus the transport, pre-login, timeout and certificate failures that carry no number.
 
 </details>
 
@@ -139,11 +139,11 @@ Diagnoses an Azure SQL Database connection refused before a credential was evalu
 
 **[design-azure-sql-schema](skills/design-azure-sql-schema/SKILL.md)**
 
-Designs tables for Azure SQL Database so the first index, the first long value or the first failover does not force a rebuild.
+Designs tables for Azure SQL Database so the first index or long value does not force a rebuild.
 
 **[ef-core-azure-sql](skills/ef-core-azure-sql/SKILL.md)**
 
-Configures Entity Framework Core against Azure SQL Database, where retry is on by default and that redefines a transaction: the execution strategy refuses a user-initiated transaction, and the wrapper the exception tells you to write replays the whole unit, so a fault arriving after the commit writes the row twice and reports success.
+Configures Entity Framework Core against Azure SQL Database, where retry is on by default and redefines a transaction: the execution strategy refuses a user-initiated transaction, and the wrapper it tells you to write replays the whole unit, so a fault after the commit writes the row twice and reports success.
 
 **[prisma-azure-sql](skills/prisma-azure-sql/SKILL.md)**
 
@@ -160,7 +160,7 @@ Uses SQLAlchemy correctly against Azure SQL Database, where the dialect appends 
 
 **[t-sql-correctness](skills/t-sql-correctness/SKILL.md)**
 
-Writes T-SQL that returns the right answer on Azure SQL Database, and catches the statements that return a wrong answer with no error at all: NULL compared using = or <> or NOT IN, ISNULL and COALESCE differing in return type, integer division truncating, a string variable declared with no length, and a session where QUOTED_IDENTIFIER is OFF.
+Writes T-SQL that returns the right answer on Azure SQL Database, and catches statements that return a wrong answer with no error: NULL compared using = or <> or NOT IN, ISNULL and COALESCE differing in return type, integer division truncating, a string variable declared with no length, and a session where QUOTED_IDENTIFIER is OFF.
 
 **[t-sql-json-and-openjson](skills/t-sql-json-and-openjson/SKILL.md)**
 
@@ -177,7 +177,7 @@ Writes an upsert for Azure SQL Database that is still correct when two sessions 
 
 **[entra-id-auth](skills/entra-id-auth/SKILL.md)**
 
-Takes an application identity to a working passwordless connection to Azure SQL Database, and diagnoses it when that fails: sets the Microsoft Entra administrator, creates the database user for a managed identity or service principal, grants roles, and writes the driver's authentication keyword.
+Takes an application identity to a passwordless connection to Azure SQL Database, and diagnoses it when that fails: sets the Microsoft Entra administrator, creates the database user for a managed identity or service principal, and grants roles.
 
 </details>
 
@@ -186,11 +186,11 @@ Takes an application identity to a working passwordless connection to Azure SQL 
 
 **[prevent-sql-injection](skills/prevent-sql-injection/SKILL.md)**
 
-Handles SQL injection on Azure SQL Database past what an agent already gets right: a typed sp_executesql parameter matches nothing where the same input concatenated into EXEC() returns every row; QUOTENAME returns NULL above 128 characters, so the batch built from it becomes NULL and runs as a silent no-op at no severity; one CASE over columns of different types in a dynamic ORDER BY fails only for the sort key selecting the lower-precedence branch; dynamic SQL breaks the ownership chain, so EXECUTE AS decides what a statement may touch and who the engine thinks is running it; and Always Encrypted refuses a literal with Msg 206.
+Handles SQL injection on Azure SQL Database beyond parameterisation: a typed sp_executesql parameter matches nothing where the same input concatenated into EXEC() returns every row; QUOTENAME returns NULL above 128 characters, so the batch built from it becomes NULL and does nothing; a dynamic ORDER BY built from one CASE over mixed types fails only for the sort key on the lower-precedence branch; dynamic SQL breaks the ownership chain, so EXECUTE AS decides what it may touch; and Always Encrypted refuses a literal (Msg 206).
 
 **[rls-multi-tenant](skills/rls-multi-tenant/SKILL.md)**
 
-Builds tenant isolation on Azure SQL Database that a test can prove, with a row level security policy whose filter predicate and block predicate are written together, because a filter alone still accepts a cross-tenant write and then hides the row from the application that made it.
+Builds tenant isolation on Azure SQL Database that a test can prove, with a row level security policy whose filter predicate and block predicate are written together, because a filter alone still accepts a cross-tenant write and hides the row from the app that made it.
 
 </details>
 
@@ -203,7 +203,7 @@ Ships schema changes to Azure SQL Database from a GitHub Actions workflow with `
 
 **[schema-migrations-safely](skills/schema-migrations-safely/SKILL.md)**
 
-Decides whether a schema change is safe to apply to a live Azure SQL Database, and rewrites the migration script so it is.
+Decides whether a schema change is safe to apply to a live Azure SQL Database, and rewrites the migration so it is.
 
 **[sql-database-projects](skills/sql-database-projects/SKILL.md)**
 
@@ -229,11 +229,11 @@ Wires Azure Functions to Azure SQL Database with the SQL input and output bindin
 
 **[build-app-on-azure-sql](skills/build-app-on-azure-sql/SKILL.md)**
 
-Sequences the work of standing up a new application on Azure SQL Database and routes each decision to the skill that owns it.
+Sequences standing up a new application on Azure SQL Database and routes each decision to the skill that owns it.
 
 **[dab-rest-and-graphql](skills/dab-rest-and-graphql/SKILL.md)**
 
-Decides what a Data API builder configuration on Azure SQL Database actually publishes and to whom, at the version 2.0 model: entities generated from patterns, roles that inherit upward, row-filtering database policies, relationships, and the passwordless connection a hosted run needs.
+Decides what a Data API builder configuration on Azure SQL Database actually publishes and to whom, at the version 2.0 model: entities generated from patterns, roles that inherit upward, row-filtering policies, relationships, and the passwordless connection a hosted run needs.
 
 </details>
 
@@ -250,7 +250,7 @@ Wires LangChain or LlamaIndex to Azure SQL Database from Python: the SQL toolkit
 
 **[rag-local-with-container](skills/rag-local-with-container/SKILL.md)**
 
-Answers whether a retrieval augmented generation prototype proved against the local Azure SQL Database container still holds in Azure SQL Database, and names the three things that do not survive the move.
+Answers whether a retrieval augmented generation prototype proved on the local Azure SQL Database container still holds in Azure SQL Database, and names what does not survive the move.
 
 **[rag-on-azure-sql](skills/rag-on-azure-sql/SKILL.md)**
 
@@ -267,7 +267,7 @@ Stores and searches vectors natively in Azure SQL Database: the vector type, VEC
 
 **[capture-with-extended-events](skills/capture-with-extended-events/SKILL.md)**
 
-Creates, starts, reads back and drops a database-scoped Extended Events session on Azure SQL Database, and names the ways such a session reports success while capturing nothing.
+Creates, starts, reads back and drops a database-scoped Extended Events session on Azure SQL Database, and names the ways one reports success while capturing nothing.
 
 **[diagnose-blocking-and-deadlocks](skills/diagnose-blocking-and-deadlocks/SKILL.md)**
 
@@ -275,11 +275,11 @@ Finds who is blocking whom on Azure SQL Database right now, and reads a complete
 
 **[diagnose-resource-pressure](skills/diagnose-resource-pressure/SKILL.md)**
 
-Answers whether an Azure SQL Database is slow because of CPU, data or log IO, memory, or a worker and session limit, and what to actually do about each.
+Answers whether an Azure SQL Database is slow because of CPU, data or log IO, memory, or a worker and session limit.
 
 **[diagnose-slow-query](skills/diagnose-slow-query/SKILL.md)**
 
-Triages a slow Azure SQL Database query into one of four causes before anyone touches an index or a service tier: volatile, duration swings across executions; blocked, waiting on another session right now; regressed, a worse plan replaced a good one; or growing, duration rises with data volume over time.
+Triages a slow Azure SQL Database query into one of four causes before anyone touches an index or a service tier: volatile, duration swings across executions; blocked, waiting on another session; regressed, a worse plan replaced a good one; or growing, duration rises with data volume.
 
 **[read-execution-plan](skills/read-execution-plan/SKILL.md)**
 
@@ -292,7 +292,7 @@ Retrieves an Azure SQL Database execution plan, estimated or actual, and pulls o
 
 **[restore-and-recover](skills/restore-and-recover/SKILL.md)**
 
-Recovers an Azure SQL Database after data loss, an accidental drop, or a bad deployment, using point-in-time restore, geo-restore, and long-term retention.
+Recovers an Azure SQL Database after data loss, an accidental drop or a bad deployment, using point-in-time restore, geo-restore and long-term retention.
 
 </details>
 
@@ -326,7 +326,7 @@ Makes an app's database connections reliable against the local Azure SQL Databas
 
 **[azuresql-db-container](skills/azuresql-db-container/SKILL.md)**
 
-Runs the Azure SQL Database container (the Azure SQL Database engine) locally (Private Preview): the real PaaS engine where SERVERPROPERTY('EngineEdition') returns 5 and Edition is 'SQL Azure'.
+Runs the Azure SQL Database container locally (Private Preview): the real PaaS engine where SERVERPROPERTY('EngineEdition') returns 5.
 
 **[azuresql-db-dab](skills/azuresql-db-dab/SKILL.md)**
 
@@ -338,7 +338,7 @@ Answers questions about what the Azure SQL Database container (Private Preview) 
 
 **[azuresql-db-feedback](skills/azuresql-db-feedback/SKILL.md)**
 
-Reports a bug or files feedback about the azuresql-db-* agent skills themselves, or about the Azure SQL Database container (the local Azure SQL Database engine, Private Preview).
+Reports a bug or files feedback about the azuresql-db-* agent skills themselves, or about the Azure SQL Database container (Private Preview).
 
 **[azuresql-db-from-sql-server](skills/azuresql-db-from-sql-server/SKILL.md)**
 
@@ -391,7 +391,7 @@ Orients an agent starting work on Azure SQL Database and hands the task to the c
 
 **[skill-feedback](skills/skill-feedback/SKILL.md)**
 
-Turns a defect in an Azure SQL agent skill, or in this catalog itself, into a redacted, prefilled GitHub issue the user reviews and submits.
+Turns a defect in an Azure SQL Database agent skill, or in this catalog itself, into a redacted, prefilled GitHub issue the user reviews and submits.
 
 </details>
 

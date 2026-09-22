@@ -3,15 +3,14 @@ name: dab-rest-and-graphql
 description: >-
   Decides what a Data API builder configuration on Azure SQL Database actually publishes and to
   whom, at the version 2.0 model: entities generated from patterns, roles that inherit upward,
-  row-filtering database policies, relationships, and the passwordless connection a hosted run
-  needs. Use when Data API builder is already in play and the question is about "autoentities",
-  "dab auto-config", "my dab-config.json has hundreds of entities", "why can anonymous read this
+  row-filtering policies, relationships, and the passwordless connection a hosted run needs. Use
+  when Data API builder is already in play and the question is about "autoentities", "dab
+  auto-config", "my dab-config.json has hundreds of entities", "why can anonymous read this
   entity", "restrict which rows a caller can see", "add a relationship to my config", or moving a
-  working configuration onto Azure SQL Database with a managed identity instead of a password.
-  Also use when a configuration starts cleanly and reviews cleanly but serves more of the database
-  than the author asked for, which is the default include pattern combined with the Unauthenticated
-  provider that dab init writes. Standing a first endpoint up, against the local Azure SQL Database
-  container or anywhere else, belongs to azuresql-db-dab and not here.
+  working configuration to Azure SQL Database with a managed identity. Also use when a
+  configuration reviews cleanly but serves more of the database than the author asked for, the
+  default include pattern plus the Unauthenticated provider dab init writes. Standing a first
+  endpoint up belongs to azuresql-db-dab.
 ---
 
 # What a Data API builder configuration publishes on Azure SQL Database

@@ -3,7 +3,9 @@
   "id": "azuresql-db-rag",
   "domain": "azure-sql-database-container",
   "value": [
-    "not-in-training-data"
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "multi-step-with-silent-failures"
   ],
   "correction": "For embeddings an agent reaches for pgvector, FAISS, Chroma or Pinecone and adds a second datastore. This engine has a native VECTOR type and VECTOR_DISTANCE, so the vectors live beside the data they belong to. Inserting one requires CAST(CAST(? AS NVARCHAR(MAX)) AS VECTOR(n)) with a literal dimension, which is not guessable.",
   "posture": [

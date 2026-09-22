@@ -3,13 +3,16 @@
   "id": "azuresql-db-seed",
   "domain": "azure-sql-database-container",
   "value": [
-    "not-in-training-data"
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "multi-step-with-silent-failures"
   ],
   "correction": "To load a CSV an agent writes BULK INSERT or OPENROWSET against a local path. The engine rejects that with Msg 12713, because it reads from Azure Blob Storage rather than the local filesystem. Local files go in through bcp or a driver.",
   "posture": [
     "read",
     "write",
-    "execute"
+    "execute",
+    "provision"
   ],
   "maturity": "preview",
   "value_declaration": {

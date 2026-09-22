@@ -4,14 +4,13 @@ description: >-
   Loads data into Azure SQL Database fast by choosing the right route: BULK INSERT and
   OPENROWSET(BULK ...) from Azure Blob Storage, bcp, .NET SqlBulkCopy, and the Python and Node.js
   bulk-copy equivalents. Use when someone says "bulk insert", "bulk load a CSV", "bcp in",
-  "OPENROWSET BULK", "load a file into a table fast", "SqlBulkCopy", "fast_executemany", or pastes
-  the error "OPENROWSET is not allowed to read local files" (Msg 12713) or a load stuck on a
-  LOG_RATE_GOVERNOR wait. Covers choosing between the Blob-only server-side paths and the
+  "OPENROWSET BULK", "load a file into a table fast", "SqlBulkCopy", "fast_executemany", or
+  pastes the error "OPENROWSET is not allowed to read local files" (Msg 12713) or a load stuck on
+  a LOG_RATE_GOVERNOR wait. Covers choosing between the Blob-only server-side paths and the
   client-side paths, and the log rate cap that throttles every one of them regardless of logging
-  mode. Does not cover designing the target table (design-azure-sql-schema), establishing the
-  connection itself (connect-from-python, connect-from-dotnet, connect-from-typescript-and-node),
-  or a whole-database schema-and-data export or import through a DACPAC or BACPAC
-  (sqlpackage-import-export).
+  mode. Does not design the target table (design-azure-sql-schema), establish the connection
+  (connect-from-python, connect-from-dotnet, connect-from-typescript-and-node) or run a DACPAC or
+  BACPAC export or import (sqlpackage-import-export).
 ---
 
 # Load rows fast: BULK INSERT from Blob Storage, bcp, and the driver bulk APIs

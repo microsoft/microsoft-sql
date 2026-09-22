@@ -3,12 +3,15 @@
   "id": "azuresql-db-connections",
   "domain": "azure-sql-database-container",
   "value": [
-    "not-in-training-data"
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "multi-step-with-silent-failures"
   ],
   "correction": "Retry gets treated as a production hardening step to add later. On this engine transient faults are expected behaviour rather than an exception, so retry with backoff and a bounded pool belong in the data layer from the first connection.",
   "posture": [
     "read",
-    "write"
+    "write",
+    "provision"
   ],
   "maturity": "preview",
   "value_declaration": {

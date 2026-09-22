@@ -1,17 +1,16 @@
 ---
 name: diagnose-blocking-and-deadlocks
 description: >-
-  Finds who is blocking whom on Azure SQL Database right now, and reads a completed deadlock graph
-  out of the database-scoped Extended Events session that captured it. Use when someone reports a
-  query or app that hangs under load, pastes "Msg 1205" or "was deadlocked on lock resources", asks
-  who is blocking a session, or ran a blocking query that came back empty and assumed nothing was
-  blocked. Covers which grant a login needs to see another session's blocking and why that differs
-  on Basic, S0, S1 and elastic pool databases, why there is no built-in system_health session to
-  read a deadlock out of, why an idle session holding a transaction is a head blocker that never
-  appears in sys.dm_exec_requests, and how optimized locking's wait types differ. Does not tune an
-  unblocked query (diagnose-slow-query), does not diagnose CPU, memory or IO pressure
-  (diagnose-resource-pressure), does not build the session (capture-with-extended-events), and does
-  not read the plan (read-execution-plan).
+  Finds who is blocking whom on Azure SQL Database right now, and reads a completed deadlock
+  graph out of the database-scoped Extended Events session that captured it. Use when someone
+  reports a query or app that hangs under load, pastes "Msg 1205" or "was deadlocked on lock
+  resources", asks who is blocking a session, or ran a blocking query that came back empty and
+  assumed nothing was blocked. Covers which grant a login needs to see another session's blocking
+  and why that differs on Basic, S0, S1 and elastic pools, why an idle session holding a
+  transaction is a head blocker that never appears in sys.dm_exec_requests, and how optimized
+  locking's wait types differ. Does not tune an unblocked query (diagnose-slow-query), diagnose
+  CPU, memory or IO pressure (diagnose-resource-pressure), build or repair the session
+  (capture-with-extended-events) or read the plan (read-execution-plan).
 ---
 
 # Diagnose blocking and read a deadlock on Azure SQL Database

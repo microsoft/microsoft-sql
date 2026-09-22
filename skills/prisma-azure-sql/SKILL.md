@@ -2,16 +2,15 @@
 name: prisma-azure-sql
 description: >-
   Uses Prisma ORM against Azure SQL Database on JavaScript and TypeScript, inside the connector's
-  real limits: no Json type, no enums, no scalar lists, a default string length that quietly breaks
-  keys, a connection URL that moved out of the schema file in Prisma 7, and a migration workflow that
-  succeeds locally and is refused in the cloud. Use when a user says "Prisma with Azure SQL",
-  "prisma migrate dev", "prisma db push", "schema.prisma", "prisma.config.ts", "driver adapter", or
-  pastes "P3020", "the automatic creation of shadow databases is disabled", "the current connector
-  does not support the Json type", or "the datasource property url is no longer supported". Also use
-  when Prisma migrations work locally and fail against Azure. Covers the schema, type mapping,
-  migrations and identity for Prisma only. Driver and pool ownership sit with
-  connect-from-typescript-and-node, retry with connect-to-azure-sql; EF Core, SQLAlchemy and Django
-  have their own skills.
+  real limits: no Json type, no enums, no scalar lists, a default string length that quietly
+  breaks keys, a connection URL that moved out of the schema file in Prisma 7, and a migration
+  workflow that succeeds locally and is refused in the cloud. Use when a user says "Prisma with
+  Azure SQL", "prisma migrate dev", "prisma db push", "schema.prisma", "prisma.config.ts",
+  "driver adapter", or pastes "P3020", "the automatic creation of shadow databases is disabled",
+  "the current connector does not support the Json type", or "the datasource property url is no
+  longer supported". Also use when Prisma migrations work locally and fail against Azure. Covers
+  schema, type mapping, migrations and identity for Prisma only. Drivers and pooling are
+  connect-from-typescript-and-node, retry connect-to-azure-sql.
 ---
 
 # Prisma on Azure SQL Database

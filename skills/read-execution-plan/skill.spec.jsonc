@@ -7,9 +7,18 @@
     "value_probe": {
       "gate": "The answer refuses the plan already in hand as a record of what the procedure did, because it carries only estimates, and routes to a source whose operators carry the counts the query really processed without re-running a procedure that writes, or says plainly that re-running is the only option left and why. Treating the retrieved plan as the measurement has not reached it.",
       "task": "A nightly stored procedure dbo.rebuild_summary on Azure SQL Database takes forty minutes on some nights and two minutes on others. It ran tonight and it was one of the slow ones. I do not want to run it again, it writes to real tables that the morning reports read.\n\nI want to see, operator by operator, what it actually did on that run, and in particular where the row counts it expected are far from what it really processed.\n\nI already have this back:\n\n```sql\nSELECT qp.query_plan\nFROM sys.dm_exec_procedure_stats AS ps\nCROSS APPLY sys.dm_exec_query_plan(ps.plan_handle) AS qp\nWHERE ps.object_id = OBJECT_ID('dbo.rebuild_summary');\n```\n\nIt returned a plan, so I assume that is the run I care about. I also looked in sys.query_store_query for the statements and several of them are not there at all, which worried me because they definitely ran.\n\nDoes what I have answer the question, and if not, what are the exact steps to get what I need?",
+      // 2026-09-19: the second statement used to read "There is a source that returns the last real
+      // execution's plan without running the query again, and it depends on a database setting that
+      // is off unless somebody turned it on." It measured the route to the actual plan, which the
+      // model already reaches 8 of 10 times with no skill loaded, so it had no room to show the
+      // skill adding anything and could only fall. That route is still enforced, by the gate, which
+      // requires the answer to reach a source whose operators carry the real counts. The
+      // replacement measures the step after it, reading the plan operator by operator: none of the
+      // ten no-skill answers named the session setting those XML calls need, and all ten
+      // skill-loaded answers did.
       "states": [
         "The plan already retrieved carries only the counts the optimizer estimated and no record of what the query processed, so it cannot answer the question as asked.",
-        "There is a source that returns the last real execution's plan without running the query again, and it depends on a database setting that is off unless somebody turned it on.",
+        "Reading the plan operator by operator means querying the plan XML, and those calls are refused unless QUOTED_IDENTIFIER is ON for the session, with a message that names other features and never the setting.",
         "A statement missing from the query history is inconclusive rather than proof that it did not run, because the default capture policy does not record every query.",
         "Re-running the procedure to get the plan would perform its writes for real, so it is not a dry run."
       ],

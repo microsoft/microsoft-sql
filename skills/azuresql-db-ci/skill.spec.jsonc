@@ -3,7 +3,9 @@
   "id": "azuresql-db-ci",
   "domain": "azure-sql-database-container",
   "value": [
-    "not-in-training-data"
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "multi-step-with-silent-failures"
   ],
   "correction": "An agent adds the SQL Server image as a CI service and queries it immediately. This image comes from a private registry that needs credentials as secrets, the health check has to run sqlcmd inside the container because the runner has no client tools, and the user database must exist before the tests do.",
   "posture": [

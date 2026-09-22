@@ -1,6 +1,6 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-  "name": "microsoft",
+  "name": "microsoft-sql",
   "version": "0.1.0",
   "description": "From the Microsoft SQL product team. Build AI-ready apps on Azure SQL Database with vector search, RAG, REST APIs, serverless functions, passwordless auth, and the ORMs you already use.",
   "author": {

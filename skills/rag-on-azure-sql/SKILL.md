@@ -5,13 +5,12 @@ description: >-
   storing embeddings with the provenance that makes them re-runnable, retrieving with the filter
   and the permission check inside the same query, and grounding an answer on what came back. Use
   when someone asks to "build RAG on Azure SQL Database", "chat with my documents", "add semantic
-  search over my data", "keep embeddings in sync when rows change", "re-embed with a new model", or
-  "which chunks should I put in the prompt"; and when a retrieval pipeline returns plausible but
-  wrong context, or returns text the asking user is not allowed to read. This skill owns the
-  pipeline and the schema around it. The vector type, VECTOR_DISTANCE and the query shape that
-  reaches the vector index belong to vector-search-azure-sql, generating the embedding and the
-  external model endpoint belong to embeddings-and-external-models, and the offline container path
-  is rag-local-with-container.
+  search over my data", "keep embeddings in sync when rows change", "re-embed with a new model",
+  or "which chunks should I put in the prompt"; and when a retrieval pipeline returns plausible
+  but wrong context, or returns text the asking user is not allowed to read. This skill owns the
+  pipeline and the schema around it. The vector type, VECTOR_DISTANCE and the query shape are
+  vector-search-azure-sql, the embedding call embeddings-and-external-models, the offline
+  container path rag-local-with-container.
 ---
 
 # Retrieval augmented generation on Azure SQL Database

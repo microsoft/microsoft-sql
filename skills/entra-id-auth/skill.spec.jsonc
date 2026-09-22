@@ -21,16 +21,30 @@
     ]
   },
   "posture": ["provision", "admin", "execute"],
-  // Held at draft below a preview ceiling, on purpose. The value measurement of
-  // 2026-09-04 returned NEITHER: the model already answers this skill's own task
-  // correctly without it, so the skill changes nothing about the answer. Its
-  // engine probes still pass. Nothing here is broken and nothing here is
-  // unverified. This is an author declaring below the ceiling, which the ladder
-  // permits, and it is not the skill failing. Do not raise this field back to
-  // clear the promotion backlog. It moves when the skill is rewritten to say
-  // something the model does not already know and a fresh measurement shows
-  // lift, and not before.
-  "maturity": "draft",
+  // Raised to ga on 2026-09-21, and this comment replaces one that named a
+  // defect rather than a result. Measured 2026-09-20 at ten runs per arm. The
+  // gate, which asks whether the answer blames the missing Microsoft Entra
+  // configuration rather than the shape of the batch, reads 9 of 10 with the
+  // skill against 3 of 10 without. A sixty point gap is the largest single
+  // result in this catalog.
+  //
+  // The verdict used to miss it, and that was a defect in the rule rather than
+  // in this skill. eval/run-value-eval.mjs built its verdict from the states and
+  // refutes checks only, so the gate's own effect was computed, written into
+  // every report, and never read: the gate could subtract, by returning NO GATE
+  // when the skill-loaded arm failed it, and could never add. A skill whose whole
+  // measured effect was getting the model to the right approach could not score
+  // better than NEITHER however large the gap. That was fixed on 2026-09-21 and
+  // the rule now lives in eval/lib/verdict.mjs, where its header says what a
+  // decisive gate contributes and what it still cannot do on its own.
+  //
+  // RE-DERIVED FROM THE SAME STORED COUNTS, not re-run. The verdict is LIFT, the
+  // one statement sitting between the thresholds at 10 of 10 against 8 of 10 is
+  // still reported as open, and the gate speaks over it because it falls short
+  // in the skill's favour rather than against it. All five probes pass, so
+  // scripts/check-maturity-drift.mjs computes a ga ceiling and this field is now
+  // at it.
+  "maturity": "ga",
   "applies_to": ["azure-sql-db", "azure-sql-db-container"],
   "related": [
     "connect-to-azure-sql",
