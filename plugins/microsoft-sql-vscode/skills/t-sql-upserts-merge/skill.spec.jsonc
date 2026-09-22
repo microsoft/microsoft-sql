@@ -1,0 +1,186 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "t-sql-upserts-merge",
+  "domain": "tsql-correctness-and-patterns",
+  "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
+  "correction": "Asked for an upsert on Azure SQL Database, an agent writes IF EXISTS then UPDATE ELSE INSERT, or a bare MERGE, and presents either as finished, when both are races that pass every single-session test and lose writes the first time two callers arrive together. Measured on 2026-08-28 against a live engine reporting EngineEdition 5 and Edition 'SQL Azure': eight sessions running twenty increments each on one key ended at 140 of 160 for the unhinted UPDATE-then-INSERT pattern, because one duplicate key error terminated a whole session's batch, while MERGE WITH (HOLDLOCK), UPDATE WITH (SERIALIZABLE) then INSERT, and UPDATE then INSERT catching 2601 and 2627 all reached 160; four concurrent unhinted MERGE statements raised Msg 2627 on two of them and applied two of four increments; and the naive shape against a table with no unique key produced two rows for one key with no error raised to either caller, which is the failure nothing later can find. HOLDLOCK alone is not the fix either, since without a unique index on the join key the range lock is wide enough that four sessions produced Msg 1205 and two were rolled back. The other MERGE shapes worth refusing are measured too: a filter added to the ON clause made an existing row look unmatched, so the NOT MATCHED branch fired and hit Msg 2627 on a key that already existed. The catalog note that indexed view corruption from MERGE is invisible to a consistency check is half right and must be stated as such: the published minimal reproduction and four further shapes, including a two table view over a single column foreign key and an aggregated view over the same join, all stayed consistent at compatibility levels 120 through 170, so the corruption did not reproduce; but the reason it was severe is documented and current, since a consistency check performs only physical checks on an indexed view unless EXTENDED_LOGICAL_CHECKS is requested, so any disagreement between a materialized view and its base tables is invisible to a routine check whatever caused it.",
+  "value_probe": {
+    "gate": "The answer makes the existence check and the write atomic with respect to concurrent writers, by any route: a locking hint on a single statement, a serializable transaction around the pair, or catching the duplicate key error and retrying. An answer that leaves the check and the write as two statements another session can interleave has not reached it.",
+    "task": "We have an Azure SQL Database table dbo.counters (k nvarchar(100), n int) that tracks a hit count per key. Our API increments a counter on every request, so many application instances call this at the same moment for the same key.\n\nRight now we do this and we are seeing counts come out lower than the number of requests:\n\n```sql\nIF EXISTS (SELECT 1 FROM dbo.counters WHERE k = @k)\n    UPDATE dbo.counters SET n = n + 1 WHERE k = @k;\nELSE\n    INSERT INTO dbo.counters (k, n) VALUES (@k, 1);\n```\n\nWrite the correct version. Give me the SQL I should actually run, and tell me anything else I need to do to make it correct. Be specific and concrete.",
+    "states": [
+      "A unique constraint or unique index on the key column is required for the fix to work, not merely recommended or helpful.",
+      "Without a unique key on the column, concurrent callers can produce two rows for the same key and no error is raised to either caller.",
+      "The check and the write must be made one atomic operation with respect to other writers, rather than left as two statements that another session can interleave."
+    ],
+    "refutes": [
+      "MERGE is unsafe or unreliable for concurrent upserts on Azure SQL Database even when a locking hint and a unique key are used, and should therefore be avoided for this problem.",
+      "Wrapping the existing IF EXISTS then UPDATE ELSE INSERT in a transaction, with no locking hint and no unique key, is sufficient to make it correct under concurrency."
+    ]
+  },
+  "posture": ["read", "write"],
+  // Demoted from preview to draft on 2026-09-20. The reading of 2026-09-06 rested
+  // on three runs per arm, so it was re-measured at ten before this field moved.
+  // UNCLEAR, and nothing moved in the skill's favour: the gate reads 10 of 10 in
+  // both arms, and the statement that the check and the write have to be one atomic
+  // operation falls to 8 of 10 with the skill from 10 of 10 without. The model
+  // already answers this skill's own task correctly without it.
+  // This is an author declaring below the ceiling, which the ladder permits, and
+  // it is not the skill failing. Its engine probes still pass and nothing here is
+  // unverified. Do not raise this field to clear the promotion backlog. It moves
+  // when the skill is rewritten to say something the model does not already know
+  // and a fresh measurement shows lift, and not before.
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "related": [
+    "t-sql-correctness",
+    "t-sql-json-and-openjson",
+    "design-azure-sql-schema",
+    "t-sql-error-handling",
+    "t-sql-programmability-objects",
+    "bulk-load-and-bulk-copy",
+    "diagnose-blocking-and-deadlocks",
+    "prevent-sql-injection"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a table with a unique constraint or unique index on the key being upserted",
+      "a second table holding the same shape with no unique key at all",
+      "the ability to open at least four client sessions against the same database concurrently",
+      "a schemabound view over one of those tables carrying a unique clustered index"
+    ],
+    "assert": [
+      "the generated upsert holds a lock across the match and the write, whether by HOLDLOCK on a MERGE, SERIALIZABLE on the leading UPDATE, or a caught 2601 or 2627",
+      "no generated upsert is a bare IF EXISTS then UPDATE ELSE INSERT, with or without a surrounding transaction",
+      "every generated MERGE names a target that carries a unique index on the join key, and the answer says so when it does not",
+      "the ON clause of every generated MERGE contains only columns compared between source and target, and no constant or filter",
+      "every generated MERGE ends with a semicolon",
+      "running the generated upsert from four concurrent sessions against one key leaves exactly one row and applies every increment",
+      "running it against the table with no unique key is refused or flagged rather than silently producing duplicate rows",
+      "no answer claims a MERGE is corrupting an indexed view without a reproduction, and no answer offers a clean consistency check as evidence that a materialized view agrees with its base tables"
+    ],
+
+    "probes": [
+      {
+        "sql": "CREATE TABLE dbo.probe_merge_semi (sku NVARCHAR(20) NOT NULL PRIMARY KEY, qty INT NOT NULL);\nGO\nMERGE dbo.probe_merge_semi WITH (HOLDLOCK) AS t\nUSING (VALUES (N'A', 1)) AS s(sku, qty) ON t.sku = s.sku\nWHEN MATCHED THEN UPDATE SET t.qty = s.qty\nWHEN NOT MATCHED THEN INSERT (sku, qty) VALUES (s.sku, s.qty)",
+        "expect": {
+          "error": 10713
+        },
+        "why": "The skill claims a missing terminator is Msg 10713 by number rather than a generic syntax error, which is what makes it findable. Microsoft Learn states it by number on the MERGE page: 'Error 10713 is raised when a MERGE statement is run without the terminator.' Measured 2026-08-28. The CREATE TABLE sits in its own batch before GO so the failure is unambiguously the MERGE."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_merge_dupsrc (sku NVARCHAR(20) NOT NULL PRIMARY KEY, qty INT NOT NULL);\nINSERT INTO dbo.probe_merge_dupsrc (sku, qty) VALUES (N'A', 1);\nGO\nMERGE dbo.probe_merge_dupsrc WITH (HOLDLOCK) AS t\nUSING (VALUES (N'A', 10), (N'A', 20)) AS s(sku, qty) ON t.sku = s.sku\nWHEN MATCHED THEN UPDATE SET t.qty = s.qty\nWHEN NOT MATCHED THEN INSERT (sku, qty) VALUES (s.sku, s.qty);",
+        "expect": {
+          "error": 8672
+        },
+        "why": "The refuse list says a source that can carry one key twice is Msg 8672, and this is that claim made runnable. Learn states the rule without the number ('when UPDATE is specified and more than one row of table_source matches a row in target_table, SQL Server returns an error'); the number 8672 comes from this skill's own run on 2026-08-28. HOLDLOCK is present so the probe isolates the duplicate source rather than a locking difference."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_merge_onfilter (sku NVARCHAR(20) NOT NULL PRIMARY KEY, qty INT NOT NULL);\nINSERT INTO dbo.probe_merge_onfilter (sku, qty) VALUES (N'A', 10);\nGO\nMERGE dbo.probe_merge_onfilter WITH (HOLDLOCK) AS t\nUSING (VALUES (N'A', 20)) AS s(sku, qty) ON t.sku = s.sku AND t.qty > 100\nWHEN MATCHED THEN UPDATE SET t.qty = s.qty\nWHEN NOT MATCHED THEN INSERT (sku, qty) VALUES (s.sku, s.qty);",
+        "expect": {
+          "error": 2627
+        },
+        "why": "The single most useful probe here, because it turns a documented warning into a number. Learn says only matching columns belong in ON and that filtering there 'can return unexpected and incorrect results', with no error and no example. The row for A exists, the extra AND t.qty > 100 makes it look unmatched, the NOT MATCHED branch fires, and the primary key refuses it with Msg 2627. Measured 2026-08-28. On a target with no unique key the same shape inserts a duplicate silently instead, which is the failure this skill exists to stop."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_merge_delsource (sku NVARCHAR(20) NOT NULL PRIMARY KEY, qty INT NOT NULL);\nINSERT INTO dbo.probe_merge_delsource (sku, qty) VALUES (N'A', 1), (N'B', 1), (N'C', 1);\nGO\nMERGE dbo.probe_merge_delsource WITH (HOLDLOCK) AS t\nUSING (VALUES (N'A', 5)) AS s(sku, qty) ON t.sku = s.sku\nWHEN MATCHED THEN UPDATE SET t.qty = s.qty\nWHEN NOT MATCHED BY TARGET THEN INSERT (sku, qty) VALUES (s.sku, s.qty)\nWHEN NOT MATCHED BY SOURCE THEN DELETE;\nSELECT COUNT(*) AS rows_left FROM dbo.probe_merge_delsource;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "The first entry in the refuse list, made executable. Three rows in, a source naming one of them, and two rows gone with no error and no list of what went. Measured 2026-08-28. This is the shape an agent adds because it makes a MERGE look complete, and the probe asserts the damage rather than the intent."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_upsert_nokey (k NVARCHAR(50) NOT NULL, n INT NOT NULL);\nINSERT INTO dbo.probe_upsert_nokey (k, n) VALUES (N'hot', 1);\nINSERT INTO dbo.probe_upsert_nokey (k, n) VALUES (N'hot', 1);\nSELECT COUNT(*) AS rows_for_one_key FROM dbo.probe_upsert_nokey WHERE k = N'hot';",
+        "expect": {
+          "rows": [
+            [
+              2
+            ]
+          ]
+        },
+        "why": "Why every pattern in this skill is conditional on a unique key. Two writes of the same key against a table without one are both accepted, so the table ends with two rows for one logical key and neither caller was told anything. That is the mechanism behind the measured two-session result in the body table, reduced to the part a single session can prove: there is nothing here to raise 2627 and nothing for a range lock to hold. Measured 2026-08-28."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_merge_holdlock (k NVARCHAR(50) NOT NULL PRIMARY KEY, n INT NOT NULL);\nGO\nMERGE dbo.probe_merge_holdlock WITH (HOLDLOCK) AS t\nUSING (SELECT N'hot' AS k) AS s ON t.k = s.k\nWHEN MATCHED THEN UPDATE SET t.n = t.n + 1\nWHEN NOT MATCHED THEN INSERT (k, n) VALUES (s.k, 1);\nGO\nMERGE dbo.probe_merge_holdlock WITH (HOLDLOCK) AS t\nUSING (SELECT N'hot' AS k) AS s ON t.k = s.k\nWHEN MATCHED THEN UPDATE SET t.n = t.n + 1\nWHEN NOT MATCHED THEN INSERT (k, n) VALUES (s.k, 1);\nGO\nSELECT n, COUNT(*) OVER () AS rows_for_key FROM dbo.probe_merge_holdlock WHERE k = N'hot';",
+        "expect": {
+          "rows": [
+            [
+              2,
+              1
+            ]
+          ]
+        },
+        "why": "The recommended statement, run twice, asserting that the hint parses where the skill puts it and that the branch selection is right: the first run inserts, the second updates, one row and n = 2. Learn's syntax places the hint on the target before the alias, target_table [WITH (merge_hint)] [[AS] table_alias], and this is the only probe that proves the skill's own code block compiles. A single session cannot prove the concurrency claim, which is what the two-shell check in Check it worked is for."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_upsert_serializable (k NVARCHAR(50) NOT NULL PRIMARY KEY, n INT NOT NULL);\nGO\nBEGIN TRAN;\nUPDATE dbo.probe_upsert_serializable WITH (SERIALIZABLE) SET n = n + 1 WHERE k = N'hot';\nIF @@ROWCOUNT = 0 INSERT INTO dbo.probe_upsert_serializable (k, n) VALUES (N'hot', 1);\nCOMMIT;\nGO\nBEGIN TRAN;\nUPDATE dbo.probe_upsert_serializable WITH (SERIALIZABLE) SET n = n + 1 WHERE k = N'hot';\nIF @@ROWCOUNT = 0 INSERT INTO dbo.probe_upsert_serializable (k, n) VALUES (N'hot', 1);\nCOMMIT;\nGO\nSELECT n, COUNT(*) OVER () AS rows_for_key FROM dbo.probe_upsert_serializable WHERE k = N'hot';",
+        "expect": {
+          "rows": [
+            [
+              2,
+              1
+            ]
+          ]
+        },
+        "why": "Pattern 2 in the body, compiled and run twice: SERIALIZABLE is accepted as a table hint on a plain UPDATE, the insert branch fires only once, and the result is one row at n = 2. Learn documents HOLDLOCK as a synonym for SERIALIZABLE on the MERGE page, so both spellings appear in this skill and both need to be known good. Measured 2026-08-28. This is also the exact statement the two-shell check in Check it worked drives from 100 iterations."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_iv_sales (id INT NOT NULL PRIMARY KEY, region NVARCHAR(20) NOT NULL, amt INT NOT NULL);\nINSERT INTO dbo.probe_iv_sales (id, region, amt) VALUES (1, N'east', 10), (2, N'east', 20), (3, N'west', 5);\nGO\nCREATE VIEW dbo.probe_iv_totals WITH SCHEMABINDING AS\nSELECT region, SUM(amt) AS total, COUNT_BIG(*) AS n FROM dbo.probe_iv_sales GROUP BY region;\nGO\nCREATE UNIQUE CLUSTERED INDEX ux_probe_iv_totals ON dbo.probe_iv_totals (region);\nGO\nMERGE dbo.probe_iv_sales WITH (HOLDLOCK) AS t\nUSING (VALUES (2, N'east', 99)) AS s(id, region, amt) ON t.id = s.id\nWHEN MATCHED THEN UPDATE SET t.amt = s.amt\nWHEN NOT MATCHED BY SOURCE AND t.region = N'west' THEN DELETE;\nGO\nSELECT total, n FROM dbo.probe_iv_totals WITH (NOEXPAND) WHERE region = N'east';",
+        "expect": {
+          "rows": [
+            [
+              109,
+              2
+            ]
+          ]
+        },
+        "why": "The half of the indexed view claim that did not reproduce, asserted rather than assumed. A MERGE combining UPDATE with NOT MATCHED BY SOURCE THEN DELETE against a base table under an aggregated indexed view leaves the materialized rows agreeing with the recomputation: east becomes 10 + 99 = 109 over two rows once the west row is deleted. If a future engine build ever does break this, this probe goes red and the skill's wording has to change with it. Read through the view with NOEXPAND so the answer comes from the materialized rows and not from a recomputed plan."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_iv_check_sales (id INT NOT NULL PRIMARY KEY, region NVARCHAR(20) NOT NULL, amt INT NOT NULL);\nINSERT INTO dbo.probe_iv_check_sales (id, region, amt) VALUES (1, N'east', 10);\nGO\nCREATE VIEW dbo.probe_iv_check_totals WITH SCHEMABINDING AS\nSELECT region, SUM(amt) AS total, COUNT_BIG(*) AS n FROM dbo.probe_iv_check_sales GROUP BY region;\nGO\nCREATE UNIQUE CLUSTERED INDEX ux_probe_iv_check ON dbo.probe_iv_check_totals (region);\nGO\nDBCC CHECKTABLE ('dbo.probe_iv_check_totals') WITH EXTENDED_LOGICAL_CHECKS;",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The Check it worked section tells a reader to run this, so the lane has to know the engine accepts it. Microsoft Learn states that on indexed views only physical consistency checks run by default and that EXTENDED_LOGICAL_CHECKS is what runs the logical ones, for Azure SQL Database. This asserts acceptance only, deliberately: what the check reports on a healthy view is not the claim, and asserting output text would tie the probe to a message format rather than to the option existing. Measured 2026-08-28."
+      }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Write me an upsert for this table on Azure SQL Database",
+      "Insert the row if it does not exist and update it if it does",
+      "Write a MERGE statement to sync this staging table into the target table",
+      "Is this MERGE safe to run while the application is writing to the same table",
+      "Port this ON CONFLICT DO UPDATE to Azure SQL Database",
+      "Review this upsert stored procedure before it goes to production"
+    ],
+    "implicit": [
+      "we have two rows with the same key and nothing in the application inserts twice",
+      "this worked in testing and now we get violation of PRIMARY KEY constraint under load",
+      "the MERGE statement attempted to UPDATE or DELETE the same row more than once",
+      "my sync job deleted rows that were not in the batch",
+      "make this insert idempotent so retries do not create a second row",
+      "why is my upsert deadlocking now that we run it from several workers",
+      "should I wrap the check and the insert in a transaction",
+      "a MERGE statement must be terminated by a semi-colon"
+    ],
+    "routing": [
+      "add or update these records from the incoming file",
+      "make this import re-runnable"
+    ],
+    "negative": [
+      "Write me a paginated query for Azure SQL",
+      "How do I get the id of the row I just inserted",
+      "Parse this JSON column with OPENJSON",
+      "Should this document column be nvarchar or the json type",
+      "How long should the string columns in my index be",
+      "What collation should this database use",
+      "Why is this SELECT slow",
+      "Write a PostgreSQL upsert for my Postgres database"
+    ]
+  }
+}

@@ -56,7 +56,7 @@ claude plugin marketplace add microsoft/microsoft-sql
 ```
 
 ```bash
-claude plugin install microsoft@microsoft-sql
+claude plugin install microsoft-sql@microsoft-sql
 ```
 
 ### GitHub Copilot CLI plugin
@@ -66,7 +66,7 @@ copilot plugin marketplace add microsoft/microsoft-sql
 ```
 
 ```bash
-copilot plugin install microsoft@microsoft-sql
+copilot plugin install microsoft-sql@microsoft-sql
 ```
 
 Visual Studio Code loads plugins installed this way, so the same two commands cover it.
@@ -78,12 +78,48 @@ codex plugin marketplace add microsoft/microsoft-sql
 ```
 
 ```bash
-codex plugin add microsoft@microsoft-sql
+codex plugin add microsoft-sql@microsoft-sql
 ```
 
 ### Repository-committed skills
 
 Committed to `.github/skills/` in your own repository, skills also reach the GitHub Copilot coding agent and Visual Studio agent mode with no install step at all.
+
+## Pick a plugin
+
+The commands above install the whole collection. If you work in one place, a smaller plugin carries only the skills that belong there, so your agent reads less on every turn and never reaches for a skill your tool already handles.
+
+| Install | What it carries | Who it is for |
+|---|---|---|
+| `microsoft-sql` | every skill | you drive an agent directly and want the lot |
+| `microsoft-sql-vscode` | connections, schema and ORMs, T-SQL, vector search and RAG, Azure Functions bindings, database projects | the MSSQL extension for Visual Studio Code |
+| `microsoft-sql-ssms` | diagnostics, execution plans, Extended Events, restore, row level security, provisioning, bulk data movement | SQL Server Management Studio |
+| `microsoft-azuresql-db-container` | running the Azure SQL Database container locally, connecting, seeding, testing, importing, going to the cloud | local development against the container |
+
+Every plugin comes from the same marketplace, so the pattern is always `<plugin>@microsoft-sql`. Add the marketplace once, then install whichever ones you want:
+
+```bash
+claude plugin marketplace add microsoft/microsoft-sql
+claude plugin install microsoft-sql-vscode@microsoft-sql
+```
+
+```bash
+copilot plugin marketplace add microsoft/microsoft-sql
+copilot plugin install microsoft-sql-ssms@microsoft-sql
+```
+
+```bash
+codex plugin marketplace add microsoft/microsoft-sql
+codex plugin add microsoft-azuresql-db-container@microsoft-sql
+```
+
+Visual Studio Code loads whatever the GitHub Copilot CLI installed. Cursor loads whatever Claude Code installed, after you quit and reopen it.
+
+Two things worth knowing before you choose:
+
+**Installing two plugins installs both sets.** The Visual Studio Code plugin leaves out the Data API builder skills on purpose, because the MSSQL extension already carries its own Data API builder tooling. Install the full collection alongside it and those skills come back.
+
+**A smaller plugin knows less.** These skills hand work to each other by name, so a skill in a subset can point you at one the subset does not carry. Install the full collection if you would rather have everything than have less to read.
 
 ## Available skills
 

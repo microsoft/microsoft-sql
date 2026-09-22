@@ -1,0 +1,138 @@
+// skills/restore-and-recover/skill.spec.jsonc
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "restore-and-recover",
+  "domain": "operate-and-recover",
+  "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
+  "correction": "Asked to recover an Azure SQL Database, an agent trained on the boxed engine reaches for RESTORE DATABASE ... WITH REPLACE, BACKUP DATABASE, RESTORE HEADERONLY or ALTER DATABASE ... SET RECOVERY, and none of that surface exists on the service. Measured 2026-08-29 against a live engine reporting EngineEdition 5 and Edition 'SQL Azure': BACKUP DATABASE, BACKUP LOG, RESTORE DATABASE, RESTORE HEADERONLY, RESTORE FILELISTONLY and RESTORE VERIFYONLY are each refused with Msg 40510, sys.sp_get_database_backup_policy does not exist at all, failing with Msg 2812, and ALTER DATABASE ... SET RECOVERY is refused with Msg 40517, so the family has no exception. Microsoft Learn says it plainly: you recover using the portal, PowerShell, the Azure CLI or the REST API, and you can't use Transact-SQL. The second wrong belief compounds the first. Learn again: you can't overwrite an existing database during restore. Every restore, point-in-time, geo or long-term, creates a new database under the name given at restore time, and moving that database to where the application connects, by rename or by a connection string change, is a step the developer performs. Nothing does it automatically and nothing warns when it is skipped, so the failure surfaces later as a connection error blamed on the application. The third belief the skill corrects is about reach: point-in-time restore is same-server only, geo-restore is same-subscription only and needs Geo or GeoZone backup storage configured beforehand, and deleting the logical server takes its databases and their point-in-time backups with it, leaving long-term retention as the only surviving route.",
+  "value_probe": {
+    "gate": "The answer recovers to a new database from the service's own automatic backups using a control plane tool, and names the explicit cutover that puts the application onto it, without proposing a T-SQL restore or an overwrite of the live database.",
+    "task": "At about 09:40 this morning a deploy script ran against the wrong environment and emptied four tables in our production Azure SQL Database. The application is still up and still taking writes into other tables. We want the state as of 09:35 back, and we want the application reading the recovered data by end of day.\n\nOur runbook says to take the most recent backup and put it back over the top of the live database. One of the team also wants to switch the database into a mode that keeps more log around so that this is easier to deal with next time, and someone else has suggested we recover onto a different server in another subscription so it stays isolated while we check it.\n\nI have the portal, the Azure CLI and a SQL client open in front of me. Walk me through exactly what to do, in order.",
+    "states": [
+      "Recovery on this service is driven from the portal, PowerShell, the Azure CLI or the REST API, and not from T-SQL at all.",
+      "Every restore produces a new database under the name given at restore time, and nothing overwrites the existing one.",
+      "Putting the application onto the recovered data is a manual step, by rename or by changing the connection string, that nothing performs and nothing warns about when it is skipped.",
+      "The recovery model option is refused on this service, while the ALTER DATABASE statement itself remains valid for other options.",
+      "A point in time restore lands on the same logical server, so recovering onto a different server or subscription is a different route with its own prerequisites."
+    ],
+    "refutes": [
+      "RESTORE DATABASE, or some other T-SQL restore statement, is the way to recover this database.",
+      "A restore can overwrite the live database in place, so the application keeps working with no further step once it finishes.",
+      "The recovery model of the database can be changed to retain more log for easier recovery next time.",
+      "A point in time restore can be directed at a different logical server or a different subscription.",
+      "ALTER DATABASE is rejected wholesale on this service, so no option of that statement is usable."
+    ]
+  },
+  "posture": ["read", "provision", "admin"],
+  "maturity": "preview",
+  "applies_to": ["azure-sql-db"],
+  "related": [
+    "provision-azure-sql-db",
+    "provision-hyperscale",
+    "schema-migrations-safely",
+    "sqlpackage-import-export",
+    "diagnose-connection-errors",
+    "entra-id-auth"
+  ],
+  "validation": {
+    "target": "container",
+    "setup": [
+      "a database with at least one table and rows in it",
+      "administrative access sufficient to run ALTER DATABASE and CREATE DATABASE"
+    ],
+    "assert": [
+      "BACKUP DATABASE, BACKUP LOG, RESTORE DATABASE, RESTORE HEADERONLY, RESTORE FILELISTONLY and RESTORE VERIFYONLY are all refused with Msg 40510, and ALTER DATABASE ... SET RECOVERY with Msg 40517",
+      "no answer proposes RESTORE or BACKUP T-SQL as the recovery mechanism",
+      "every answer states that a restore creates a new database rather than overwriting the source in place",
+      "an answer describing a completed recovery includes the rename or connection string swap back to the name the application uses",
+      "an answer that proposes a restore across servers, subscriptions or regions names which of the three restore types can actually reach there",
+      "no answer states a retention window, RPO number or CLI flag as fact without attributing it to Microsoft Learn or to the CLI's own help"
+    ],
+    "probes": [
+      {
+        "sql": "DECLARE @stmt nvarchar(max) =\n  N'BACKUP DATABASE ' + QUOTENAME(DB_NAME()) + N' TO DISK = ''/var/opt/mssql/data/probe-restore.bak'';';\nEXEC sys.sp_executesql @stmt;",
+        "expect": {
+          "error": 40510
+        },
+        "why": "BACKUP DATABASE is the first thing a SQL Server habit reaches for, and it is refused outright rather than failing on the destination. Measured 2026-08-29 against an engine reporting EngineEdition 5: Msg 40510, statement not supported in this version of SQL Server. The database name is bound from DB_NAME() so the refusal cannot be confused with an unresolved name."
+      },
+      {
+        "sql": "DECLARE @stmt nvarchar(max) =\n  N'BACKUP LOG ' + QUOTENAME(DB_NAME()) + N' TO DISK = ''/var/opt/mssql/data/probe-restore.trn'';';\nEXEC sys.sp_executesql @stmt;",
+        "expect": {
+          "error": 40510
+        },
+        "why": "BACKUP LOG is refused the same way as BACKUP DATABASE, which matters because a log backup is what someone reaches for second, after being told full backups are handled by the service. Measured 2026-08-29, Msg 40510."
+      },
+      {
+        "sql": "RESTORE DATABASE probe_restore_target FROM DISK = '/var/opt/mssql/data/probe-restore.bak' WITH REPLACE;",
+        "expect": {
+          "error": 40510
+        },
+        "why": "The headline claim of the skill is that there is no restore T-SQL on this service. Measured 2026-08-29, Msg 40510. WITH REPLACE is carried deliberately because that is the clause an agent adds when it believes a restore overwrites the database in place, which is the second wrong belief this skill corrects."
+      },
+      {
+        "sql": "RESTORE HEADERONLY FROM DISK = '/var/opt/mssql/data/probe-restore.bak';",
+        "expect": {
+          "error": 40510
+        },
+        "why": "The whole RESTORE ... ONLY family is refused, and the message names RESTORE VOLUME rather than RESTORE HEADERONLY because the parser collapses the family into one internal name before rejecting it. Measured 2026-08-29. Matching on the number rather than the text is the only stable way to probe this."
+      },
+      {
+        "sql": "DECLARE @db sysname = DB_NAME();\nEXEC sys.sp_get_database_backup_policy @db;",
+        "expect": {
+          "error": 2812
+        },
+        "why": "The procedure an agent reaches for once it accepts that backups are automatic: Msg 2812, could not find stored procedure. The procedure does not exist on the service. Recorded as Msg 15817 on 2026-08-29 and corrected on 2026-09-02 after the live lane disagreed with it: measured against Azure SQL Database (EngineEdition 5, SQL Azure, 12.0.2000.8, S0) AND the container, both answer 2812, and sys.all_objects holds nothing matching %backup_policy%. The skill's claim is unchanged and still true: an answer that reads the backup policy from T-SQL cannot be built at all."
+      },
+      {
+        "sql": "DECLARE @stmt nvarchar(max) =\n  N'ALTER DATABASE ' + QUOTENAME(DB_NAME()) + N' SET RECOVERY FULL;';\nEXEC sys.sp_executesql @stmt;",
+        "expect": {
+          "error": 40517
+        },
+        "why": "The last habit in the family, and the second number in this skill the engine disproved. Recorded 2026-08-29 as the one statement ACCEPTED, moving sys.databases.recovery_model_desc and therefore the trap the skill warned about; re-measured 2026-09-03 and refused: Msg 40517, keyword or statement option 'RECOVERY' is not supported. Microsoft Learn documents 40517 with that exact text and lists recovery models among the unsupported syntax. Stronger than the claim it replaces: the family now has no exception for a reader to trip over."
+      },
+      {
+        "cmd": "az sql db restore --help 2>/dev/null | grep -q -- '--deleted-time' && az sql db geo-backup restore --help 2>/dev/null | grep -q -- '--geo-backup-id' && az sql db ltr-backup restore --help 2>/dev/null | grep -q -- '--backup-id'",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The three restore command lines in section 3 are only useful if those flags exist in the CLI the reader has. Taken from az 2.90.0's own help on 2026-09-03 and asserted here so a CLI rename is caught by the lane rather than by a developer mid-incident. Runs on the host and needs no subscription or network: --help is answered locally. `host` because the Azure CLI is a client tool a developer installs and is not in the engine image."
+      },
+      {
+        "cmd": "sqlpackage /Action:Export /help:True 2>/dev/null | grep -q '^/TargetFile:'",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Section 6 sends the recovered data out of the subscription with a SqlPackage Export, and /TargetFile is the parameter that names the bacpac. Verified against SqlPackage 170.4.83.3 on 2026-09-03. `where` is host and not container: SqlPackage is a client tool a developer installs, it is not in the engine image, and five probes shipped on 2026-09-02 without this field failed with 'sqlpackage: command not found' for exactly that reason."
+      }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "How do I restore my Azure SQL database to before this bad deployment",
+      "Write the RESTORE DATABASE command to recover my Azure SQL database",
+      "What is the point-in-time restore command for Azure SQL Database",
+      "How do I geo-restore my database after a region outage",
+      "How do I recover a database using long-term retention",
+      "Give me the BACKUP DATABASE syntax for Azure SQL Database"
+    ],
+    "implicit": [
+      "someone just dropped the orders table in production, how do I get it back",
+      "we ran a bad backfill an hour ago and need last night's data",
+      "the primary region is down, how do I bring the database back up somewhere else",
+      "I ran BACKUP DATABASE against my Azure SQL database and got an error I don't understand",
+      "the restored database has a different name than my app expects and now nothing connects",
+      "how far back can I recover this database"
+    ],
+    "negative": [
+      "Is this migration safe to run against production while the app is live",
+      "Export my database to a bacpac file",
+      "Create the Azure SQL database and give me a connection string",
+      "Should I use Hyperscale for this workload",
+      "Set up active geo-replication for read scale-out",
+      "My app connects fine locally but gets login failed once it is deployed to Azure"
+    ]
+  }
+}

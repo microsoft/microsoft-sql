@@ -1,0 +1,179 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "read-execution-plan",
+  "domain": "performance-and-diagnostics",
+  "value": ["not-in-training-data", "multi-step-with-silent-failures"],
+  "correction": "Agents asked to read a query's execution plan reach for sys.dm_exec_query_plan or a first look at Query Store and treat what comes back as what the query actually did, when sys.dm_exec_query_plan only ever returns the compile-time estimated plan with no ActualRows attribute on any operator, and Query Store's default AUTO capture policy can leave a query absent from sys.query_store_query after several executions in a row, so the agent reports an estimate as a measurement, or treats a query's absence from Query Store as proof it never ran, when the absence is inconclusive and a plan-handle-based source answers the question directly instead of waiting on it.",
+    "value_probe": {
+      "gate": "The answer refuses the plan already in hand as a record of what the procedure did, because it carries only estimates, and routes to a source whose operators carry the counts the query really processed without re-running a procedure that writes, or says plainly that re-running is the only option left and why. Treating the retrieved plan as the measurement has not reached it.",
+      "task": "A nightly stored procedure dbo.rebuild_summary on Azure SQL Database takes forty minutes on some nights and two minutes on others. It ran tonight and it was one of the slow ones. I do not want to run it again, it writes to real tables that the morning reports read.\n\nI want to see, operator by operator, what it actually did on that run, and in particular where the row counts it expected are far from what it really processed.\n\nI already have this back:\n\n```sql\nSELECT qp.query_plan\nFROM sys.dm_exec_procedure_stats AS ps\nCROSS APPLY sys.dm_exec_query_plan(ps.plan_handle) AS qp\nWHERE ps.object_id = OBJECT_ID('dbo.rebuild_summary');\n```\n\nIt returned a plan, so I assume that is the run I care about. I also looked in sys.query_store_query for the statements and several of them are not there at all, which worried me because they definitely ran.\n\nDoes what I have answer the question, and if not, what are the exact steps to get what I need?",
+      // 2026-09-19: the second statement used to read "There is a source that returns the last real
+      // execution's plan without running the query again, and it depends on a database setting that
+      // is off unless somebody turned it on." It measured the route to the actual plan, which the
+      // model already reaches 8 of 10 times with no skill loaded, so it had no room to show the
+      // skill adding anything and could only fall. That route is still enforced, by the gate, which
+      // requires the answer to reach a source whose operators carry the real counts. The
+      // replacement measures the step after it, reading the plan operator by operator: none of the
+      // ten no-skill answers named the session setting those XML calls need, and all ten
+      // skill-loaded answers did.
+      "states": [
+        "The plan already retrieved carries only the counts the optimizer estimated and no record of what the query processed, so it cannot answer the question as asked.",
+        "Reading the plan operator by operator means querying the plan XML, and those calls are refused unless QUOTED_IDENTIFIER is ON for the session, with a message that names other features and never the setting.",
+        "A statement missing from the query history is inconclusive rather than proof that it did not run, because the default capture policy does not record every query.",
+        "Re-running the procedure to get the plan would perform its writes for real, so it is not a dry run."
+      ],
+      "refutes": [
+        "sys.dm_exec_query_plan returns the row counts the query actually processed once the query has executed, so the plan already in hand is the measurement.",
+        "A statement absent from the query history proves it never executed, or proves the history feature is switched off on this database.",
+        "The query history has to be enabled on an Azure SQL Database before it captures anything, and it can be switched off again afterwards.",
+        "The only way to obtain a plan carrying real row counts is to run the query again with the actual plan setting turned on.",
+        "The estimated and actual row counts already present in that plan can be compared against each other to find the misestimate."
+      ]
+    },
+  "posture": ["read", "inspect", "admin"],
+  "maturity": "preview",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "related": [
+    "diagnose-slow-query",
+    "diagnose-resource-pressure",
+    "diagnose-blocking-and-deadlocks",
+    "capture-with-extended-events"
+  ],
+  "validation": {
+    "target": "container",
+    "setup": [
+      "a table with a few thousand rows and a predicate column that carries no index",
+      "a stored procedure wrapping a query against that table so its plan can be looked up by object id",
+      "the database's default LAST_QUERY_PLAN_STATS scoped configuration, left at its default OFF"
+    ],
+    "assert": [
+      "the estimated plan for a query with an unindexed equality or range predicate carries a MissingIndexes recommendation naming that column",
+      "sys.dm_exec_query_plan_stats returns zero rows for a plan until LAST_QUERY_PLAN_STATS is turned on for the database, and returns the actual plan with ActualRows populated once it is",
+      "a query executed only two or three times does not appear in sys.query_store_query immediately afterward, under the database's default AUTO capture policy",
+      "sys.query_store_query_text.query_sql_text stores the engine's parameterized form of a query rather than the literal text submitted, so a LIKE search against a literal predicate value or a comment can return zero rows for a query that is genuinely captured",
+      "sys.dm_exec_query_plan returns query_plan NULL, and raises no error, for a plan at or past 128 levels of nested xml elements, where sys.dm_exec_text_query_plan returns the same plan as text: not probed here because building a plan that deep is out of reach for one batch, sourced to Microsoft Learn",
+      "sys.dm_exec_query_plan_stats returns a simplified Showplan carrying only the root SELECT node, with no RelOp elements, for a query the engine judges simple: not probed here because the threshold is internal and undocumented, sourced to Microsoft Learn"
+    ],
+    "probes": [
+      {
+        "sql": "SET SHOWPLAN_XML ON;\nSELECT 1 AS never_runs;",
+        "expect": {
+          "error": 1067
+        },
+        "why": "The skill's first retrieval step turns on a rule that has no partial failure: a SET SHOWPLAN statement sharing a batch with anything else takes the whole batch down, so the SELECT never runs and no plan comes back either. Msg 1067, 'The SET SHOWPLAN statements must be the only statements in the batch', from the Microsoft Learn error table for 1000 to 1999. An agent that writes the SET and the query into one round trip gets nothing and has no plan to read."
+      },
+      {
+        "sql": "ALTER DATABASE CURRENT SET QUERY_STORE = OFF;\nSELECT actual_state_desc FROM sys.database_query_store_options;",
+        "expect": {
+          "rows": [
+            [
+              "READ_WRITE"
+            ]
+          ]
+        },
+        "why": "Advice written for SQL Server tells a reader to enable Query Store. On Azure SQL Database it is already on and cannot be turned off: Microsoft Learn's Query Store management page states that SET QUERY_STORE = OFF returns the warning 'QUERY_STORE=OFF' is not supported in this version of SQL Server. A warning, not an error, so the statement completes and the state is unchanged. If this ever starts failing or ever actually turns Query Store off, step 5 of the skill is describing a different engine."
+      },
+      {
+        "sql": "CREATE USER probe_plan_reader WITHOUT LOGIN;\nEXECUTE AS USER = 'probe_plan_reader';\nSELECT HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'SHOWPLAN') AS has_showplan,\n       HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'VIEW DATABASE STATE') AS has_view_database_state;\nREVERT;",
+        "expect": {
+          "rows": [
+            [
+              0,
+              0
+            ]
+          ]
+        },
+        "why": "Every route in this skill needs a permission that SELECT does not imply: SHOWPLAN for the SET options and VIEW DATABASE STATE for the plan-handle views, per the Microsoft Learn permissions sections of SET SHOWPLAN_XML and sys.dm_exec_query_plan. A plain database user has neither, so an agent that writes a working retrieval query for an application login still gets nothing back. Both names resolving to 0 rather than NULL also proves they are real database-scoped permissions on this engine."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_plan_text_orders (id int NOT NULL PRIMARY KEY, status nvarchar(20) NOT NULL);\nINSERT INTO dbo.probe_plan_text_orders (id, status)\n  SELECT TOP (500) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)), 'open'\n  FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b;\nEXEC sys.sp_executesql N'CREATE PROCEDURE dbo.probe_plan_text_proc AS BEGIN DECLARE @n int; SELECT @n = COUNT(*) FROM dbo.probe_plan_text_orders WHERE status = ''open''; END';\nEXEC dbo.probe_plan_text_proc;\nSELECT COUNT(*) AS text_plans_with_operators\n  FROM sys.dm_exec_procedure_stats AS ps\n  CROSS APPLY sys.dm_exec_text_query_plan(ps.plan_handle, 0, -1) AS tqp\n  WHERE ps.object_id = OBJECT_ID('dbo.probe_plan_text_proc')\n    AND tqp.query_plan LIKE '%<RelOp%';",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "sys.dm_exec_text_query_plan is the documented escape hatch for the case the skill warns about: sys.dm_exec_query_plan returns query_plan NULL, with no error, for a plan at or past 128 levels of xml nesting. That is the one silent failure a reader cannot work around without knowing the alternative exists, so the alternative has to be present and has to return an operator tree. The 0, -1 offsets ask for the whole batch."
+      },
+      {
+        "sql": "SET QUOTED_IDENTIFIER OFF;\nDECLARE @plan xml = '<RelOp NodeId=\"0\" PhysicalOp=\"Table Scan\" />';\nSELECT @plan.value('(/RelOp/@NodeId)[1]', 'int') AS node_id;",
+        "expect": {
+          "error": 1934
+        },
+        "why": "Every XQuery call this skill recommends against the plan column dies here first, and Msg 1934 names indexed views, computed columns and spatial indexes while saying nothing about XML methods or the session setting that actually caused it. Measured 2026-08-29, on a client session whose SESSIONPROPERTY('QUOTED_IDENTIFIER') read 0."
+      },
+      {
+        "sql": "ALTER DATABASE SCOPED CONFIGURATION SET LAST_QUERY_PLAN_STATS = ON;",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The whole actual-plan-without-re-running route depends on this one scoped configuration existing and being settable, and while it is off sys.dm_exec_query_plan_stats returns zero rows with no error at all. If the knob ever goes away, step 4 of the skill has no mechanism left and the failure would otherwise look like an empty view."
+      },
+      {
+        "sql": "SELECT actual_state_desc, query_capture_mode_desc FROM sys.database_query_store_options;",
+        "expect": {
+          "rows": [
+            [
+              "READ_WRITE",
+              "AUTO"
+            ]
+          ]
+        },
+        "why": "The skill tells a reader not to wait on Query Store, and that advice only makes sense if Query Store is already on with the AUTO capture policy that made it unreliable. Measured 2026-08-29 on a freshly created database with nothing configured, which is exactly the state of the scratch database a probe runs in."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_plan_orders (id int NOT NULL PRIMARY KEY, status nvarchar(20) NOT NULL);\nINSERT INTO dbo.probe_plan_orders (id, status)\n  SELECT TOP (2000) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)), 'open'\n  FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b;\nEXEC sys.sp_executesql N'CREATE PROCEDURE dbo.probe_plan_proc AS BEGIN DECLARE @n int; SELECT @n = COUNT(*) FROM dbo.probe_plan_orders WHERE status = ''open''; END';\nEXEC dbo.probe_plan_proc;\nSELECT COUNT(*) AS plans_carrying_actualrows\n  FROM sys.dm_exec_procedure_stats AS ps\n  CROSS APPLY sys.dm_exec_query_plan(ps.plan_handle) AS qp\n  WHERE ps.object_id = OBJECT_ID('dbo.probe_plan_proc')\n    AND CAST(qp.query_plan AS nvarchar(max)) LIKE '%ActualRows%';",
+        "expect": {
+          "rows": [
+            [
+              0
+            ]
+          ]
+        },
+        "why": "This is the wrong turn the skill exists to prevent, made executable: the procedure has genuinely run, sys.dm_exec_query_plan returns a plan for it without error, and that plan carries zero occurrences of ActualRows. Measured 2026-08-29. An agent reporting numbers out of this DMV is reporting an estimate as a measurement."
+      }
+    ,
+          {
+            "sql": "SET SHOWPLAN_XML ON;\nSELECT 1;",
+            "expect": {
+              "error": 1067
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A SET SHOWPLAN statement has to be alone in its batch, so the natural thing to paste, the setting followed by the query, fails before any plan is produced. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "SET QUOTED_IDENTIFIER OFF;\nDECLARE @x xml = N'<a b=\"1\"/>';\nSELECT @x.value('(/a/@b)[1]', 'int') AS v;",
+            "expect": {
+              "error": 1934
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Every XML method call needs QUOTED_IDENTIFIER ON, and the message names indexed views, computed columns and spatial indexes and never the setting that caused it, which is why this skill checks the setting rather than reading the message. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "SET QUOTED_IDENTIFIER ON;\nDECLARE @x xml = N'<a b=\"1\"/>';\nSELECT @x.value('(/a/@b)[1]', 'int') AS v;",
+            "expect": {
+              "succeeds": true
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The control for the probe above. Without it a red there could mean XML methods do not work at all rather than that one session setting decides it. It goes red if the statement raises."
+          }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Read this execution plan and tell me what's expensive",
+      "Get me the actual execution plan for this query, not the estimated one",
+      "Show me the execution plan and explain why it picked a hash join"
+    ],
+    "implicit": [
+      "Here's a query plan XML, what's the one thing wrong with it",
+      "The optimizer keeps choosing a table scan here and I don't understand why",
+      "I ran this query and now I want to see what it actually did operator by operator"
+    ],
+    "negative": [
+      "My query is slow, find out why",
+      "Sessions are blocking each other, what is holding the lock",
+      "CPU on the database is pinned near 100 percent, what is using it",
+      "Capture what queries ran over the last five minutes",
+      "Write a query that returns the top customers by order total"
+    ]
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "azuresql-db-scaffold",
+  "domain": "azure-sql-database-container",
+  "value": [
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "multi-step-with-silent-failures"
+  ],
+  "correction": "Scaffolding a new app, an agent defaults to SQLite or PostgreSQL, or to the SQL Server image if it hears \"SQL\". For a project targeting Azure SQL Database the local engine should be the same engine, and the scaffold has to create the user database rather than assume the ORM will.",
+  "posture": [
+    "read",
+    "write",
+    "execute",
+    "provision"
+  ],
+  "maturity": "preview",
+  "value_declaration": {
+    "rationale": "This skill's kernel is four assumptions a copied skeleton carries in, each of which is false on this engine. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach project scaffolding, Compose skeletons and directory layout, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted.",
+    "covers": [
+      "the image being the Azure SQL Database engine at EngineEdition 5, not mcr.microsoft.com/mssql/server",
+      "the engine not auto-creating a database on connect, so the first migration run fails against an engine that is working perfectly",
+      "USE being refused with Msg 40508",
+      "the seed file not being run by the image, because the init-directory convention does not exist here",
+      "the native vector column type being available to a scaffold on this build"
+    ],
+    "does_not_cover": [
+      "project scaffolding, Compose skeletons and directory layout",
+      "choice of application framework or ORM"
+    ],
+    "decided_by": "Carlos Robles",
+    "decided_on": "2026-09-04",
+    "expires_when": "the-container-reaches-public-preview"
+  },
+  "applies_to": [
+    "azure-sql-db-container"
+  ],
+  "validation": {
+    "target": "container",
+    "assert": [
+      "uses the Azure SQL Database container image",
+      "creates the user database",
+      "connection string targets the user database, not master"
+    ],
+    "probes": [
+      {
+        "sql": "SELECT CAST(SERVERPROPERTY('EngineEdition') AS INT) AS engine_edition, CAST(SERVERPROPERTY('Edition') AS NVARCHAR(128)) AS edition;",
+        "expect": {
+          "rows": [
+            [
+              5,
+              "SQL Azure"
+            ]
+          ]
+        },
+        "why": "The identity check the skill tells the reader to run once the scaffold is up, and the only thing that distinguishes a correct scaffold from one pointed at the SQL Server image. The skill's central interception is worthless if these two properties do not read this way, because then the scaffold has quietly wired the project to a different product."
+      },
+      {
+        "sql": "USE master;",
+        "expect": {
+          "error": 40508
+        },
+        "why": "One of the three facts the skill says bites every scaffold. Microsoft Learn documents error 40508, severity 16, 'USE statement is not supported to switch between databases. Use a new connection to connect to a different database.', and states the refusal applies when a database other than the current one is named, which is why this probe names master rather than the scratch database the session is already in. If this ever succeeds the skill's advice to put the database in the connection string loses its reason."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_scaffold_vec (id INT IDENTITY PRIMARY KEY CLUSTERED, embedding VECTOR(3) NOT NULL);\nINSERT INTO dbo.probe_scaffold_vec (embedding) VALUES (CAST(CAST(N'[1,0,0]' AS NVARCHAR(MAX)) AS VECTOR(3)));\nSELECT CAST(CASE WHEN VECTOR_DISTANCE('cosine', embedding, CAST(CAST(N'[0,1,0]' AS NVARCHAR(MAX)) AS VECTOR(3))) = 1 THEN 1 ELSE 0 END AS INT) AS orthogonal FROM dbo.probe_scaffold_vec;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "The vector section of this skill in one statement: the native VECTOR column type exists with a literal dimension in the DDL, the double cast through NVARCHAR(MAX) that the skill prescribes for inserts is accepted, and VECTOR_DISTANCE with the cosine metric is available. Two orthogonal unit vectors have cosine distance exactly 1, so the comparison returns an integer and does not turn the probe into a float equality argument. If the type or the function is not present, a scaffold that generates an embedding column produces a schema the engine will reject at migration time."
+      }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the azuresql-db-scaffold skill"
+    ],
+    "implicit": [
+      "add a local SQL database to my app"
+    ],
+    "negative": [
+      "set up a local PostgreSQL database with docker compose",
+      "provision an Azure SQL Database in my subscription",
+      "connect to SQL Server on my company network"
+    ]
+  }
+}

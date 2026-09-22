@@ -1,0 +1,196 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "prevent-sql-injection",
+  "domain": "security-and-safe-sql",
+  "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
+  "correction": "A probe with no skill loaded found that an agent asked about SQL injection on Azure SQL Database already reaches for parameters and a server-side allowlist unprompted, and is already correct on ownership chaining, on Dynamic Data Masking not being a security boundary, and on which SQL Server escalation paths do not exist here, so a skill that repeats 'use parameterised queries' teaches nothing. What the same probe found wrong survives as the actual correction: QUOTENAME returns NULL for any identifier over 128 characters rather than truncating or erroring, so a dynamic statement concatenated from it becomes NULL and sp_executesql, or EXEC() of the same NULL batch, then runs it as a silent no-op with @@ERROR at 0 and no rows, which both probed model tiers got wrong in different ways (one said QUOTENAME fails to check the object exists, the other said it truncates); a single CASE expression choosing between columns of different types in a dynamic ORDER BY is coerced to one common type by precedence, and int mixed with date fails unconditionally at compile time (Msg 206, not even catchable in the same TRY/CATCH), but int or date mixed with a string column fails only when the sort key selects the string branch, the identical statement running clean when the sort key selects the other branch or matches neither (Msg 245 or Msg 241 only on the failing value), so it passes a test run against whichever sort key was tried and fails only when a caller picks the other one; and Always Encrypted rejects a literal predicate against an encrypted column outright, so on such a column parameterisation is mandatory for the query to run at all rather than a hardening choice, which corrected only the smaller probed model tier and was not reproduced against a live engine because it needs a column master key.",
+    "value_probe": {
+      "gate": "The answer traces the empty grid to a dynamic statement that became nothing before it was executed, and the conversion failure to one expression forced into a single result type by precedence, and it rebuilds both so neither can recur. Restating the case for parameters and an allowlist, which this code already has, does not reach it.",
+      "task": "This procedure on Azure SQL Database drives a grid that lets the caller choose which table to read and which column to sort by. It has been in production for about a year.\n\n```sql\nCREATE PROCEDURE dbo.get_grid @table sysname, @sort nvarchar(50)\nAS\nDECLARE @sql nvarchar(max) =\n  N'SELECT TOP (100) * FROM ' + QUOTENAME(@table) +\n  N' ORDER BY CASE @s WHEN ''name'' THEN name ELSE created_date END';\nEXEC sp_executesql @sql, N'@s nvarchar(50)', @s = @sort;\n```\n\nThe table name is checked against a list held in sys.tables before we ever get here, so the usual question is not what I am asking about. I have two support tickets I cannot explain.\n\nOne tenant generates very long table names and their grid comes back completely empty. No error, no rows, nothing in our logs, and the error handler wrapped around the call never fires. It started only after their generated names got longer.\n\nAnd QA reports 'Conversion failed when converting date and/or time from character string' when they sort by name. Sorting by anything else works, and it worked in every test we ran before release.\n\nReview this and tell me what is actually wrong and how to fix it.",
+      "states": [
+        "The identifier helper returns nothing at all once the name passed to it exceeds the identifier length limit, rather than shortening it or failing loudly.",
+        "Concatenating anything onto that nothing makes the whole statement nothing, so the execution does no work and reports no error, which is why the handler never fires.",
+        "A CASE expression has one result type decided by data type precedence, so every branch is converted into that one type.",
+        "The conversion fails only for the values that select the branch needing the conversion, which is why the statement passed every test that used the other sort key.",
+        "The sort has to be rebuilt so no branch depends on converting one column type into another."
+      ],
+      "refutes": [
+        "The identifier helper shortens a name that is too long, or raises an error on one, so an over-length table name could not have produced a silent empty result.",
+        "The identifier helper checks that the object exists, so an unrecognised or malformed table name is rejected before the dynamic statement is executed.",
+        "Executing a statement variable that holds nothing raises an error, so the empty grid must be caused by the data, the permissions or the tenant's own filtering.",
+        "Each branch of a CASE expression keeps its own data type, so mixing a text column and a date column in one sort expression is valid.",
+        "Both tickets are symptoms of an injection weakness, and parameterising the statement or validating the table name will fix them."
+      ]
+    },
+  "posture": ["read", "write"],
+  "maturity": "preview",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "related": [
+    "rls-multi-tenant",
+    "t-sql-correctness",
+    "design-azure-sql-schema",
+    "entra-id-auth",
+    "connect-from-dotnet",
+    "connect-from-python",
+    "connect-from-typescript-and-node"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a table with columns of at least three different data types, including one string and one date or datetime column",
+      "the ability to run a batch that builds an identifier longer than 128 characters"
+    ],
+    "assert": [
+      "a generated dynamic statement that builds an object name never relies on QUOTENAME alone above 128 characters without checking the result for NULL before executing it",
+      "a generated dynamic ORDER BY that lets the caller choose the sort column uses one CASE expression per candidate column rather than one CASE with every candidate column as a branch, or uses a server-side allowlist instead of CASE entirely",
+      "no generated answer claims QUOTENAME truncates a long identifier or merely fails to check the object exists; it returns NULL",
+      "an answer touching an Always Encrypted column states that a literal predicate against it fails outright, not merely that parameters are the safer choice"
+    ],
+    "probes": [
+          {
+                "sql": "CREATE TABLE dbo.probe_inj_users (id int NOT NULL PRIMARY KEY, name nvarchar(50) NOT NULL);\nINSERT INTO dbo.probe_inj_users (id, name) VALUES (1, N'ann'), (2, N'bob');\nCREATE TABLE dbo.probe_inj_concat (matched int NOT NULL);\nDECLARE @input nvarchar(100) = N'ann'' OR 1=1--';\nDECLARE @parameterised int;\nEXEC sp_executesql N'SELECT @out = COUNT(*) FROM dbo.probe_inj_users WHERE name = @n', N'@n nvarchar(100), @out int OUTPUT', @n = @input, @out = @parameterised OUTPUT;\nDECLARE @sql nvarchar(max) = N'INSERT INTO dbo.probe_inj_concat SELECT COUNT(*) FROM dbo.probe_inj_users WHERE name = N''' + @input + N'''';\nEXEC (@sql);\nSELECT @parameterised AS parameterised, (SELECT matched FROM dbo.probe_inj_concat) AS concatenated;",
+                "expect": {
+                      "rows": [
+                            [
+                                  0,
+                                  2
+                            ]
+                      ]
+                },
+                "why": "Section 1 made executable, and the claim the whole skill rests on. One string reaches both statements. Bound to a typed sp_executesql parameter it is a value that matches no row, so 0. Concatenated into the text of the same query it is code, the trailing -- comments out the closing quote, OR 1=1 survives, and every row comes back, so 2. Zero against two from one input is the difference between a value and a statement, measured rather than asserted."
+          },
+          {
+                "sql": "SELECT LEN(QUOTENAME(REPLICATE(N'a', 128))) AS len_at_128,\n       IIF(QUOTENAME(REPLICATE(N'a', 129)) IS NULL, 1, 0) AS null_at_129,\n       IIF(QUOTENAME(N'tbl', N'#') IS NULL, 1, 0) AS null_bad_quote,\n       IIF(QUOTENAME(N'my]col') = N'[my]]col]', 1, 0) AS bracket_doubled;",
+                "expect": {
+                      "rows": [
+                            [
+                                  130,
+                                  1,
+                                  1,
+                                  1
+                            ]
+                      ]
+                },
+                "why": "The 128 boundary is precise and it is a NULL, not a truncation. Microsoft Learn states that character_string is sysname, limited to 128 characters, and that inputs greater than 128 characters return NULL, and that an unacceptable quote character returns NULL. Measured 2026-08-29: 128 characters come back bracketed at length 130 and 129 come back NULL. The fourth column pins the half an agent gets right, so a future failure cannot be blamed on escaping."
+          },
+          {
+                "sql": "DECLARE @sql nvarchar(max) = N'SELECT 1 AS x FROM ' + QUOTENAME(REPLICATE(N'x', 129));\nEXEC sp_executesql @sql;\nDECLARE @err_sp int = @@ERROR;\nEXEC (@sql);\nDECLARE @err_exec int = @@ERROR;\nSELECT IIF(@sql IS NULL, 1, 0) AS batch_was_null, @err_sp AS err_after_sp_executesql, @err_exec AS err_after_exec;",
+                "expect": {
+                      "rows": [
+                            [
+                                  1,
+                                  0,
+                                  0
+                            ]
+                      ]
+                },
+                "why": "The silent no-op, asserted through both calling conventions so the claim cannot be pinned on one of them. A NULL from QUOTENAME makes the whole concatenated batch NULL, and handing that NULL to sp_executesql and to EXEC() both leave @@ERROR at 0 with nothing executed. Measured 2026-08-29. This probe is the reason the skill tells a reader to check the NULL rather than the error, and a failure here would mean the engine started reporting it."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_inj_intdate (i int NOT NULL, d date NOT NULL);\nINSERT INTO dbo.probe_inj_intdate (i, d) VALUES (1, '2026-01-01');\nDECLARE @col sysname = N'matches_no_branch';\nSELECT i FROM dbo.probe_inj_intdate ORDER BY CASE WHEN @col = N'i' THEN i WHEN @col = N'd' THEN d END;",
+                "expect": {
+                      "error": 206
+                },
+                "why": "int and date have no implicit conversion, so one CASE spanning them is refused while the expression is compiled, before any branch is chosen. The sort key here deliberately matches NEITHER branch, which is what makes this unconditional rather than value-dependent. Measured 2026-08-29: Msg 206, operand type clash, int is incompatible with date."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_inj_prec (i int NOT NULL, s nvarchar(50) NOT NULL);\nINSERT INTO dbo.probe_inj_prec (i, s) VALUES (2, N'bob'), (1, N'ann');\nDECLARE @col sysname = N's';\nSELECT i FROM dbo.probe_inj_prec ORDER BY CASE WHEN @col = N'i' THEN i WHEN @col = N's' THEN s END;",
+                "expect": {
+                      "error": 245
+                },
+                "why": "The trap that survives testing. int outranks nvarchar by type precedence, so the common type is int and the string branch is the one converted, but only when the sort key selects it. Measured 2026-08-29: Msg 245, conversion failed when converting the nvarchar value to data type int. Paired with the next probe, which runs the IDENTICAL statement and passes."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_inj_prec_ok (i int NOT NULL, s nvarchar(50) NOT NULL);\nINSERT INTO dbo.probe_inj_prec_ok (i, s) VALUES (2, N'bob'), (1, N'ann');\nDECLARE @col sysname = N'i';\nSELECT i FROM dbo.probe_inj_prec_ok ORDER BY CASE WHEN @col = N'i' THEN i WHEN @col = N's' THEN s END;",
+                "expect": {
+                      "rows": [
+                            [
+                                  1
+                            ],
+                            [
+                                  2
+                            ]
+                      ]
+                },
+                "why": "The other half of the pair, and the reason the skill calls this sharper than mixing types fails. Byte for byte the same ORDER BY as the probe above, with only the sort key changed to the higher-precedence branch, and it returns both rows in order. An author who tested this column alone would ship the previous probe's failure. Measured 2026-08-29."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_inj_safe (id int NOT NULL, name nvarchar(50) NOT NULL, created date NOT NULL);\nINSERT INTO dbo.probe_inj_safe (id, name, created) VALUES (2, N'bob', '2026-02-01'), (1, N'ann', '2026-01-01');\nDECLARE @col sysname = N'created';\nSELECT id FROM dbo.probe_inj_safe\nORDER BY CASE WHEN @col = N'id' THEN id END,\n         CASE WHEN @col = N'name' THEN name END,\n         CASE WHEN @col = N'created' THEN created END\nOFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY;",
+                "expect": {
+                      "rows": [
+                            [
+                                  1
+                            ],
+                            [
+                                  2
+                            ]
+                      ]
+                },
+                "why": "The remedy the skill actually prescribes, run on the sort key that breaks the single-CASE form. One CASE per candidate column gives each expression exactly one type, so there is no common type to coerce toward and no failing branch left. Sorting by created returns id 1 before id 2, which also shows the non-matching CASE expressions evaluating to NULL and tying rather than reordering, and that it composes with OFFSET and FETCH."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_inj_ledger (id int NOT NULL PRIMARY KEY);\nINSERT INTO dbo.probe_inj_ledger (id) VALUES (1);\nCREATE USER probe_inj_reader WITHOUT LOGIN;\nEXEC sys.sp_executesql N'CREATE PROCEDURE dbo.probe_inj_dynamic AS EXEC sp_executesql N''SELECT COUNT(*) AS n FROM dbo.probe_inj_ledger'';';\nGO\nGRANT EXECUTE ON dbo.probe_inj_dynamic TO probe_inj_reader;\nEXECUTE AS USER = 'probe_inj_reader';\nEXEC dbo.probe_inj_dynamic;",
+                "expect": {
+                      "error": 229
+                },
+                "why": "Section 4 made executable. Microsoft Learn states that executing dynamically created SQL in procedural code breaks the ownership chain, so the engine checks the caller against every object the dynamic statement touches. The caller holds EXECUTE on the procedure and nothing on the table, and a fully parameterised dynamic statement still fails: Msg 229, the SELECT permission was denied on the object. This is the measurement behind the claim that parameterising does not restore the chain."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_inj_ledger_owner (id int NOT NULL PRIMARY KEY);\nINSERT INTO dbo.probe_inj_ledger_owner (id) VALUES (1);\nCREATE USER probe_inj_reader_owner WITHOUT LOGIN;\nEXEC sys.sp_executesql N'CREATE PROCEDURE dbo.probe_inj_as_owner WITH EXECUTE AS OWNER AS EXEC sp_executesql N''SELECT COUNT(*) AS n, CURRENT_USER AS running_as FROM dbo.probe_inj_ledger_owner'';';\nGO\nGRANT EXECUTE ON dbo.probe_inj_as_owner TO probe_inj_reader_owner;\nEXECUTE AS USER = 'probe_inj_reader_owner';\nEXEC dbo.probe_inj_as_owner;",
+                "expect": {
+                      "rows": [
+                            [
+                                  1,
+                                  "dbo"
+                            ]
+                      ]
+                },
+                "why": "The remedy, and its cost, in one result. The identical procedure with WITH EXECUTE AS OWNER returns the row the previous probe was refused, and CURRENT_USER inside it reports dbo rather than the caller. Microsoft Learn states that some functions returning the identity of the user return the user named in the EXECUTE AS clause, not the original caller, and that this can break applications relying on row level security. The second column is why the skill sends a reader to rls-multi-tenant before adding this clause."
+          }
+    ,
+          {
+            "sql": "CREATE TABLE dbo.probe_psi_id (i int, d date);\nGO\nSELECT CASE WHEN 1 = 1 THEN i ELSE d END AS x FROM dbo.probe_psi_id;",
+            "expect": {
+              "error": 206
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A mixed type CASE over int and date is an operand type clash at compile time, the first of the three numbers that mean a CASE is doing the type coercion a developer thought was safe. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_psi_sd (d date, s nvarchar(20), pick int);\nINSERT INTO dbo.probe_psi_sd VALUES ('2026-01-01', N'abc', 1);\nGO\nSELECT CASE WHEN pick = 1 THEN s ELSE d END AS x FROM dbo.probe_psi_sd;",
+            "expect": {
+              "error": 241
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. String against date resolves to the date side and fails converting, which is a run time failure on the data and not a compile time one. The row is inserted here so the conversion is actually attempted. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_psi_is (i int, s nvarchar(20), pick int);\nINSERT INTO dbo.probe_psi_is VALUES (1, N'abc', 0);\nGO\nSELECT CASE WHEN pick = 1 THEN i ELSE s END AS x FROM dbo.probe_psi_is;",
+            "expect": {
+              "error": 245
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Int against string resolves to int and fails on the value, the third number. The skill's rule is that any of 206, 241 or 245 means a mixed type CASE, and these three probes are that rule made executable. It goes red if the statement succeeds, or fails with any other number."
+          }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Why did my QUOTENAME-based dynamic SQL run successfully but return nothing, when the table name is unusually long?",
+      "Write a dynamic ORDER BY for Azure SQL Database that lets the caller sort by any column, including a date column, without hitting an operand type clash",
+      "Is it safe to build my table name with QUOTENAME before running it with sp_executesql?",
+      "My sort-by-column endpoint throws Msg 241 the first time someone asks to sort by the date column, but every other column works"
+    ],
+    "implicit": [
+      "sp_executesql completed with no error and no rows, and the object name it built is over 100 characters",
+      "our generic ORDER BY CASE worked in every test until QA sorted by created_date instead of name",
+      "Conversion failed when converting date and/or time from character string, and the query has a CASE in its ORDER BY",
+      "customers with very long generated names get zero rows back with no error at all, and it only started once names got long"
+    ],
+    "negative": [
+      "Set up row-level security so one tenant can never see another tenant's rows",
+      "Escape the user's comment before we render it back into the HTML page",
+      "My Postgres app uses $1 placeholders, what is the equivalent when I port these queries",
+      "Rotate the database password our app connects with and keep it out of source control",
+      "Clean up the CSV before we load it into the table",
+      "Grant the reporting team read access to just two tables and nothing else"
+    ]
+  }
+}

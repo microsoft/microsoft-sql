@@ -1,0 +1,101 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "azuresql-db-import",
+  "domain": "azure-sql-database-container",
+  "value": [
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "multi-step-with-silent-failures"
+  ],
+  "correction": "Handed a .bacpac, an agent reaches for RESTORE. The engine rejects RESTORE with Msg 40510, because it is the Azure SQL Database engine rather than SQL Server. Import is SqlPackage against a database that has already been created on master.",
+  "posture": [
+    "read",
+    "write",
+    "execute",
+    "provision"
+  ],
+  "maturity": "preview",
+  "value_declaration": {
+    "rationale": "This skill's kernel is that the route an agent reaches for does not exist here, and that two actions of the replacement tool differ in whether they create the target. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach SqlPackage command-line syntax and the bacpac and dacpac formats, which are publicly documented, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted.",
+    "covers": [
+      "there being no restore path on this engine, with BACKUP and RESTORE refused with Msg 40510",
+      "/Action:Import not creating its target, so the database must exist and be empty first, where /Action:Publish does create it",
+      "SqlPackage not being present inside the image, so it runs from the host against the published port",
+      "USE being refused with Msg 40508 during provisioning"
+    ],
+    "does_not_cover": [
+      "SqlPackage command-line syntax and the bacpac and dacpac formats",
+      "general data-migration sequencing advice"
+    ],
+    "decided_by": "Carlos Robles",
+    "decided_on": "2026-09-04",
+    "expires_when": "the-container-reaches-public-preview"
+  },
+  "applies_to": [
+    "azure-sql-db-container"
+  ],
+  "validation": {
+    "target": "container",
+    "assert": [
+      "uses SqlPackage rather than RESTORE",
+      "target database created on master first"
+    ],
+    "probes": [
+      {
+        "sql": "SELECT CAST(SERVERPROPERTY('EngineEdition') AS int) AS engine_edition, CAST(SERVERPROPERTY('Edition') AS nvarchar(128)) AS edition;",
+        "expect": {
+          "rows": [
+            [
+              5,
+              "SQL Azure"
+            ]
+          ]
+        },
+        "why": "The self-check the skill puts in front of every other instruction. Engine edition 5 with edition 'SQL Azure' is the Azure SQL Database engine; the SQL Server image mcr.microsoft.com/mssql/server returns different values, so any other answer means the lane ran against the wrong engine and every probe below it is measuring something else."
+      },
+      {
+        "sql": "USE master;",
+        "expect": {
+          "error": 40508
+        },
+        "why": "The skill states that in a user-database session USE returns Msg 40508, exactly as in Azure SQL Database in the cloud, and that the fix is always to select the database in the connection string. Every probe here runs against a scratch user database, which is the session where the Azure statement filter is enforced. If this ever succeeds, the filter is not being applied to the lane's session and the skill's central connection-model rule has stopped being true locally."
+      },
+      {
+        "sql": "DECLARE @stmt nvarchar(max) = N'RESTORE DATABASE ' + QUOTENAME(DB_NAME()) + N' FROM DISK = ''/var/opt/mssql/data/probe_restore.bak''';\nEXEC (@stmt);",
+        "expect": {
+          "error": 40510
+        },
+        "why": "This skill exists because there is no restore path on this engine, and an agent's first instinct is a .bak file. The azuresql-db-container skill records BACKUP and RESTORE as unsupported in any session with Msg 40510, the number that refuses a whole statement rather than one option of a supported one, and matching Azure SQL Database in the cloud. The database name is built from DB_NAME() so the refusal is measured against the scratch database this lane holds. If this ever stops being 40510, the recommendation to reach for SqlPackage stops being forced and the skill should say so."
+      },
+      {
+        "cmd": "SqlPackage /version",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "SqlPackage is a host tool, installed with dotnet tool install -g microsoft.sqlpackage, and the skill's import commands are written to run on the developer's machine against the mapped host port. Declaring host here is the point of the probe: five probes elsewhere in this corpus shipped without the field and every one failed with command not found, because they were written by running the tool on a laptop and then executed inside a container. A red here means the lane's host has no SqlPackage installed, which is a finding about the lane rather than about the engine."
+      },
+      {
+        "cmd": "test ! -e /opt/sqlpackage",
+        "where": "container",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "references/sqlpackage-import.md states plainly that the container image does not ship SqlPackage and that the simplest supported path is to install it on the host. This is the container half of that claim, and it is evidence rather than proof: a future image could ship the tool at some other path and this probe would still pass. Read a red here as the image having gained a bundled SqlPackage, which would make the reference's container-based fallback section wrong in a useful direction."
+      }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the azuresql-db-import skill"
+    ],
+    "implicit": [
+      "I have a bacpac from prod, load it locally"
+    ],
+    "negative": [
+      "set up a local PostgreSQL database with docker compose",
+      "provision an Azure SQL Database in my subscription",
+      "connect to SQL Server on my company network"
+    ]
+  }
+}

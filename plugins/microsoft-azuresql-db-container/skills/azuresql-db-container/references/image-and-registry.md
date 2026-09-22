@@ -1,0 +1,79 @@
+# Image and registry (single source of truth)
+
+This is the canonical source for the image tag and how to sign in. Other skills
+link here instead of repeating the tag.
+
+## The image
+
+```
+sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest
+```
+
+- This is the **Azure SQL Database engine** (Private Preview), EngineEdition 5,
+  Edition `'SQL Azure'`.
+- It is **x64 only** (`linux/amd64`). On a non-x64
+  host, run under emulation by adding `--platform linux/amd64`.
+- The registry host and tag are **provisional during Private Preview** and may
+  change. Treat this file as the place to update if they do.
+
+## This is NOT the SQL Server image
+
+Do not substitute `mcr.microsoft.com/mssql/server`. That is SQL Server and reports a different EngineEdition. If a task pulled the SQL Server image,
+stop and switch to the image above.
+
+## Sign in to the private registry (Path B: external access)
+
+The external access path pulls from the preview registry
+`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io` (image
+`azure-sql/db-dev`, rolling tag `latest`) using a shared,
+pull-only username and password.
+
+The credentials are provided when you sign up for the Private Preview at
+https://aka.ms/sqldbcontainerpreview-signup. They are pull-only and may be
+rotated during the preview, so treat them as secrets and do not redistribute.
+Sign in and enter the password
+when prompted:
+
+```bash
+docker login sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io -u <username>
+```
+
+Podman:
+
+```bash
+podman login sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io -u <username>
+```
+
+After a successful login, `docker pull` (or the `docker run` in the canonical
+recipe) can fetch the image. If a pull returns "unauthorized" or "manifest
+unknown", re-run the login above with the shared pull-only credentials from your
+sign-up, which may have been rotated.
+
+## Get or refresh the latest image
+
+The Private Preview image is rebuilt **almost daily**. `:latest` is a moving tag, but Docker's default pull
+policy for `docker run` is `missing`: once a `:latest` is on disk, `docker run` **reuses the cached copy** and
+never re-checks the registry. So after your first pull you keep running that build until you pull again, which
+means you can silently miss engine fixes. Pull explicitly to refresh:
+
+```bash
+docker pull sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest
+```
+
+On a non-x64 host:
+
+```bash
+docker pull --platform linux/amd64 \
+  sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest
+```
+
+`docker pull` re-fetches `:latest` and updates the local image if the registry has a newer build (the image ID
+changes); if you are already current it is a no-op. Prefer an explicit pull over `docker run --pull always`,
+which would re-check the registry on every start and break the offline-development flow after the first pull.
+For compose, `docker compose pull` (or `pull_policy: always` on the service) does the same.
+
+## Do not
+
+- Do not use `mcr.microsoft.com/mssql/server`.
+- The image ships a single x64 (`linux/amd64`) build; there is no other tag.
+- Do not hardcode the registry host in many places; reference this file.

@@ -1,0 +1,211 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "rag-on-azure-sql",
+  "domain": "ai-vector-and-rag",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
+  "correction": "Agents build retrieval augmented generation on Azure SQL Database by porting a vector store recipe: one chunk table holding extracted text and one embedding column, retrieved with the application's identity, top k pasted into the prompt. It demonstrates correctly and then fails in two ways that raise nothing. First, the chunk table is a second copy of the source text, so the row level security policy, the tenant column and the grants that protected the original table do not apply to it, and a retrieval that is otherwise perfect puts text the asking user may not read into the prompt where the model quotes it back; and the obvious repair is not available: measured 2026-09-03, CREATE SECURITY POLICY against a table carrying a vector index is refused outright with Msg 37579, 'the security policy cannot reference tables with vector indexes', so the chunk table cannot be given a predicate at all and the tenant filter inside the retrieval query is the entire boundary, held up by a test rather than by the engine. Microsoft Learn documents neither the refusal nor the error number, on the CREATE VECTOR INDEX limitations list or on the vector type's limitations page, as of 2026-09-03. Second, nothing records which model produced each stored vector, because a vector column carries a dimension count and a base type and nothing else, and the two most widely used embedding models both emit 1536 dimensions, so re-embedding part of a corpus with a different model inserts cleanly, matches on dimension and leaves two incompatible geometries in one column whose only symptom is that answers get worse. Being wrong costs a data leak that reads as a correct answer and a corpus whose retrieval quality decays with nothing to point at.",
+  "value_probe": {
+    "gate": "The answer treats an engine enforced predicate on the indexed chunk table as unavailable and puts the tenant boundary somewhere that actually holds, rather than handing over a policy definition the engine will refuse, and it explains the quality drop as two incompatible sets of vectors in one column.",
+    "task": "We run a multi-tenant support desk product on Azure SQL Database. Every customer's documents live in dbo.documents, which is protected so a tenant can only ever read its own rows. For the new assistant feature we built dbo.doc_chunks, holding chunk text, tenant_id and an embedding column, with the index that makes retrieval fast, and the app pulls the closest chunks and pastes them into the prompt.\n\nTwo problems. First, our security reviewer will not sign off until the tenant boundary on the chunk table is enforced by the database itself rather than by a WHERE clause the application has to remember. Second, about a third of the corpus was re-embedded a few weeks ago after we switched to a newer model with the same output size, and since then the assistant cites the wrong document noticeably more often, though nothing errors and every row count is right.\n\nTell us how to enforce the boundary, and what is going on with the answer quality.",
+    "states": [
+      "The engine refuses to attach a security policy to a table that carries a vector index, so that repair is not available on this table.",
+      "With the engine side predicate unavailable, the tenant filter written into the retrieval query is the entire boundary and is held up by review and tests rather than by the engine.",
+      "The chunk table is a second copy of the source text and inherits none of the protections that guarded the original table.",
+      "A vector column records only a dimension count and a base type, so nothing in the schema records which model produced each stored vector.",
+      "Vectors from two different embedding models of the same width insert cleanly and coexist in one column, and the only symptom is that answers get worse."
+    ],
+    "refutes": [
+      "A security policy with a filter predicate can be created on this chunk table to enforce the tenant boundary despite the vector index on it.",
+      "Two embeddings with the same number of dimensions are interchangeable, so mixing the output of two models in one column is harmless.",
+      "The chunk table inherits the predicates, grants and protections of the source table the text was extracted from.",
+      "A retrieval that returns text the asking user is not entitled to read will surface as an error or an empty result rather than as a confident answer."
+    ]
+  },
+  "posture": ["read", "write", "execute"],
+  "maturity": "preview",
+  "applies_to": ["azure-sql-db"],
+  "related": [
+    "vector-search-azure-sql",
+    "embeddings-and-external-models",
+    "rag-local-with-container",
+    "langchain-and-llamaindex-on-azure-sql",
+    "chunking-strategies",
+    "design-azure-sql-schema",
+    "connect-to-azure-sql",
+    "rls-multi-tenant",
+    "full-text-and-hybrid-ranking",
+    "diagnose-vector-recall-drop",
+    "azuresql-db-rag"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a database reachable with permission to create tables, indexes and a security policy",
+      "a source table of documents and an embedding model whose output dimension the engine can store"
+    ],
+    "assert": [
+      "the declared vector dimension equals the dimension requested from the model, and is within the engine's 1998 ceiling",
+      "every embedded row carries the model name, the dimension and a timestamp, and grouping by the model column returns exactly one row",
+      "the chunk table has a clustered primary key, a unique key on the chunk identity, and an index on the columns retrieval filters by",
+      "re-running the ingest over unchanged source text embeds nothing",
+      "the retrieval query carries the permission filter itself, and a test fails when that filter is removed, because no security policy can be created on the vector-indexed table to back it up",
+      "the question is embedded with the same model as the corpus",
+      "the vector index is created after the load rather than imported as part of a schema package",
+      "the retrieved chunk identifiers are logged alongside the generated answer",
+      "no source document or test fixture in the repository contains real customer data"
+    ],
+    "probes":
+    [
+        {
+            "sql": "CREATE TABLE dbo.probe_rag_docs (document_id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, tenant_id int NOT NULL, body nvarchar(max) NOT NULL);\nCREATE TABLE dbo.probe_rag_chunks (\n  chunk_id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED,\n  document_id int NOT NULL REFERENCES dbo.probe_rag_docs (document_id),\n  tenant_id int NOT NULL,\n  ordinal int NOT NULL,\n  chunk_text nvarchar(max) NOT NULL,\n  source_hash binary(32) NOT NULL,\n  embed_model sysname NOT NULL,\n  embed_dims smallint NOT NULL,\n  embedded_at datetime2(3) NULL,\n  embedding vector(1536) NULL);\nCREATE UNIQUE INDEX ux_probe_rag_identity ON dbo.probe_rag_chunks (document_id, ordinal);\nCREATE INDEX ix_probe_rag_tenant ON dbo.probe_rag_chunks (tenant_id);\nCREATE INDEX ix_probe_rag_pending ON dbo.probe_rag_chunks (chunk_id) WHERE embedded_at IS NULL;\nSELECT COUNT(*) AS work_queue_index_is_filtered\nFROM sys.indexes\nWHERE name = 'ix_probe_rag_pending' AND has_filter = 1;",
+            "expect": {
+                "rows": [
+                    [
+                        1
+                    ]
+                ]
+            },
+            "why": "The whole of step 2, made executable: the two table schema with the vector column, the identity key and the three indexes is creatable exactly as printed. It also pins the one design choice a reader is likely to undo, which is that the work queue is a filtered index on embedded_at and not on the vector column, so its predicate is an ordinary column and no claim about filtering on a vector is being made. An earlier revision of this skill declared embedded_at NOT NULL in SKILL.md and NULL in its reference file while the ingest supplied neither, which this probe would have caught."
+        },
+        {
+            "sql": "DECLARE @chunk nvarchar(max) = REPLICATE(CAST(N'x' AS nvarchar(max)), 20000);\nSELECT DATALENGTH(@chunk) AS input_bytes,\n       DATALENGTH(HASHBYTES('SHA2_256', @chunk)) AS hash_bytes;",
+            "expect": {
+                "rows": [
+                    [
+                        40000,
+                        32
+                    ]
+                ]
+            },
+            "why": "source_hash is the only deduplication key available, because there is no equality operator on a vector, so it has to survive a real chunk rather than a short one. Microsoft Learn's HASHBYTES page scopes the 8,000 byte input limit to releases older than this engine and gives SHA2_256 as 256 bits, which is the 32 here. The CAST on the first argument is deliberate: REPLICATE(N'x', 20000) without it returns nvarchar(4000) and the probe would silently measure a short string."
+        },
+        {
+            "sql": "CREATE TABLE dbo.probe_rag_src (id int NOT NULL PRIMARY KEY, tenant_id int NOT NULL);\nCREATE TABLE dbo.probe_rag_copy (id int NOT NULL PRIMARY KEY, tenant_id int NOT NULL);\nINSERT INTO dbo.probe_rag_src (id, tenant_id) VALUES (1,1),(2,1),(3,2),(4,2);\nINSERT INTO dbo.probe_rag_copy (id, tenant_id) VALUES (1,1),(2,1),(3,2),(4,2);\nGO\nCREATE FUNCTION dbo.fn_probe_rag_src_tenant (@tenant_id int)\nRETURNS TABLE WITH SCHEMABINDING\nAS RETURN SELECT 1 AS is_visible WHERE @tenant_id = CAST(SESSION_CONTEXT(N'tenant_id') AS int);\nGO\nCREATE SECURITY POLICY dbo.probe_rag_src_policy\n  ADD FILTER PREDICATE dbo.fn_probe_rag_src_tenant (tenant_id) ON dbo.probe_rag_src\n  WITH (STATE = ON);\nGO\nEXEC sys.sp_set_session_context @key = N'tenant_id', @value = 1;\nSELECT (SELECT COUNT(*) FROM dbo.probe_rag_src)  AS visible_in_the_source,\n       (SELECT COUNT(*) FROM dbo.probe_rag_copy) AS visible_in_the_copy;",
+            "expect": {
+                "rows": [
+                    [
+                        2,
+                        4
+                    ]
+                ]
+            },
+            "why": "Failure 1 with nothing else in the way. The two tables hold identical rows for two tenants and the policy is on one of them, which is what a pipeline that chunks dbo.documents into dbo.document_chunks and protects only the first has built. Two rows are visible in the protected table and all four in the copy, with no error and no warning anywhere. Microsoft Learn's row level security page states that a policy applies to all users including dbo, so this leak is not an artifact of the probe running with an administrative connection."
+        },
+        {
+              "sql": "CREATE TABLE dbo.probe_rag_rls (chunk_id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, tenant_id int NOT NULL, embedding vector(5) NOT NULL);\nINSERT INTO dbo.probe_rag_rls (tenant_id, embedding)\nSELECT (value % 2) + 1,\n       CAST(JSON_ARRAY(CAST(value * 0.01 AS float), CAST(value * 0.02 AS float), CAST(value * 0.03 AS float), CAST(value * 0.04 AS float), CAST(value * 0.05 AS float)) AS vector(5))\nFROM GENERATE_SERIES(1, 200);\nGO\nCREATE VECTOR INDEX vi_probe_rag_rls ON dbo.probe_rag_rls (embedding) WITH (METRIC = 'cosine', TYPE = 'diskann');\nGO\nCREATE FUNCTION dbo.fn_probe_rag_tenant (@tenant_id int)\nRETURNS TABLE WITH SCHEMABINDING\nAS RETURN SELECT 1 AS is_visible WHERE @tenant_id = CAST(SESSION_CONTEXT(N'tenant_id') AS int);\nGO\nCREATE SECURITY POLICY dbo.probe_rag_policy\n  ADD FILTER PREDICATE dbo.fn_probe_rag_tenant (tenant_id) ON dbo.probe_rag_rls\n  WITH (STATE = ON);",
+              "expect": {
+                  "error": 37579
+              },
+              "why": "The repair a reader reaches for, refused by the engine. An earlier revision of this skill asserted the opposite, that a filter predicate on the chunk table is honoured through approximate vector search, and this probe run on 2026-09-03 answered Msg 37579, 'the security policy cannot reference tables with vector indexes'. That measurement is why step 6 now says the query's WHERE clause is the whole tenant boundary and has to carry a test. Microsoft Learn documents neither the refusal nor the number: as of 2026-09-03 the CREATE VECTOR INDEX limitations list names partitioning, the clustered primary key, replication, TRUNCATE TABLE and package import, and the vector type's limitations page names constraints, indexes, ledger tables and Always Encrypted, and neither mentions security policies. So if this probe ever passes, the product moved and the skill can be relaxed rather than the probe being wrong. Creating the policy BEFORE the index was not measured and nothing here claims anything about that order."
+          },
+        {
+            "sql": "CREATE TABLE dbo.probe_rag_merge (\n  document_id int NOT NULL, ordinal int NOT NULL,\n  chunk_text nvarchar(max) NOT NULL, source_hash binary(32) NOT NULL,\n  embedded_at datetime2(3) NULL,\n  PRIMARY KEY CLUSTERED (document_id, ordinal));\nDECLARE @incoming TABLE (ordinal int, chunk_text nvarchar(max));\nINSERT INTO @incoming (ordinal, chunk_text) VALUES (1, N'alpha'), (2, N'beta');\nMERGE dbo.probe_rag_merge AS target\nUSING (SELECT 1 AS document_id, i.ordinal, i.chunk_text, HASHBYTES('SHA2_256', i.chunk_text) AS source_hash FROM @incoming AS i) AS source\n   ON target.document_id = source.document_id AND target.ordinal = source.ordinal\nWHEN MATCHED AND target.source_hash <> source.source_hash THEN\n  UPDATE SET chunk_text = source.chunk_text, source_hash = source.source_hash, embedded_at = NULL\nWHEN NOT MATCHED BY TARGET THEN\n  INSERT (document_id, ordinal, chunk_text, source_hash) VALUES (source.document_id, source.ordinal, source.chunk_text, source.source_hash);\nUPDATE dbo.probe_rag_merge SET embedded_at = SYSUTCDATETIME();\nMERGE dbo.probe_rag_merge AS target\nUSING (SELECT 1 AS document_id, i.ordinal, i.chunk_text, HASHBYTES('SHA2_256', i.chunk_text) AS source_hash FROM @incoming AS i) AS source\n   ON target.document_id = source.document_id AND target.ordinal = source.ordinal\nWHEN MATCHED AND target.source_hash <> source.source_hash THEN\n  UPDATE SET chunk_text = source.chunk_text, source_hash = source.source_hash, embedded_at = NULL\nWHEN NOT MATCHED BY TARGET THEN\n  INSERT (document_id, ordinal, chunk_text, source_hash) VALUES (source.document_id, source.ordinal, source.chunk_text, source.source_hash);\nSELECT COUNT(*) AS chunks,\n       SUM(CASE WHEN embedded_at IS NULL THEN 1 ELSE 0 END) AS re_queued_for_embedding\nFROM dbo.probe_rag_merge;",
+            "expect": {
+                "rows": [
+                    [
+                        2,
+                        0
+                    ]
+                ]
+            },
+            "why": "Idempotency, which is the difference between re-embedding what changed and re-embedding a corpus every night for money. The ingest runs twice over identical text with the embedding pass simulated in between, and nothing is queued again, because the WHEN MATCHED branch is guarded by the hash rather than firing on every match. A skill that says an ingest should be idempotent and never shows the guard has left the reader to discover that an unguarded UPDATE nulls every vector it touches."
+        },
+        {
+            "sql": "CREATE TABLE dbo.probe_rag_order (chunk_id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, ordinal int NOT NULL, embedding vector(5) NOT NULL);\nINSERT INTO dbo.probe_rag_order (ordinal, embedding)\nSELECT value,\n       CAST(JSON_ARRAY(CAST(value * 0.01 AS float), CAST(value * 0.02 AS float), CAST(value * 0.03 AS float), CAST(value * 0.04 AS float), CAST(value * 0.05 AS float)) AS vector(5))\nFROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX vi_probe_rag_order ON dbo.probe_rag_order (embedding) WITH (METRIC = 'cosine', TYPE = 'diskann');\nGO\nDECLARE @q vector(5) = '[0.3,0.3,0.3,0.3,0.3]';\nSELECT TOP (5) WITH APPROXIMATE t.chunk_id, t.ordinal, r.distance\nFROM VECTOR_SEARCH(TABLE = dbo.probe_rag_order AS t, COLUMN = embedding, SIMILAR_TO = @q, METRIC = 'cosine') AS r\nORDER BY r.distance, t.ordinal;",
+            "expect": {
+                "error": 42271
+            },
+            "why": "The instinct this pipeline produces and the engine refuses. Grounding wants the retrieved chunks in reading order, so an author adds the ordinal to the ORDER BY of the retrieval query, and Microsoft Learn's VECTOR_SEARCH page states that TOP WITH APPROXIMATE requires ORDER BY on the distance column ascending and no other columns, Msg 42271, with Msg 42248 when ORDER BY is dropped altogether. That is why step 6 sorts into reading order in an outer query instead."
+        },
+        {
+            "sql": "CREATE TABLE dbo.probe_rag_mixed (chunk_id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, embed_model sysname NOT NULL, embed_dims smallint NOT NULL, embedding vector(3) NOT NULL);\nINSERT INTO dbo.probe_rag_mixed (embed_model, embed_dims, embedding)\nVALUES (N'model-a', 3, '[1,2,3]'), (N'model-a', 3, '[1,2,4]'), (N'model-b', 3, '[4,5,6]');\nSELECT COUNT(*) AS distinct_model_dimension_pairs\nFROM (SELECT embed_model, embed_dims FROM dbo.probe_rag_mixed GROUP BY embed_model, embed_dims) AS m;",
+            "expect": {
+                "rows": [
+                    [
+                        2
+                    ]
+                ]
+            },
+            "why": "Failure 2, and the reason check 1 in the skill exists. A second model's vectors go into the same column with no error, no warning and no dimension complaint, because the column carries a dimension and a base type and nothing else. The provenance columns are the only thing in the database that can see it, and this probe is the group by from the skill returning the two rows that mean every distance across them is meaningless."
+        },
+        {
+            "sql": "CREATE TABLE dbo.probe_rag_pol (id int NOT NULL PRIMARY KEY, tenant_id int NOT NULL);\nGO\nCREATE FUNCTION dbo.fn_probe_rag_pol (@tenant_id int)\nRETURNS TABLE WITH SCHEMABINDING\nAS RETURN SELECT 1 AS is_visible WHERE @tenant_id = CAST(SESSION_CONTEXT(N'tenant_id') AS int);\nGO\nCREATE SECURITY POLICY dbo.probe_rag_pol_policy\n  ADD FILTER PREDICATE dbo.fn_probe_rag_pol (tenant_id) ON dbo.probe_rag_pol\n  WITH (STATE = ON);\nGO\nSELECT OBJECT_NAME(sp.target_object_id) AS protected_table, sp.predicate_type_desc, p.is_enabled\nFROM sys.security_predicates AS sp\nJOIN sys.security_policies AS p ON p.object_id = sp.object_id\nWHERE OBJECT_NAME(sp.target_object_id) = 'probe_rag_pol';",
+            "expect": {
+                "rows": [
+                    [
+                        "probe_rag_pol",
+                        "FILTER",
+                        1
+                    ]
+                ]
+            },
+            "why": "Check 2 in the skill is the one that catches failure 1 before a user does, so the diagnostic itself is asserted rather than only the defect it finds. The column names and the join come from Microsoft Learn's sys.security_predicates and sys.security_policies pages: target_object_id is the protected table, predicate_type_desc is FILTER or BLOCK, and is_enabled lives on the policy rather than the predicate, which is the mistake that would make the check report a disabled policy as enforcing."
+        }
+    ,
+          {
+            "sql": "CREATE TABLE dbo.probe_rag_99 (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_rag_99 (v) SELECT CAST(JSON_ARRAY(CAST(value AS float), 1.0, 2.0) AS vector(3)) FROM GENERATE_SERIES(1, 99);\nGO\nCREATE VECTOR INDEX probe_rag_99_ix ON dbo.probe_rag_99 (v) WITH (METRIC = 'cosine', TYPE = 'diskann');",
+            "expect": {
+              "error": 42266
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The 100 row minimum, which is why the index belongs to the load step and not to the schema. A fresh database has no index until it has content and every query is silently exact until then. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_rag_tr (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_rag_tr (v) SELECT CAST(JSON_ARRAY(CAST(value AS float), 1.0, 2.0) AS vector(3)) FROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX probe_rag_tr_ix ON dbo.probe_rag_tr (v) WITH (METRIC = 'cosine', TYPE = 'diskann');\nGO\nTRUNCATE TABLE dbo.probe_rag_tr;",
+            "expect": {
+              "error": 42232
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. TRUNCATE is refused once the index exists, which is the step a re-embedding pipeline written before the index was added will hit. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_rag_sk (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, ordinal int NOT NULL, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_rag_sk (ordinal, v) SELECT value, CAST(JSON_ARRAY(CAST(value AS float), 1.0, 2.0) AS vector(3)) FROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX probe_rag_sk_ix ON dbo.probe_rag_sk (v) WITH (METRIC = 'cosine', TYPE = 'diskann');\nGO\nDECLARE @q vector(3) = N'[1,1,2]';\nSELECT TOP (3) WITH APPROXIMATE t.id, r.distance\nFROM VECTOR_SEARCH(TABLE = dbo.probe_rag_sk AS t, COLUMN = v, SIMILAR_TO = @q, METRIC = 'cosine') AS r\nORDER BY r.distance, t.ordinal;",
+            "expect": {
+              "error": 42271
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Adding the chunk ordinal as a second sort key is refused. The skill's point is that reading chunks back in order has to happen outside the approximate search, and this is the number that says so. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_rag_ap (id int NOT NULL PRIMARY KEY CLUSTERED, v vector(3) NOT NULL);\nSELECT TOP (2) WITH APPROXIMATE id FROM dbo.probe_rag_ap ORDER BY id;",
+            "expect": {
+              "error": 42248
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. And dropping the VECTOR_SEARCH instead is refused too, so neither half of the obvious repair works. It goes red if the statement succeeds, or fails with any other number."
+          }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the rag-on-azure-sql skill",
+      "Build a retrieval augmented generation pipeline on Azure SQL Database",
+      "Let users chat with our document library stored in Azure SQL Database",
+      "Add semantic search over the documents table in Azure SQL Database",
+      "How do I keep embeddings in sync when the source rows change"
+    ],
+    "implicit": [
+      "we switched embedding models last month and the answers got worse for no reason",
+      "our assistant quoted a document that user was not supposed to see",
+      "how many chunks should I put in the prompt and how do I cite them",
+      "do I re-embed everything every night or only what changed",
+      "where should the tenant filter go in a retrieval query",
+      "we want to replace our separate vector database and keep the documents in Azure SQL Database",
+      "the assistant answers confidently even when the retrieved context says nothing useful",
+      "how do I re-embed a whole corpus with a new model without downtime"
+    ],
+    "routing": [
+      "add a question answering feature over our own content on Azure SQL Database",
+      "design the tables for a document assistant backed by Azure SQL Database",
+      "productionise a RAG prototype that currently keeps embeddings in files"
+    ],
+    "negative": [
+      "What are the restrictions on the vector data type in Azure SQL Database",
+      "Why does my similarity query scan the whole table instead of using the vector index",
+      "Show me the syntax for VECTOR_DISTANCE and the distance metrics",
+      "Create an external model and call the embedding function from T-SQL",
+      "Which permissions does an external model endpoint need and how does the allowlist work",
+      "Run a local RAG prototype offline against the Azure SQL Database container",
+      "Build a RAG scenario on the container",
+      "Set up full text search and rank the results",
+      "Add retry and connection pooling to my data access layer",
+      "Design the schema for my orders and customers tables"
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "microsoft-sql-vscode",
+  "version": "0.1.0",
+  "description": "From the Microsoft SQL product team. Application work on Azure SQL Database in Visual Studio Code: connections and drivers, schema and ORMs, T-SQL, vector search and RAG, Azure Functions bindings, and database projects.",
+  "author": {
+    "name": "Microsoft SQL",
+    "url": "https://microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/microsoft-sql",
+  "repository": "https://github.com/microsoft/microsoft-sql",
+  "license": "MIT",
+  "keywords": [
+    "microsoft-sql",
+    "azure-sql",
+    "sql",
+    "database",
+    "tsql",
+    "agent-skills",
+    "vector-search",
+    "entra-id"
+  ]
+}

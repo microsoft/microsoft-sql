@@ -11,11 +11,12 @@
 // manifests hide in dot-directories as .json. Generating them from one source
 // makes drift a build failure instead of a discovery.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, rmSync, cpSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 
 const CATALOG = JSON.parse(readFileSync('catalog/catalog.json', 'utf8'));
 const TAXONOMY = JSON.parse(readFileSync('catalog/taxonomy.json', 'utf8'));
+const SCOPED = JSON.parse(readFileSync('catalog/plugins.json', 'utf8')).plugins;
 const PKG = JSON.parse(readFileSync('package.json', 'utf8'));
 
 // Two names, because an install reads `<plugin>@<marketplace>` and Carlos chose
@@ -83,6 +84,49 @@ const domainOf = Object.fromEntries(TAXONOMY.domains.map((d) => [d.slug, d]));
 // Claude Code is the one target outside the Agent Plugins standard, so it keeps
 // its own marketplace format and its own enumerated skill paths.
 const skillPaths = present.map((p) => `./skills/${p.name}`);
+
+// ---------------------------------------------------------------------------
+// SCOPED PLUGINS. One folder per surface under plugins/, each carrying byte
+// copies of the skills catalog/plugins.json lists for it.
+//
+// WHY COPIES AND NOT A SKILL LIST IN A MANIFEST. Measured on 2026-09-21 across
+// four clients, twice:
+//
+//   entries at source "./" with their own `skills` array
+//     Claude Code honoured it. GitHub Copilot CLI printed a filtered count and
+//     then loaded all 57 under every entry. Cursor ignored the list. Codex
+//     refused the install outright, because a marketplace entry name must match
+//     the name inside that plugin's own plugin.json.
+//
+//   real folders holding symlinks back to skills/
+//     Claude Code and GitHub Copilot CLI correct. CODEX LOADED ZERO: it reports
+//     "Added plugin" and leaves an empty skills directory in its cache, with no
+//     error anywhere. Out on Windows too, where a clone with core.symlinks=false
+//     writes each link as a small text file holding the path.
+//
+//   real folders holding copies
+//     Claude Code, GitHub Copilot CLI, Codex and Cursor all load exactly the
+//     subset. This is why the content exists more than once on disk, and why
+//     there is still exactly one place a human edits it: skills/.
+//
+// The Agent Plugins specification does not describe a repository holding several
+// plugins, and has no marketplace concept at all. It describes one plugin as one
+// directory with plugin.json at its root and a fixed skills/ scan beneath it.
+// Each folder under plugins/ is therefore a conformant plugin in its own right,
+// and the per-client marketplace files are what tie them together.
+// ---------------------------------------------------------------------------
+const onDisk = new Set(present.map((p) => p.name));
+const fail = (msg) => { console.error(`x ${msg}`); process.exit(1); };
+for (const s of SCOPED) {
+  if (!/^[a-z0-9-]+$/.test(s.name)) fail(`plugin name "${s.name}" is not a lowercase slug`);
+  if (!s.skills.length) fail(`${s.name} lists no skills, so it would install nothing`);
+  const missing = s.skills.filter((id) => !onDisk.has(id));
+  if (missing.length) fail(`${s.name} lists ${missing.length} skill(s) with no content in skills/: ${missing.join(', ')}`);
+  const twice = s.skills.filter((id, i) => s.skills.indexOf(id) !== i);
+  if (twice.length) fail(`${s.name} lists ${twice.join(', ')} more than once`);
+  const banned = s.skills.filter((id) => (s.mustNotInclude ?? []).includes(id));
+  if (banned.length) fail(`${s.name} carries ${banned.join(', ')}, which its own mustNotInclude forbids`);
+}
 
 const KEYWORDS = ['microsoft-sql', 'azure-sql', 'sql', 'database', 'tsql', 'agent-skills', 'vector-search', 'entra-id'];
 // The single public-facing pitch. It reaches llms.txt, apm.yml, plugin.json,
@@ -265,8 +309,19 @@ emit('.claude-plugin/marketplace.json', j({
   name: MARKETPLACE_NAME,
   owner: { name: AUTHOR, url: REPO },
   metadata: { description: SUMMARY },
-  // Wave 2 adds one entry per persona, each with its own skills array.
-  plugins: [{ name: PLUGIN_NAME, displayName: STORE_NAME, source: './', description: SUMMARY, version: PKG.version, skills: skillPaths }],
+  plugins: [
+    { name: PLUGIN_NAME, displayName: STORE_NAME, source: './', description: SUMMARY, version: PKG.version, skills: skillPaths },
+    // The scoped plugins carry NO skills array. Their source is a real plugin
+    // folder, so the default skills/ scan inside it is the whole declaration,
+    // and that scan is the one thing all four clients agreed on.
+    ...SCOPED.map((s) => ({
+      name: s.name,
+      displayName: s.displayName,
+      source: `./plugins/${s.name}`,
+      description: s.description,
+      version: PKG.version,
+    })),
+  ],
 }));
 
 // PER-TOOL MANIFESTS, and why there are now two of them.
@@ -333,7 +388,19 @@ emit('.grok-plugin/marketplace.json', j({
   name: MARKETPLACE_NAME,
   description: SUMMARY,
   owner: { name: AUTHOR, url: REPO },
-  plugins: [{ name: PLUGIN_NAME, displayName: STORE_NAME, description: SUMMARY, category: 'databases', source: { type: 'local', path: './' } }],
+  plugins: [
+    { name: PLUGIN_NAME, displayName: STORE_NAME, description: SUMMARY, category: 'databases', source: { type: 'local', path: './' } },
+    // Listed for the same reason as the Claude Code entries. UNMEASURED: no Grok
+    // was installed when the scoped plugins were built, so this follows the
+    // documented source shape rather than an observed install.
+    ...SCOPED.map((s) => ({
+      name: s.name,
+      displayName: s.displayName,
+      description: s.description,
+      category: 'databases',
+      source: { type: 'local', path: `./plugins/${s.name}` },
+    })),
+  ],
 }));
 emit('.grok-plugin/plugin.json', j({ displayName: STORE_NAME, ...base, skills: 'skills/' }));
 
@@ -354,6 +421,60 @@ emit('plugin.json', JSON.stringify({
   license: 'MIT',
   keywords: KEYWORDS,
 }, null, 2) + '\n');
+
+// ---------------------------------------------------------------------------
+// The scoped plugins' own manifests. Four per folder, the same four the root
+// carries, so a scoped plugin is installable by every client the root is.
+//
+// The logo is COPIED into each folder rather than referenced. Those paths are
+// resolved relative to the plugin root, so a subfolder manifest pointing at
+// assets/plugin-logo.svg at the repository root resolves to nothing.
+//
+// No per-plugin apm.yml: `apm pack` packages one project, and the root is it.
+// ---------------------------------------------------------------------------
+const LOGO = readFileSync('assets/plugin-logo.svg', 'utf8');
+for (const s of SCOPED) {
+  const dir = `plugins/${s.name}`;
+  const sub = { ...base, name: s.name, description: s.description };
+  emit(`${dir}/plugin.json`, JSON.stringify({
+    $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',
+    name: s.name,
+    version: PKG.version,
+    description: s.description,
+    author: { name: AUTHOR, url: 'https://microsoft.com' },
+    homepage: HOMEPAGE,
+    repository: REPO,
+    license: 'MIT',
+    keywords: KEYWORDS,
+  }, null, 2) + '\n');
+  emit(`${dir}/.claude-plugin/plugin.json`, j({ displayName: s.displayName, ...sub }));
+  emit(`${dir}/.codex-plugin/plugin.json`, j({
+    ...sub,
+    skills: './skills/',
+    interface: {
+      displayName: s.displayName,
+      shortDescription: s.description,
+      category: 'Databases',
+      logo: 'assets/plugin-logo.svg',
+      composerIcon: 'assets/plugin-logo.svg',
+    },
+  }));
+  emit(`${dir}/.cursor-plugin/plugin.json`, j({ displayName: s.displayName, ...sub, skills: 'skills/', logo: 'assets/plugin-logo.svg' }));
+  emit(`${dir}/assets/plugin-logo.svg`, LOGO);
+  emit(`${dir}/README.md`, [
+    `# ${s.displayName}`,
+    '',
+    s.description,
+    '',
+    `Every file under this directory is GENERATED by scripts/generate.mjs from catalog/plugins.json`,
+    `and skills/. Edit the skill in skills/ and run \`npm run generate\`. A copy edited here fails the`,
+    'parity gate.',
+    '',
+    `Install it with \`${s.name}@${MARKETPLACE_NAME}\`. See the repository README for the commands your`,
+    'client uses.',
+    '',
+  ].join('\n'));
+}
 
 // ---------------------------------------------------------------------------
 // apm.yml, the OpenAPM manifest.
@@ -416,7 +537,100 @@ emit('plugin.json', JSON.stringify({
 // finding. It lands when the endpoint does.
 // ---------------------------------------------------------------------------
 
-let stale = 0;
+// ---------------------------------------------------------------------------
+// Materialise the scoped plugins' skills.
+//
+// emit() above writes single file bodies. A skill is a directory, so it needs
+// its own copy and its own comparison. Drift here rolls into the same counter
+// the manifests use, which is what puts it behind `npm test`.
+// ---------------------------------------------------------------------------
+let subsetStale = 0;
+const drift = (msg) => { subsetStale++; if (check) console.error(`x ${msg}`); };
+const listDir = (p) => (existsSync(p) ? readdirSync(p).filter((n) => n !== '.DS_Store').sort() : []);
+const flatten = (root, prefix = '') => {
+  const out = [];
+  for (const name of readdirSync(root).filter((n) => n !== '.DS_Store').sort()) {
+    const full = join(root, name);
+    if (statSync(full).isDirectory()) out.push(...flatten(full, `${prefix}${name}/`));
+    else out.push([`${prefix}${name}`, readFileSync(full)]);
+  }
+  return out;
+};
+
+for (const s of SCOPED) {
+  const dir = join('plugins', s.name, 'skills');
+  const want = [...s.skills].sort();
+  if (!check) { rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true }); }
+  const have = listDir(dir);
+  if (have.join(',') !== want.join(',')) drift(`${dir} holds [${have.join(', ')}], expected [${want.join(', ')}]`);
+  for (const id of want) {
+    const dest = join(dir, id);
+    const source = join('skills', id);
+    if (check) {
+      if (!existsSync(dest)) { drift(`${dest} is missing`); continue; }
+      const a = flatten(source);
+      const b = flatten(dest);
+      if (a.length !== b.length || a.some(([p, body], i) => b[i][0] !== p || !body.equals(b[i][1]))) {
+        drift(`${dest} differs from skills/${id}, so it was edited by hand or its source moved on`);
+      }
+    } else {
+      cpSync(source, dest, { recursive: true });
+    }
+  }
+  if (!check) console.log(`  wrote ${dir} (${want.length} skills)`);
+}
+
+// ORPHAN SWEEP. A plugin dropped from catalog/plugins.json leaves a folder that
+// nothing generates and nothing compares, so it would ship forever. The
+// manifest diff below cannot see it either: it only walks files we still emit.
+if (existsSync('plugins')) {
+  const known = new Set(SCOPED.map((s) => s.name));
+  for (const name of readdirSync('plugins').filter((n) => n !== '.DS_Store')) {
+    if (known.has(name)) continue;
+    if (check) drift(`plugins/${name} is not in catalog/plugins.json`);
+    else { rmSync(join('plugins', name), { recursive: true, force: true }); console.log(`  removed plugins/${name}, no longer in catalog/plugins.json`); }
+  }
+}
+
+// DANGLING REFERENCES, reported and not enforced. A skill body routes to other
+// skills by name. In a subset, a name can point at a skill the user did not
+// install, and the agent then sends them somewhere they cannot go. This is the
+// first thing that breaks when membership changes, and it is exactly how the
+// Data API builder problem was found. It does not fail the run, because the
+// right fix is sometimes to accept the reference and sometimes to move the
+// skill, and that is a person's call.
+// Every subset produces some of these, because the catalog is densely
+// cross-referenced by design: a skill hands the part of a task it does not own
+// to the skill that does. Measured 2026-09-22 across these three plugins: 48
+// skills name at least one absent skill, and the single biggest contributor is
+// the azure-sql router, which almost every skill points at and which ships in
+// the full plugin only. So the default is a count per plugin, and --dangling
+// prints the list. A wall of 48 lines on every generate would be read once.
+const dangling = [];
+for (const s of SCOPED) {
+  const carried = new Set(s.skills);
+  for (const id of s.skills) {
+    const body = readFileSync(join('skills', id, 'SKILL.md'), 'utf8');
+    const named = present
+      .map((p) => p.name)
+      .filter((other) => other !== id && !carried.has(other))
+      .filter((other) => new RegExp(`(^|[^a-z0-9-])${other}([^a-z0-9-]|$)`).test(body));
+    if (named.length) dangling.push({ plugin: s.name, id, named });
+  }
+}
+if (dangling.length) {
+  const detail = process.argv.includes('--dangling');
+  console.log('');
+  for (const s of SCOPED) {
+    const rows = dangling.filter((d) => d.plugin === s.name);
+    if (!rows.length) continue;
+    console.log(`! ${s.name}: ${rows.length} of ${s.skills.length} skills name a skill this plugin does not carry`);
+    if (detail) for (const r of rows) console.log(`    ${r.id} names ${r.named.join(', ')}`);
+  }
+  if (!detail) console.log('  Run with --dangling for the list.');
+}
+
+let stale = subsetStale;
 for (const [path, body] of outputs) {
   const current = existsSync(path) ? readFileSync(path, 'utf8') : null;
   if (current === body) continue;

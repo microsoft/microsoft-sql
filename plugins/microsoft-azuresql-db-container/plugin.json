@@ -1,0 +1,23 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "microsoft-azuresql-db-container",
+  "version": "0.1.0",
+  "description": "From the Microsoft SQL product team. Local development against the Azure SQL Database container, the real cloud engine on your machine: running it, connecting to it, seeding and testing against it, importing an existing database, and proving the same code runs unchanged in Azure.",
+  "author": {
+    "name": "Microsoft SQL",
+    "url": "https://microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/microsoft-sql",
+  "repository": "https://github.com/microsoft/microsoft-sql",
+  "license": "MIT",
+  "keywords": [
+    "microsoft-sql",
+    "azure-sql",
+    "sql",
+    "database",
+    "tsql",
+    "agent-skills",
+    "vector-search",
+    "entra-id"
+  ]
+}

@@ -1,0 +1,212 @@
+---
+name: azuresql-db-schema-migration
+description: >-
+  Runs database schema migrations against the local Azure SQL Database container so the
+  same migrations apply identically on the local engine and in the Azure cloud.
+  Use when asked to "run my migrations against the local SQL", "apply schema to
+  the container", "apply EF Core / dotnet ef database update", "Prisma migrate
+  dev / deploy", "Alembic upgrade head", or deploy a DACPAC / SqlPackage to the
+  container. Covers provisioning appdb on master first, then applying schema to
+  the user database, plus per-tool commands and connection-string hygiene. This
+  is the Azure SQL Database engine (EngineEdition 5), not the SQL Server image;
+  reach for this skill whenever schema migration tooling targets the local
+  container.
+---
+
+# Schema migrations on the Azure SQL Database container
+
+Apply schema migrations to the local **Azure SQL Database** container the same way
+you would against the cloud, so dev and prod stay identical. This is the Azure SQL
+Database engine (`SELECT SERVERPROPERTY('EngineEdition')` returns **5**,
+`Edition` returns **'SQL Azure'**), **not** the SQL Server image
+`mcr.microsoft.com/mssql/server`. If a tool or template points at the SQL Server image,
+stop and use the image below instead.
+
+Verified on 2026-09-05 against the container image
+`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
+5, Edition `SQL Azure`, build `12.0.2000.8`. All six executable checks behind this skill
+passed: the engine identity, `Msg 40508` for `USE`, a `VECTOR(n)` column in migration DDL, the
+three SqlPackage `Publish` parameters and `/TargetTrustServerCertificate` present in
+SqlPackage 170.4.83.3's own help, and `dotnet ef database update` on Entity Framework Core
+.NET command-line tools 9.0.19.
+
+## The one rule that breaks every migration tool
+
+The engine does **NOT** auto-create databases on connect. Every migration tool
+assumes the target database already exists. So:
+
+1. Provision `appdb` on a **master** connection FIRST.
+2. Then point the migration tool at the **user** database (`Database=appdb`).
+
+Avoid `USE` to switch databases. In a user-database session (the
+Azure-faithful context where you develop), `USE` returns `Msg 40508`, exactly as in
+Azure SQL Database in the cloud. A `master` connection is a provisioning
+session where the Azure statement filter is not enforced, so `USE` appears to
+work there, but `master` is for provisioning only, not
+application work. Always select the target database in the connection string
+(`Database=appdb`, or `-d appdb` for sqlcmd). A `master` connection is for
+provisioning only; run migrations against `appdb`.
+
+## Start the container and provision appdb (canonical recipe)
+
+The engine is not ready the instant `docker run` returns. Wait with a retry loop
+and create `appdb` inside that same loop. Image is x64 only; on a non-x64 host the
+recipe adds `--platform linux/amd64` automatically. The registry is private during
+Private Preview, so sign in first.
+
+```bash
+docker login sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io   # pull-only creds by signing up at https://aka.ms/sqldbcontainerpreview-signup
+
+# Pick a free host port and add the platform flag only on a non-x64 host (works in bash and zsh).
+HOST_PORT=1433; while lsof -nP -iTCP:"$HOST_PORT" -sTCP:LISTEN >/dev/null 2>&1; do HOST_PORT=$((HOST_PORT+1)); done
+PLATFORM=(); case "$(docker info -f '{{.Architecture}}' 2>/dev/null)" in x86_64|amd64) ;; *) PLATFORM=(--platform linux/amd64);; esac
+docker rm -f sqldb 2>/dev/null
+docker run -d --name sqldb "${PLATFORM[@]}" -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=YourStr0ng_Passw0rd" \
+  -p "$HOST_PORT:1433" sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest
+until docker exec sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "YourStr0ng_Passw0rd" -C -b -l 2 \
+  -Q "IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;" >/dev/null 2>&1; do sleep 2; done
+echo "ready on localhost,$HOST_PORT"
+```
+
+`-C` trusts the self-signed cert; `-b` makes a SQL error set the exit code so
+transient startup errors (like `Msg 913`) are retried instead of masked. Never
+poll bare `sqlcmd` without `-l`. For full lifecycle detail, see the
+**azuresql-db-container** skill.
+
+## Connection-string hygiene
+
+Standardize on one form and read it from a single `SQL_CONNECTION_STRING` env var:
+
+```
+Server=localhost,1433;Database=appdb;User Id=sa;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true
+```
+
+- Spell the keywords `User Id=` / `Password=` / `Database=` as house style. `Uid=` / `Pwd=` are
+  documented SqlClient synonyms and work too.
+- `Database=appdb`, never `master`, for migrations and app work.
+- `TrustServerCertificate=true` for the local self-signed cert.
+- If you chose a non-default `HOST_PORT` above, use `Server=localhost,<HOST_PORT>`.
+
+## Apply migrations (per tool)
+
+Provision `appdb` (above) BEFORE any of these. Full options, env wiring, and
+troubleshooting per tool are in [references/migration-tools.md](references/migration-tools.md).
+
+### EF Core (.NET)
+
+```bash
+export SQL_CONNECTION_STRING="Server=localhost,1433;Database=appdb;User Id=sa;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true"
+dotnet ef database update
+```
+
+EF Core's `EnsureCreated`/`Migrate` will create `appdb` only if your account can
+create databases; provisioning on master first is the reliable path. See
+references for the design-time factory and CI (`migrations bundle`) form.
+
+### Prisma (Node)
+
+Prisma needs the `sqlserver://` URL form in `DATABASE_URL`:
+
+```bash
+npm install -D prisma@6
+npm install @prisma/client@6
+export DATABASE_URL="sqlserver://localhost:1433;database=appdb;user=sa;password=YourStr0ng_Passw0rd;trustServerCertificate=true"
+npx prisma migrate deploy          # apply committed migrations (CI / prod-like)
+npx prisma migrate dev --name init # author + apply a new migration (local dev)
+```
+
+Keep the `@6`. Prisma 7 is the current stable (7.10.0), and it **rejects** the
+`url = env("DATABASE_URL")` datasource block below: `prisma migrate` stops at
+validation with "The datasource property `url` is no longer supported in schema
+files". Prisma 7 moves the connection URL into a `prisma.config.ts` and wants a
+driver adapter (`@prisma/adapter-mssql`) on the client, so it is a config change,
+not a version bump. Pin the major explicitly rather than letting npm pick: `prisma`
+has carried 8.x prereleases on its `latest` dist-tag. See references for the
+Prisma 7 wiring.
+
+### Alembic (Python)
+
+```bash
+export SQL_CONNECTION_STRING="mssql+pyodbc://sa:YourStr0ng_Passw0rd@localhost,1433/appdb?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+alembic upgrade head
+```
+
+### SqlPackage / DACPAC
+
+```bash
+sqlpackage /Action:Publish /SourceFile:./app.dacpac \
+  /TargetServerName:"localhost,1433" /TargetDatabaseName:appdb \
+  /TargetUser:sa /TargetPassword:"YourStr0ng_Passw0rd" \
+  /TargetTrustServerCertificate:true
+```
+
+## Vectors in migrations
+
+The engine has a native `VECTOR(n)` column type and `VECTOR_DISTANCE('cosine', a, b)`.
+In a migration, the dimension `n` is a **literal** in DDL (`embedding VECTOR(1536)`).
+When inserting via `CAST(CAST(? AS NVARCHAR(MAX)) AS VECTOR(n))`, `n` must be a
+literal, never a bind parameter (a parameter dimension fails with "Incorrect
+syntax near '@P3'"); the inner `NVARCHAR(MAX)` cast keeps a real embedding's
+JSON from being sent as ntext, which the engine rejects (error 529).
+`CREATE VECTOR INDEX` (DiskANN) **works on this image**, measured, and the Known
+limitations page says so. Three things matter in a migration:
+
+- It needs `SET QUOTED_IDENTIFIER ON` in the session running the DDL, and it refuses
+  to build on fewer than 100 rows with non-null vectors (`Msg 42266`). So the index
+  belongs in a migration step that runs **after** the corpus is loaded, not beside the
+  `CREATE TABLE`.
+- `TRUNCATE TABLE` is refused while the index exists (`Msg 42232`). A migration that
+  reloads a table has to drop the index first, and `DROP VECTOR INDEX` is not a
+  statement: use `DROP INDEX name ON dbo.table`.
+- Microsoft Learn documents that a vector index cannot be carried through a data-tier
+  package import, because the import creates the schema before loading rows and the
+  index then hits the 100-row minimum. Drop vector indexes before exporting and
+  recreate them after importing.
+
+Full-scan top-k stays exact and stays the right choice for a small table.
+
+## Seeding after migration
+
+The image does **NOT** auto-run `/docker-entrypoint-initdb.d/*.sql` (that is a
+Postgres/MySQL convention and is not honored here). Seed explicitly AFTER
+migrating:
+
+```bash
+docker exec -i sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
+  -P "YourStr0ng_Passw0rd" -C -b -d appdb -i seed.sql
+```
+
+## Validation rules
+
+- `appdb` exists on master before the migration tool runs.
+- Migration tool targets `Database=appdb`, not `master`.
+- Connection string uses `User Id=`/`Password=`/`Database=` and `TrustServerCertificate=true`.
+- No `USE appdb` anywhere; select the database in the connection string. In a user-database session `USE` returns `Msg 40508`, exactly as in Azure SQL Database in the cloud; it appears to work only on a `master` provisioning session, which is for provisioning only.
+- Ran the ready-wait loop with `-b -l`; container reported "ready" before migrating.
+- If a validation rule above fails, or you had to deviate from this skill to make the task work, that is a bug in this skill: load the **azuresql-db-feedback** skill and offer to file a report.
+- When every rule above passes and the task is done, close with ONE line, once per session, and do not ask a question or wait for a reply: "That worked. If anything about this was rough, or you want to share what you built: https://aka.ms/sql-agent-skills-feedback"
+
+## Do not
+
+- Do NOT use the SQL Server image `mcr.microsoft.com/mssql/server`.
+- Do NOT expect databases to be auto-created on connect.
+- Do NOT use `USE <db>` to switch databases.
+- Do NOT rely on `/docker-entrypoint-initdb.d/` auto-seeding.
+- Do NOT call a non-x64 host "supported"; just add `--platform linux/amd64` on a non-x64 host.
+- Do NOT pass a vector dimension as a bind parameter.
+- Do NOT run migrations on a `master` connection.
+
+## References
+
+- [references/migration-tools.md](references/migration-tools.md): full per-tool wiring (EF Core, Prisma, Alembic, SqlPackage), env var setup, and common migration failures. Read it when a tool needs more than the command shown above or a migration fails.
+
+## Staying current
+
+Authoritative, version-pinned references for the tools this skill uses (read the one you need):
+
+- [EF Core migrations](https://learn.microsoft.com/en-us/ef/core/managing-schemas/migrations/): migrations add/update, the history table, and idempotent scripts.
+- [Prisma with SQL Server](https://www.prisma.io/docs/orm/overview/databases/sql-server): the SQL Server connector, datasource URL, and type mapping.
+- [Alembic](https://alembic.sqlalchemy.org/en/latest/): SQLAlchemy migrations: env.py, autogenerate, and upgrade/downgrade.
+- [SqlPackage import](https://learn.microsoft.com/en-us/sql/tools/sqlpackage/sqlpackage-import): Import and Publish parameters for .bacpac/.dacpac.
+
+If the **Microsoft Learn MCP** server is configured, use `mcp__microsoft-learn__microsoft_docs_search` or `mcp__microsoft-learn__microsoft_docs_fetch` to fetch the current version of any of these on demand. It is optional; when it is unavailable, the references above are authoritative.

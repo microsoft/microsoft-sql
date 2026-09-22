@@ -1,0 +1,92 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "azuresql-db-sidecar",
+  "domain": "azure-sql-database-container",
+  "value": [
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "multi-step-with-silent-failures"
+  ],
+  "correction": "In a compose stack an agent points the app at localhost and treats the database as ready the moment the container starts. Neither holds: the app must reach the engine by service name, a healthcheck is required so dependents wait for the engine rather than the process, and the user database needs a one-shot init service because the engine creates nothing on its own.",
+  "posture": [
+    "read",
+    "write",
+    "execute",
+    "provision"
+  ],
+  "maturity": "preview",
+  "value_declaration": {
+    "rationale": "This skill's kernel is what a healthcheck for THIS image has to invoke, and which image it is invoking it in. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach Compose file syntax, service naming, and reaching a container by service name rather than localhost, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted. Its maturity stays draft regardless, and not because of this argument. Two of its probes parse a Compose file on the host and the third checks that a binary is executable in the image, so nothing has been asked of the engine and the probe rung underneath value is unmet.",
+    "covers": [
+      "the image being the Azure SQL Database engine and not mcr.microsoft.com/mssql/server",
+      "sqlcmd living at /opt/mssql-tools18/bin/sqlcmd in this image, which is what a healthcheck must invoke and what a copied one gets wrong",
+      "depends_on waiting only for the container, so a condition on a real engine healthcheck is required rather than optional"
+    ],
+    "does_not_cover": [
+      "Compose file syntax and service naming, including that a container is reached by service name rather than localhost, all ordinary Compose knowledge",
+      "the general practice of gating a dependent service on a healthcheck"
+    ],
+    "decided_by": "Carlos Robles",
+    "decided_on": "2026-09-04",
+    "expires_when": "the-container-reaches-public-preview"
+  },
+  "applies_to": [
+    "azure-sql-db-container"
+  ],
+  "validation": {
+    "target": "container",
+    "assert": [
+      "app reaches the database by service name",
+      "healthcheck present",
+      "database provisioned by an init step"
+    ],
+    "probes": [
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && cd \"$d\" && printf 'services:\\n  sqldb:\\n    image: example/engine:latest\\n    platform: linux/amd64\\n    healthcheck:\\n      test: [\"CMD-SHELL\", \"/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \\\\\"$$MSSQL_SA_PASSWORD\\\\\" -C -b -l 2 -Q \\\\\"SELECT 1\\\\\" || exit 1\"]\\n      interval: 5s\\n      timeout: 10s\\n      retries: 30\\n      start_period: 30s\\n  sqldb-init:\\n    image: example/engine:latest\\n    platform: linux/amd64\\n    depends_on:\\n      sqldb:\\n        condition: service_healthy\\n    restart: \"no\"\\n  app:\\n    image: example/app:latest\\n    depends_on:\\n      sqldb:\\n        condition: service_healthy\\n      sqldb-init:\\n        condition: service_completed_successfully\\n' > compose.yaml && docker compose -f compose.yaml config > /dev/null",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The shape this skill emits, put in front of the parser that will read it. It asserts that every key the skill depends on is still accepted by the Compose Specification implementation the reader has: the platform override the x64-only image needs, a CMD-SHELL health check carrying the doubled dollar sign that keeps Compose from interpolating the password variable, and both depends_on conditions including service_completed_successfully for the init one-shot. Measured 2026-09-04 on the Docker Compose CLI on this host, exit 0. The image names are deliberately placeholders and no image is pulled, no container is created and no daemon is contacted: config only parses. If a future Compose release renames or drops one of these keys, the snippet the skill hands a reader stops parsing and this probe is the first thing that says so."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && cd \"$d\" && printf 'services:\\n  sqldb:\\n    image: example/engine:latest\\n  app:\\n    image: example/app:latest\\n    depends_on:\\n      sqldb:\\n        condition: service_finished_ok\\n' > bad.yaml && docker compose -f bad.yaml config > /dev/null 2>&1 && exit 1 || exit 0",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The half that stops the probe above from being vacuous. If Compose accepted any string as a depends_on condition, a green run there would prove only that the file is YAML. It does not: an invented condition name is rejected, measured 2026-09-04 on this host with exit 1 from the config parse. So the previous probe's green means the two condition values the skill actually uses are real ones, not merely well-formed text."
+      },
+      {
+        "where": "container",
+        "cmd": "test -x /opt/mssql-tools18/bin/sqlcmd",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Both the health check and the init one-shot invoke sqlcmd at this absolute path inside the engine image, and the init service does it by running a second copy of the engine image purely as a client. If the image ever stops carrying the tools at this path, the health check never turns healthy, the init service never runs, and the application waits on a gate that will not open, with nothing in the Compose output naming a missing binary. This is a container probe on purpose: the path does not exist on a developer's host and asserting it there would be the mistake that cost five probes a red run on 2026-09-02."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && cd \"$d\" && P=\"sqldblab_sidecar_$$\" && cleanup() { docker compose -p \"$P\" down -v --remove-orphans > /dev/null 2>&1; }; trap cleanup EXIT; I=\"sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest\"; printf 'services:\\n  sqldb:\\n    image: %s\\n    platform: linux/amd64\\n    environment:\\n      ACCEPT_EULA: \"Y\"\\n      MSSQL_SA_PASSWORD: \"YourStr0ng_Passw0rd\"\\n    mem_limit: 2g\\n    healthcheck:\\n      test: [\"CMD-SHELL\", \"/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \\\\\"$$MSSQL_SA_PASSWORD\\\\\" -C -b -l 2 -Q \\\\\"SELECT 1\\\\\" || exit 1\"]\\n      interval: 2s\\n      timeout: 10s\\n      retries: 60\\n      start_period: 0s\\n  app:\\n    image: %s\\n    platform: linux/amd64\\n    entrypoint: [\"/bin/sh\", \"-c\", \"sleep 600\"]\\n    depends_on:\\n      sqldb:\\n        condition: service_healthy\\n' \"$I\" \"$I\" > compose.yaml; ok=1; for attempt in 1 2; do docker compose -p \"$P\" up -d sqldb > /dev/null 2>&1 || { cleanup; continue; }; c=$(docker compose -p \"$P\" ps -q sqldb); test -n \"$c\" || { cleanup; continue; }; test \"$(docker inspect -f '{{.State.Running}}' \"$c\")\" = true || { cleanup; continue; }; test \"$(docker inspect -f '{{.State.Health.Status}}' \"$c\")\" != healthy || { echo \"the engine reported healthy before the first check could be read\" >&2; exit 1; }; for i in $(seq 1 110); do test \"$(docker inspect -f '{{.State.Health.Status}}' \"$c\")\" = healthy && break; sleep 1; done; docker inspect -f '{{json .State.Health}}' \"$c\" > health.json; python3 -c \"import json,sys\nh=json.load(open('health.json')); log=h['Log']\nprint('health status ' + h['Status'] + ', check exit codes ' + repr([e['ExitCode'] for e in log]), file=sys.stderr)\nif h['Status'] != 'healthy': sys.exit(2)\nsys.exit(0 if any(e['ExitCode'] != 0 for e in log) and log[0]['ExitCode'] != 0 else 1)\"; case $? in 0) ok=0; break;; 1) exit 1;; esac; echo \"attempt $attempt: the engine never accepted a login, which is the cold start rather than the claim; retrying once\" >&2; cleanup; done; test \"$ok\" = 0 && docker compose -p \"$P\" up -d --wait app > /dev/null 2>&1 && docker compose -p \"$P\" exec -T app /opt/mssql-tools18/bin/sqlcmd -S sqldb -U sa -P YourStr0ng_Passw0rd -C -b -l 5 -Q \"SELECT 1\" > /dev/null 2>&1 && ! docker compose -p \"$P\" exec -T app /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P YourStr0ng_Passw0rd -C -b -l 3 -Q \"SELECT 1\" > /dev/null 2>&1",
+        "engine": true,
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Everything this skill turns on, measured on a running stack rather than argued, and in ONE probe because it is one stack: an engine start under x64 emulation is the expensive part, and when this was two probes over two stacks the second one blew the lane's host-probe budget in a full run on 2026-09-04. It brings the database service up on its own, so the command returns before the gate opens, and asserts that Docker already reports the container Running while its health is not yet healthy. That is exactly the window a plain depends_on releases an app into. It then waits for healthy and reads Docker's own health log back, requiring it to end healthy and to BEGIN WITH A FAILED CHECK, so the engine demonstrably refused a login first and the health check the skill emits is what noticed. Then it starts the app service, whose gate is condition service_healthy, and logs in from inside it twice: by Compose service name, which must succeed, and at localhost, which must fail, because localhost inside the app container is the app container. It goes red if the engine reports healthy before the first check can be read, which would make the health check unnecessary; if the login over the Compose network is refused; or if localhost ever answers, which would mean the connection string carried over from a laptop would have worked and the correction is wrong. An engine that never accepts a login is the one outcome that gets a single retry, for the same measured reason the lane retries its own engine once: under x64 emulation this image aborts on boot often enough that one failure means nothing, and on a machine already running another lane it aborted twice on 2026-09-04. The retry cannot launder a false claim, because the assertion on the second stack is the same one. The health status and the sequence of check exit codes are printed to stderr on every run, pass or fail, because the first time this went red it reported nothing but exit 1 and a bare exit code cannot tell a refusal apart from a busy machine. Watched all four ways on 2026-09-04 against build 12.0.2000.8: green with health exit codes 1, 1, 0 and healthy in about ten seconds, red with a health check that asks the engine nothing, and red when the localhost half is pointed back at the service name so both connections succeed."
+      }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the azuresql-db-sidecar skill"
+    ],
+    "implicit": [
+      "add a SQL database to my docker-compose"
+    ],
+    "negative": [
+      "set up a local PostgreSQL database with docker compose",
+      "provision an Azure SQL Database in my subscription",
+      "connect to SQL Server on my company network"
+    ]
+  }
+}

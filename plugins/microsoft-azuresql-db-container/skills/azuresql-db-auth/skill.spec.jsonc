@@ -1,0 +1,127 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "azuresql-db-auth",
+  "domain": "azure-sql-database-container",
+  "value": [
+    "not-in-training-data",
+    "corrects-a-wrong-assumption"
+  ],
+  "correction": "Asked for a least-privilege user, an agent writes CREATE USER ... WITH PASSWORD, which fails here with Msg 33233, and then tries SET CONTAINMENT = PARTIAL, which fails with Msg 12824. Contained users are not available: create a server login and map a database user to it.",
+  "posture": [
+    "read",
+    "provision",
+    "admin"
+  ],
+  "maturity": "preview",
+  "value_declaration": {
+    "rationale": "This skill's kernel is an identity recipe that is the inverse of the published Azure SQL Database guidance, and the inversion is only visible from the engine's refusals. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach general least-privilege advice, role grants, and where a secret should be stored outside the repository, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted. AMENDED 2026-09-19, TEXT ONLY, AND THIS SENTENCE IS THE RECORD OF IT. Three lines in covers quoted error numbers that had never been read off the engine. The first live run of this skill's probes, on image tag 18.0.226_4_147, EngineEdition 5, Edition 'SQL Azure', build 12.0.2000.8, in a container started with no MSSQL_AAD_* configuration, answered Msg 33233 where they said Msg 15007, Msg 12824 where they said Msg 12844, and Msg 33134 where they said Msg 37525. The three numbers were corrected in place on 2026-09-19 and nothing else in this block was touched. The argument did not move: the engine refuses exactly what this declaration said it refuses, so what Carlos Robles signed on 2026-09-04 still stands. A signed argument that quotes a false error number would be worse than a signed argument that carries a correction on its face, which is why the numbers were fixed and this sentence was added rather than the numbers being left to rot or fixed silently.",
+    "covers": [
+      "the contained database user, CREATE USER WITH PASSWORD, being refused on this engine with Msg 33233, which inverts the cloud norm",
+      "ALTER DATABASE SET CONTAINMENT = PARTIAL being refused with Msg 12824, so the contained route cannot be enabled either",
+      "CREATE USER FROM EXTERNAL PROVIDER being refused with Msg 33134 on this build",
+      "the server login plus mapped database user being the identity recipe that actually works here",
+      "the connection being encrypted on this engine, which the skill asserts rather than assumes"
+    ],
+    "does_not_cover": [
+      "general least-privilege reasoning and why sa is a poor application identity, which any model argues correctly",
+      "where a password or connection secret belongs outside the repository, and secret-store choice"
+    ],
+    "decided_by": "Carlos Robles",
+    "decided_on": "2026-09-04",
+    "expires_when": "the-container-reaches-public-preview"
+  },
+  "applies_to": [
+    "azure-sql-db",
+    "azure-sql-db-container"
+  ],
+  "validation": {
+    "target": "container",
+    "assert": [
+      "uses CREATE LOGIN plus CREATE USER FOR LOGIN",
+      "application does not connect as sa"
+    ],
+    "probes": [
+      {
+        "sql": "SELECT CAST(SERVERPROPERTY('EngineEdition') AS int) AS engine_edition, CAST(SERVERPROPERTY('Edition') AS nvarchar(128)) AS edition;",
+        "expect": {
+          "rows": [
+            [
+              5,
+              "SQL Azure"
+            ]
+          ]
+        },
+        "why": "The self-check the skill puts in front of every other instruction. Engine edition 5 with edition 'SQL Azure' is the Azure SQL Database engine; the SQL Server image mcr.microsoft.com/mssql/server returns different values, so any other answer means the lane ran against the wrong engine and every probe below it is measuring something else."
+      },
+      {
+        "sql": "CREATE USER probe_contained_user WITH PASSWORD = 'An0ther_Str0ng_Passw0rd';",
+        "expect": {
+          "error": 33233
+        },
+        "why": "The headline correction, made executable. The skill states, and marks as container-specific and verified, that a SQL contained user does not work on the container, which is why the local recipe is a server login plus a mapped database user. This is the exact inverse of Azure SQL Database in the cloud, where this same statement is the recommended path, so the day this probe starts succeeding is the day the skill's central instruction should change rather than be defended. THE NUMBER WAS WRONG UNTIL 2026-09-19. This probe and the skill body both asserted Msg 15007, and the engine says Msg 33233, \"You can only create a user with a password in a contained database.\" The refusal was always real; only the number was invented, and it read as measured because it was plausible. Re-measured 2026-09-19 on image tag 18.0.226_4_147, EngineEdition 5, Edition 'SQL Azure', build 12.0.2000.8, in a scratch container started with no MSSQL_AAD_* configuration."
+      },
+      {
+        "sql": "ALTER DATABASE CURRENT SET CONTAINMENT = PARTIAL;",
+        "expect": {
+          "error": 12824
+        },
+        "why": "The obvious repair for the refusal above is to turn containment on, and the skill records that this fails too. The engine says Msg 12824, \"The sp_configure value 'contained database authentication' must be set to 1 in order to alter a contained database. You may need to use RECONFIGURE to set the value_in_use.\", followed by Msg 5069, \"ALTER DATABASE statement failed.\" The lane asserts the first message at severity 11 or above, which is 12824. The remedy that message names is not reachable on this engine: sp_configure does not exist and answers Msg 2812, which probe 5 of azuresql-db-container pins. THIS NUMBER HAS NOW BEEN WRONG TWICE, IN BOTH DIRECTIONS, AND THAT IS THE POINT OF SAYING SO HERE. It shipped as an unmeasured number with the text \"contained database authentication must be configured\"; on 2026-09-04 it was changed to Msg 12844 with the text \"this functionality is not available in the current edition of SQL Server\"; the first live run of this probe on 2026-09-19 says Msg 12824 and the sp_configure text, which is closer to where it started. Neither earlier value was read off this engine by the lane. This one was. CURRENT is used so the claim is measured against the scratch database the lane holds rather than a database named in advance. Re-measured 2026-09-19 on image tag 18.0.226_4_147, EngineEdition 5, Edition 'SQL Azure', build 12.0.2000.8, in a scratch container started with no MSSQL_AAD_* configuration."
+      },
+      {
+        "sql": "CREATE USER [probe-app@contoso.com] FROM EXTERNAL PROVIDER;",
+        "expect": {
+          "error": 33134
+        },
+        "why": "CORRECTED AGAIN 2026-09-19, and the history is worth carrying because this claim has now moved twice. It shipped asserting Msg 40530 on the strength of a sibling project's note. On 2026-09-04 it was changed to Msg 37525, \"Command 'CREATE USER FROM EXTERNAL PROVIDER' is not supported as Azure Active Directory is not configured for this instance.\" The first live run of this probe says Msg 33134, \"Principal 'probe-app@contoso.com' could not be resolved. Error message: 'Unable to query Azure AD certificate from local cert store.'\" That has a consequence beyond the number. azuresql-db-container/references/entra-auth.md used to tell a reader to distinguish a configured engine from an unconfigured one by getting Msg 33134 rather than Msg 37525. On this build an unconfigured engine ALSO answers 33134, so the number alone cannot tell the two states apart and that page now points at the message detail instead. CREATE LOGIN ... FROM EXTERNAL PROVIDER on a master connection answers the same 33134 on the same container, measured alongside this. If the lane ever starts a container with MSSQL_AAD_* set, this probe measures a different thing and must be rewritten rather than deleted. Re-measured 2026-09-19 on image tag 18.0.226_4_147, EngineEdition 5, Edition 'SQL Azure', build 12.0.2000.8, in a scratch container started with no MSSQL_AAD_* configuration."
+      },
+      {
+        "sql": "CREATE USER probe_app_user WITHOUT LOGIN;\nALTER ROLE db_datareader ADD MEMBER probe_app_user;\nALTER ROLE db_datawriter ADD MEMBER probe_app_user;\nSELECT IS_ROLEMEMBER('db_datareader', 'probe_app_user') AS reader, IS_ROLEMEMBER('db_datawriter', 'probe_app_user') AS writer, IS_ROLEMEMBER('db_owner', 'probe_app_user') AS owner;",
+        "expect": {
+          "rows": [
+            [
+              1,
+              1,
+              0
+            ]
+          ]
+        },
+        "why": "The database half of the least-privilege recipe: the fixed roles the skill grants exist on this engine, ALTER ROLE ... ADD MEMBER is the statement that grants them, and membership of db_datareader and db_datawriter does not drag db_owner along with it. The server half, CREATE LOGIN on a master connection, cannot be probed from a scratch user database, so WITHOUT LOGIN stands in for the identity while the grants themselves are measured exactly as the skill writes them. A zero in either of the first two columns means the recipe no longer produces a usable application user; a one in the third means it produces an over-privileged one, which is the failure the skill exists to prevent."
+      },
+      {
+        "sql": "SELECT CAST(encrypt_option AS nvarchar(10)) AS encrypt_option FROM sys.dm_exec_connections WHERE session_id = @@SPID;",
+        "expect": {
+          "rows": [
+            [
+              "TRUE"
+            ]
+          ]
+        },
+        "why": "The skill says Encrypt=true belongs on every connection string in both environments, and that TrustServerCertificate=true is a local-only concession to the container's self-signed certificate, never a substitute for encryption and never used against the cloud. This asserts that the session actually reached the engine over an encrypted channel. A FALSE here is a finding about the lane's own client configuration rather than about the engine, and it would mean the encryption half of the skill's advice is not being exercised at all."
+      },
+      {
+        "sql": "SELECT COUNT(*) AS contained FROM sys.database_principals WHERE authentication_type_desc = 'DATABASE';",
+        "expect": {
+          "rows": [
+            [
+              0
+            ]
+          ]
+        },
+        "why": "Carried across on 2026-09-04 from the lane's standalone probes/azuresql-db-auth.json when the sidecar became the single home for probes, so no measured work was lost in the move. The two refusals above are error probes and an error probe cannot show that nothing slipped through: this reads the outcome instead. A contained principal is one whose authentication_type_desc is DATABASE, and after both refusals there must be none. The WITHOUT LOGIN user the probe above creates has authentication_type_desc NONE and is deliberately not counted here, because it is a database principal with no password and is exactly the shape the skill does recommend."
+      }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the azuresql-db-auth skill"
+    ],
+    "implicit": [
+      "my app connects as sa, set up a least-privilege database user instead"
+    ],
+    "negative": [
+      "set up a local PostgreSQL database with docker compose",
+      "provision an Azure SQL Database in my subscription",
+      "connect to SQL Server on my company network"
+    ]
+  }
+}

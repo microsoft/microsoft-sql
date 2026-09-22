@@ -1,0 +1,88 @@
+{
+  "$comment": "Scoped plugins. Each one ships a subset of skills/ for a single surface, so a user of that surface installs what they need and nothing else. scripts/generate.mjs reads this file, writes plugins/<name>/, and the parity gate fails if a generated copy drifts. The full collection is not listed here: it is the repository root and carries every skill.",
+  "plugins": [
+    {
+      "name": "microsoft-sql-vscode",
+      "displayName": "Microsoft SQL for Visual Studio Code",
+      "description": "From the Microsoft SQL product team. Application work on Azure SQL Database in Visual Studio Code: connections and drivers, schema and ORMs, T-SQL, vector search and RAG, Azure Functions bindings, and database projects.",
+      "why": "The MSSQL extension already carries Data API builder tooling, so shipping our Data API builder skills into this surface puts two sets of instructions on one subject in front of the same agent.",
+      "mustNotInclude": ["dab-rest-and-graphql", "azuresql-db-dab", "build-app-on-azure-sql"],
+      "skills": [
+        "connect-to-azure-sql",
+        "connect-from-dotnet",
+        "connect-from-python",
+        "connect-from-typescript-and-node",
+        "diagnose-connection-errors",
+        "design-azure-sql-schema",
+        "ef-core-azure-sql",
+        "prisma-azure-sql",
+        "sqlalchemy-azure-sql",
+        "t-sql-correctness",
+        "t-sql-json-and-openjson",
+        "t-sql-upserts-merge",
+        "prevent-sql-injection",
+        "entra-id-auth",
+        "vector-search-azure-sql",
+        "embeddings-and-external-models",
+        "rag-on-azure-sql",
+        "langchain-and-llamaindex-on-azure-sql",
+        "azure-functions-sql-bindings",
+        "dev-container-templates",
+        "sql-database-projects",
+        "schema-migrations-safely",
+        "skill-feedback"
+      ]
+    },
+    {
+      "name": "microsoft-sql-ssms",
+      "displayName": "Microsoft SQL for SQL Server Management Studio",
+      "description": "From the Microsoft SQL product team. Running Azure SQL Database: diagnosing slow queries, blocking and resource pressure, reading execution plans, capturing Extended Events, restoring after data loss, row level security, passwordless access, provisioning and bulk data movement.",
+      "why": "This surface belongs to a database administrator. Application development, ORMs, serverless bindings and AI work belong in the Visual Studio Code plugin instead.",
+      "mustNotInclude": ["dab-rest-and-graphql", "azuresql-db-dab", "azure-functions-sql-bindings", "azuresql-db-functions"],
+      "skills": [
+        "diagnose-slow-query",
+        "diagnose-blocking-and-deadlocks",
+        "diagnose-resource-pressure",
+        "diagnose-connection-errors",
+        "read-execution-plan",
+        "capture-with-extended-events",
+        "restore-and-recover",
+        "rls-multi-tenant",
+        "prevent-sql-injection",
+        "entra-id-auth",
+        "provision-azure-sql-db",
+        "provision-hyperscale",
+        "bulk-load-and-bulk-copy",
+        "sqlpackage-import-export",
+        "skill-feedback"
+      ]
+    },
+    {
+      "name": "microsoft-azuresql-db-container",
+      "displayName": "Azure SQL Database container",
+      "description": "From the Microsoft SQL product team. Local development against the Azure SQL Database container, the real cloud engine on your machine: running it, connecting to it, seeding and testing against it, importing an existing database, and proving the same code runs unchanged in Azure.",
+      "why": "The container is its own product with its own audience. Someone who wants a local engine should not have to take the whole cloud catalog to get it.",
+      "mustNotInclude": [],
+      "skills": [
+        "azuresql-db-auth",
+        "azuresql-db-ci",
+        "azuresql-db-connections",
+        "azuresql-db-container",
+        "azuresql-db-dab",
+        "azuresql-db-faq",
+        "azuresql-db-feedback",
+        "azuresql-db-from-sql-server",
+        "azuresql-db-functions",
+        "azuresql-db-import",
+        "azuresql-db-local-to-cloud",
+        "azuresql-db-rag",
+        "azuresql-db-scaffold",
+        "azuresql-db-schema-migration",
+        "azuresql-db-seed",
+        "azuresql-db-sidecar",
+        "azuresql-db-testing",
+        "skill-feedback"
+      ]
+    }
+  ]
+}

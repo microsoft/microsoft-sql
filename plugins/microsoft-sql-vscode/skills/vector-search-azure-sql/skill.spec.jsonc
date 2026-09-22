@@ -1,0 +1,404 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "vector-search-azure-sql",
+  "domain": "ai-vector-and-rag",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption", "changes-too-fast-to-memorize"],
+  "correction": "Agents write similarity search on Azure SQL Database as SELECT TOP (k) ... ORDER BY VECTOR_DISTANCE('cosine', embedding, @q) and believe a vector index accelerates it. Measured on 2026-08-28 against a live Azure SQL Database carrying a current DiskANN index, and reproduced identically on the local Azure SQL Database container, that query compiles to a Clustered Index Scan with a per row Compute Scalar and never touches the index; only SELECT TOP (N) WITH APPROXIMATE over VECTOR_SEARCH ordered by the distance column produces a Vector Index Seek. Every wrong shape returns the correct rows and raises nothing, including WITH APPROXIMATE against a table that has no vector index at all, so the mistake passes every test at development scale and appears in production only as latency and compute burn on every single query, on a table that will keep growing. The older TOP_N parameter that most published examples still show now fails outright with Msg 42274. The second half of the correction is that a vector column is not an ordinary column: it cannot be a key, a CHECK or DEFAULT constraint, a statistics target, a partition key or a persisted computed column, it cannot be compared, sorted, grouped, deduplicated, aggregated or carried across a UNION, its dimension cannot be changed by ALTER COLUMN even on an empty table, the ceiling is 1998 dimensions so a 3072 dimension embedding model does not fit, and the index it needs refuses to build under 100 rows and then blocks TRUNCATE TABLE, ALTER INDEX and data-tier package import for the life of the table. Two further beliefs a model states unprompted are wrong and are corrected here. It says a DiskANN vector index cannot be built on the local Azure SQL Database container; the same index over the same 140 rows built on the container in 145 ms and in the cloud in 276 ms, and approximate search returned the same rows from both, measured in rag-local-with-container's parity reference. It also says PREVIEW_FEATURES = ON is a prerequisite for creating a vector index; it is not. The index builds without it and nobody runs ALTER DATABASE SCOPED CONFIGURATION, which is the whole claim. The setting's value on the container is not worth reading and not worth asserting: measured 2026-09-03, six freshly created databases on one container read 0, 1, 0, 1, 1, 1, while model and master both read 0. Microsoft Learn documents OFF as the default, scopes the requirement to the boxed engine, and its own CREATE VECTOR INDEX example calls the setting not needed for Azure SQL Database.",
+  "value_probe": {
+    "gate": "The answer identifies the shape of the query itself as the reason the index is never read, and gives a retrieval form that does read it, instead of proposing statistics, service tier, hardware or an index rebuild as the remedy.",
+    "task": "Our product catalog on Azure SQL Database has about 4 million rows in dbo.products, each carrying a 1536 dimension embedding in a column called embedding. We followed a tutorial and created the index that is supposed to make these lookups fast, and it built without complaining. Search still takes several seconds, and the elapsed time creeps up every week as rows are added. This is what the API runs:\n\n```sql\nSELECT TOP (10) product_id, name\nFROM dbo.products\nORDER BY VECTOR_DISTANCE('cosine', embedding, @query);\n```\n\nTwo other things are on the plan for next quarter and I want to know now if they are going to work. We want to move to a larger embedding model that emits 3072 numbers per row, and we want to stop storing duplicate rows by putting a UNIQUE constraint across (tenant_id, embedding). Tell us why the search is still slow and whether those two plans hold up.",
+    "states": [
+      "The query as written never reads the index and scans every row, so the index it built is doing nothing for this statement.",
+      "The wrong shape returns correct rows and raises no error, so the problem is invisible in testing and shows up only as latency and compute cost.",
+      "A vector column has a hard ceiling on its declared dimension that a 3072 number model exceeds, so that model cannot be stored in one such column.",
+      "A vector column cannot be part of a unique constraint, a primary key or any index key, so deduplicating on it is not available.",
+      "The declared dimension of an existing vector column cannot be changed by ALTER COLUMN, even when the table holds no rows."
+    ],
+    "refutes": [
+      "The query as written does use the vector index, so the remaining latency is a statistics, hardware, service tier or index maintenance problem.",
+      "Turning PREVIEW_FEATURES on with ALTER DATABASE SCOPED CONFIGURATION is a prerequisite before a vector index can be created on Azure SQL Database.",
+      "A vector column can participate in a unique constraint or a primary key, so constraining the embedding column will deduplicate the rows.",
+      "An embedding of 3072 dimensions fits in an Azure SQL Database vector column, so the model swap needs nothing beyond widening the declared dimension.",
+      "The dimension of an existing vector column can be altered in place as long as the table is empty."
+    ]
+  },
+  "posture": ["read", "write", "execute"],
+  "maturity": "preview",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "related": [
+    "rag-on-azure-sql",
+    "embeddings-and-external-models",
+    "rag-local-with-container",
+    "design-azure-sql-schema",
+    "vector-index-diskann",
+    "vector-index-staleness",
+    "diagnose-vector-search-latency",
+    "diagnose-vector-recall-drop",
+    "full-text-and-hybrid-ranking",
+    "azuresql-db-rag"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a database reachable with permission to create a table and an index",
+      "a table with a clustered primary key, a vector column and at least 100 rows carrying a non-null vector"
+    ],
+    "assert": [
+      "the actual execution plan of every similarity query expected to use the index contains a Vector Index Seek",
+      "no query text contains the TOP_N parameter",
+      "any query left as ORDER BY VECTOR_DISTANCE carries a comment stating that an exact scan is intended",
+      "results are ordered by distance ascending, and no dot product result is treated as a similarity score",
+      "every declared dimension is between 1 and 1998 and equals what the embedding model is asked to produce",
+      "no vector column appears as a key, a CHECK or DEFAULT constraint, a persisted computed column, a partition key or a statistics target",
+      "deduplication keys off the source text or a hash of it rather than off the embedding",
+      "the vector index is created after the data load, and is dropped before a bacpac export and recreated after the import",
+      "any process that truncates or bulk replaces the table drops and recreates the vector index",
+      "no plan makes PREVIEW_FEATURES a precondition for a vector column or a vector index, none reads the container value of that setting as the cloud's, and none defers the index because the target engine is the local container"
+    ],
+    "probes": [
+          {
+                "sql": "CREATE TABLE dbo.probe_vs_build (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, category nvarchar(20) NOT NULL, embedding vector(5) NOT NULL);\nINSERT INTO dbo.probe_vs_build (category, embedding)\nSELECT N'general', CAST(JSON_ARRAY(CAST(value * 0.01 AS float), CAST(value * 0.02 AS float), CAST(value * 0.03 AS float), CAST(value * 0.04 AS float), CAST(value * 0.05 AS float)) AS vector(5))\nFROM GENERATE_SERIES(1, 150);\nGO\nDECLARE @t0 datetime2(3) = SYSUTCDATETIME();\nCREATE VECTOR INDEX vi_probe_vs_build ON dbo.probe_vs_build (embedding) WITH (METRIC = 'cosine', TYPE = 'diskann');\nDECLARE @ms int = DATEDIFF(millisecond, @t0, SYSUTCDATETIME());\nSELECT JSON_VALUE(v.build_parameters, '$.Version') AS index_version,\n       CASE WHEN @ms < 30000 THEN 1 ELSE 0 END AS built_within_30s\nFROM sys.vector_indexes AS v\nJOIN sys.indexes AS i ON v.object_id = i.object_id AND v.index_id = i.index_id\nWHERE i.name = 'vi_probe_vs_build';",
+                "expect": {
+                      "rows": [
+                            [
+                                  "3",
+                                  1
+                            ]
+                      ]
+                },
+                "why": "The headline claim, made executable: CREATE VECTOR INDEX is not theoretical on this engine, it builds. Measured 2026-08-28 at 145 ms on the container and 276 ms in the cloud over 140 rows, so 30 seconds is slack, not a threshold. The version column asserts the current DiskANN format, which Microsoft Learn's migration section says must read 3 and which is what makes the TOP_N probe below fail the way it does. An empty result set here means the index did not build at all."
+          },
+          {
+                "sql": "SELECT COUNT(*) AS setting_exists\nFROM sys.database_scoped_configurations\nWHERE name = 'PREVIEW_FEATURES';",
+                "expect": {
+                      "rows": [
+                            [
+                                  1
+                            ]
+                      ]
+                },
+                "why": "This asserts that the setting EXISTS and deliberately asserts nothing about its value, because its value is not deterministic. Measured 2026-09-03 on one container: six freshly created databases read 0, 1, 0, 1, 1, 1, while model and master both read 0, and the variation does not track engine uptime cleanly. Two earlier revisions of this probe each asserted a value, first 0 and then 1, and each was a single sample of something that varies, so the lane would have gone red roughly half the time on a claim that was never the point. What the skill actually needs is the probe above: the vector index builds, and nobody runs ALTER DATABASE SCOPED CONFIGURATION to make it build. Microsoft Learn documents OFF as the default, scopes the requirement to the boxed engine, and calls the setting not needed for Azure SQL Database. Do not reintroduce a value assertion here without many samples across many fresh containers."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_vs_min (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, embedding vector(3) NOT NULL);\nINSERT INTO dbo.probe_vs_min (embedding)\nSELECT CAST(JSON_ARRAY(CAST(value AS float), 1.0, 2.0) AS vector(3)) FROM GENERATE_SERIES(1, 99);\nGO\nCREATE VECTOR INDEX vi_probe_vs_min ON dbo.probe_vs_min (embedding) WITH (METRIC = 'cosine', TYPE = 'diskann');",
+                "expect": {
+                      "error": 42266
+                },
+                "why": "99 rows is one short of the minimum, and the refusal is why a deployment that creates the index before loading data cannot work. Microsoft Learn states both the 100 row minimum and Msg 42266 by number on the CREATE VECTOR INDEX page."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_vs_topn (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, category nvarchar(20) NOT NULL, embedding vector(5) NOT NULL);\nINSERT INTO dbo.probe_vs_topn (category, embedding)\nSELECT N'general', CAST(JSON_ARRAY(CAST(value * 0.01 AS float), CAST(value * 0.02 AS float), CAST(value * 0.03 AS float), CAST(value * 0.04 AS float), CAST(value * 0.05 AS float)) AS vector(5))\nFROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX vi_probe_vs_topn ON dbo.probe_vs_topn (embedding) WITH (METRIC = 'cosine', TYPE = 'diskann');\nGO\nDECLARE @q vector(5) = '[0.3,0.3,0.3,0.3,0.3]';\nSELECT TOP (3) t.id, r.distance\nFROM VECTOR_SEARCH(TABLE = dbo.probe_vs_topn AS t, COLUMN = embedding, SIMILAR_TO = @q, METRIC = 'cosine', TOP_N = 3) AS r\nORDER BY r.distance;",
+                "expect": {
+                      "error": 42274
+                },
+                "why": "The syntax most published examples still show, refused by a current index. Microsoft Learn gives the number on both the VECTOR_SEARCH and CREATE VECTOR INDEX pages. The probe asserts the number only, because Learn prints \"version 3 index\" where the engine measured on 2026-08-28 printed \"newer index version\". If this ever passes silently the index built above is not the current format and the rest of the skill's query guidance needs re-reading."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_vs_trunc (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, category nvarchar(20) NOT NULL, embedding vector(5) NOT NULL);\nINSERT INTO dbo.probe_vs_trunc (category, embedding)\nSELECT N'general', CAST(JSON_ARRAY(CAST(value * 0.01 AS float), CAST(value * 0.02 AS float), CAST(value * 0.03 AS float), CAST(value * 0.04 AS float), CAST(value * 0.05 AS float)) AS vector(5))\nFROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX vi_probe_vs_trunc ON dbo.probe_vs_trunc (embedding) WITH (METRIC = 'cosine', TYPE = 'diskann');\nGO\nTRUNCATE TABLE dbo.probe_vs_trunc;",
+                "expect": {
+                      "error": 42232
+                },
+                "why": "What the index takes away, and the one that breaks reload pipelines written before the index existed. Microsoft Learn states TRUNCATE TABLE is not allowed on a vector-indexed table without giving a number; Msg 42232 is this skill's own measurement of 2026-08-28."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_vs_noindex (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, embedding vector(3) NOT NULL);\nINSERT INTO dbo.probe_vs_noindex (embedding) VALUES ('[1,2,3]'), ('[1,2,4]'), ('[4,5,6]'), ('[0,0,1]'), ('[9,9,9]');\nGO\nDECLARE @q vector(3) = '[1,2,3]';\nSELECT id FROM (\n  SELECT TOP (2) WITH APPROXIMATE t.id, r.distance\n  FROM VECTOR_SEARCH(TABLE = dbo.probe_vs_noindex AS t, COLUMN = embedding, SIMILAR_TO = @q, METRIC = 'cosine') AS r\n  ORDER BY r.distance\n) AS nearest\nORDER BY id;",
+                "expect": {
+                      "rows": [
+                            [
+                                  1
+                            ],
+                            [
+                                  2
+                            ]
+                      ]
+                },
+                "why": "The silent fallback, measured rather than described. There is no vector index on this table and WITH APPROXIMATE still returns correct rows with no error and no client-visible warning, which is exactly why the wrong query shape survives every test at development scale. It asserts the two nearest ids rather than their float text, so the probe measures the behaviour and not sqlcmd's number formatting."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_vs_forceann (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, embedding vector(3) NOT NULL);\nINSERT INTO dbo.probe_vs_forceann (embedding) VALUES ('[1,2,3]'), ('[1,2,4]'), ('[4,5,6]'), ('[0,0,1]'), ('[9,9,9]');\nGO\nDECLARE @q vector(3) = '[1,2,3]';\nSELECT TOP (2) WITH APPROXIMATE t.id, r.distance\nFROM VECTOR_SEARCH(TABLE = dbo.probe_vs_forceann AS t, COLUMN = embedding, SIMILAR_TO = @q, METRIC = 'cosine') AS r WITH (FORCE_ANN_ONLY)\nORDER BY r.distance;",
+                "expect": {
+                      "error": 42227
+                },
+                "why": "The same statement as the probe above with one table hint added, and the reason the skill recommends that hint in tests: it converts the silent scan into a failure. Microsoft Learn states FORCE_ANN_ONLY requires a vector index and that the query fails without one; Msg 42227 is this skill's measurement of 2026-08-28."
+          },
+          {
+                "sql": "DECLARE @q vector(3) = '[1,2,3]';\nSELECT CASE WHEN VECTOR_DISTANCE('dot', @q, @q) < 0 THEN 1 ELSE 0 END AS dot_of_identical_is_negative,\n       CASE WHEN VECTOR_DISTANCE('cosine', @q, @q) < 0.001 THEN 1 ELSE 0 END AS cosine_of_identical_is_near_zero;",
+                "expect": {
+                      "rows": [
+                            [
+                                  1,
+                                  1
+                            ]
+                      ]
+                },
+                "why": "The sign trap in two comparisons. A vector against itself scores negative under dot and near zero under cosine, so code that keeps the largest score or reads cosine as a similarity ranks the worst matches first with no error. Microsoft Learn documents dot as the negative dot product and cosine on a 0 to 2 distance range."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_vs_dims (id int NOT NULL PRIMARY KEY, v vector(1999) NOT NULL);",
+                "expect": {
+                      "error": 2717
+                },
+                "why": "The ceiling that decides which embedding model fits. Microsoft Learn states the maximum is 1998 dimensions; Msg 2717, the size given to the column exceeds the maximum allowed, is this skill's measurement of the refusal at 1999. This is the check that catches a 3072 dimension model being designed in."
+          },
+          {
+                "sql": "CREATE TABLE dbo.probe_vs_eq (id int NOT NULL PRIMARY KEY, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_vs_eq (id, v) VALUES (1, '[1,2,3]'), (2, '[1,2,3]');\nSELECT COUNT(*) AS duplicates FROM dbo.probe_vs_eq WHERE v = CAST('[1,2,3]' AS vector(3));",
+                "expect": {
+                      "error": 8117
+                },
+                "why": "Two rows carrying the identical embedding, and no way to write the query that finds them. Microsoft Learn states vectors do not support comparison operators; Msg 8117 is this skill's measurement. This is why deduplication has to key off a hash of the source text."
+          }
+    ,
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_dim_over (id int, v vector(1999));",
+            "expect": {
+              "error": 2717
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The skill states the ceiling is 1998 dimensions, which is why a 3072 number model does not fit in one column. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_dim_zero (id int, v vector(0));",
+            "expect": {
+              "error": 1001
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The other end of the declared range the skill gives as 1 to 1998. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "DECLARE @s nvarchar(100) = N'[1,2,3]';\nDECLARE @d int = 3;\nSELECT CAST(@s AS vector(@d)) AS v;",
+            "expect": {
+              "error": 102
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The skill says the dimension in CAST must be a literal, so a helper taking it as a parameter needs dynamic SQL. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_unique (id int NOT NULL, v vector(3) NOT NULL, CONSTRAINT uq_probe_vs UNIQUE (v));",
+            "expect": {
+              "error": 1919
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The restriction list's first row, and the half of the correction that says deduplicating on an embedding is not a query you can write. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_fk_p (v vector(3) NOT NULL);\nCREATE TABLE dbo.probe_vs_fk_c (v vector(3) NOT NULL, CONSTRAINT fk_probe_vs FOREIGN KEY (v) REFERENCES dbo.probe_vs_fk_p(v));",
+            "expect": {
+              "error": 1776
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A vector column cannot be a candidate key, so nothing can reference it. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_check (id int, v vector(3) NULL, CONSTRAINT ck_probe_vs CHECK (v IS NOT NULL));",
+            "expect": {
+              "error": 1760
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The restriction list says a CHECK constraint on a vector column is refused. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_default (id int, v vector(3) NOT NULL CONSTRAINT df_probe_vs DEFAULT ('[1,2,3]'));",
+            "expect": {
+              "error": 1752
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The restriction list says a DEFAULT constraint on a vector column is refused. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_persisted (id int, v vector(3) NOT NULL, d AS VECTOR_DISTANCE('cosine', v, CAST(N'[1,2,3]' AS vector(3))) PERSISTED);",
+            "expect": {
+              "error": 4936
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A persisted computed column over a vector function is refused as non-deterministic. A non-persisted one is allowed, which is the distinction the skill draws. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE PARTITION FUNCTION pf_probe_vs (vector(3)) AS RANGE LEFT FOR VALUES ('[1,2,3]');",
+            "expect": {
+              "error": 7704
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A vector column cannot be a partition key. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TYPE dbo.probe_vs_alias FROM vector(3);",
+            "expect": {
+              "error": 42212
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. No alias type over vector, so a shop that wraps every domain type in CREATE TYPE cannot wrap this one. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "DECLARE @sv sql_variant;\nDECLARE @v vector(3) = N'[1,2,3]';\nSET @sv = @v;\nSELECT @sv AS x;",
+            "expect": {
+              "error": 206
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Assignment to sql_variant is an operand type clash, so a generic property bag cannot hold an embedding. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_altercol (id int, v vector(3) NOT NULL);\nALTER TABLE dbo.probe_vs_altercol ALTER COLUMN v vector(5) NOT NULL;",
+            "expect": {
+              "error": 42204
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The dimension of an existing vector column cannot be changed by ALTER COLUMN, and this table is empty when the ALTER runs, which is the case readers assume is allowed. It is one of the five states the value probe asks the model to assert. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_orderby (id int, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_vs_orderby VALUES (1, N'[1,2,3]');\nSELECT id FROM dbo.probe_vs_orderby ORDER BY v;",
+            "expect": {
+              "error": 42213
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A vector column cannot be sorted, which is separate from ORDER BY on a distance expression over it. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_distinct (id int, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_vs_distinct VALUES (1, N'[1,2,3]');\nSELECT DISTINCT v FROM dbo.probe_vs_distinct;",
+            "expect": {
+              "error": 421
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. SELECT DISTINCT over the column is refused, the second half of why deduplication cannot key off the embedding. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_union (id int, v vector(3) NOT NULL);\nSELECT v FROM dbo.probe_vs_union UNION SELECT v FROM dbo.probe_vs_union;",
+            "expect": {
+              "error": 5335
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. UNION, INTERSECT and EXCEPT are refused over a vector column while UNION ALL is allowed, which is the distinction the skill draws. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_stats (id int, v vector(3) NOT NULL);\nCREATE STATISTICS st_probe_vs ON dbo.probe_vs_stats (v);",
+            "expect": {
+              "error": 1978
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A vector column cannot be a statistics target, so the statistics remedy an agent proposes for slow similarity search cannot even be created. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "DECLARE @v vector(3) = N'[1,2,3]';\nSELECT CAST(@v AS varbinary(100)) AS b;",
+            "expect": {
+              "error": 529
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Explicit conversion to varbinary is refused, so an embedding cannot be smuggled out as bytes. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_wronglen (id int, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_vs_wronglen VALUES (1, N'[1,2,3,4]');",
+            "expect": {
+              "error": 42204
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Inserting a JSON array of the wrong length is refused, which is what catches an embedding model swap at write time rather than at read time. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_jsonstr (id int, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_vs_jsonstr VALUES (1, N'[1,\"a\",3]');",
+            "expect": {
+              "error": 13670
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A JSON array containing a string is not a valid vector, which is the failure a hand-built payload hits. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "DECLARE @a vector(3) = N'[1,2,3]', @b vector(3) = N'[1,2,4]';\nSELECT VECTOR_DISTANCE('manhattan', @a, @b) AS d;",
+            "expect": {
+              "error": 42201
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Three metrics exist and nothing else does, so a metric name carried over from another vector store is refused rather than approximated. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "DECLARE @a vector(3, float16) = N'[1,2,3]';\nDECLARE @b vector(3) = N'[1,2,4]';\nSELECT VECTOR_DISTANCE('cosine', @a, @b) AS d;",
+            "expect": {
+              "error": 42243
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. Both arguments must share a base type, so a half precision column cannot be compared against a float32 query vector. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_approx_bare (id int NOT NULL PRIMARY KEY CLUSTERED, v vector(3) NOT NULL);\nSELECT TOP (2) WITH APPROXIMATE id FROM dbo.probe_vs_approx_bare ORDER BY id;",
+            "expect": {
+              "error": 42248
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. WITH APPROXIMATE is not a general modifier and is refused without a VECTOR_SEARCH, which is the shape an agent reaches for when told to make a TOP query approximate. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_second (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, v vector(5) NOT NULL);\nINSERT INTO dbo.probe_vs_second (v)\nSELECT CAST(JSON_ARRAY(CAST(value * 0.01 AS float), CAST(value * 0.02 AS float), CAST(value * 0.03 AS float), CAST(value * 0.04 AS float), CAST(value * 0.05 AS float)) AS vector(5))\nFROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX probe_vs_second_ix ON dbo.probe_vs_second (v) WITH (METRIC = 'cosine', TYPE = 'diskann');\nGO\nCREATE VECTOR INDEX probe_vs_second_ix2 ON dbo.probe_vs_second (v) WITH (METRIC = 'euclidean', TYPE = 'diskann');",
+            "expect": {
+              "error": 42230
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. One vector index per column, even with a different metric, which is why a second metric means a second table rather than a second index. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_rebuild (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, v vector(5) NOT NULL);\nINSERT INTO dbo.probe_vs_rebuild (v)\nSELECT CAST(JSON_ARRAY(CAST(value * 0.01 AS float), CAST(value * 0.02 AS float), CAST(value * 0.03 AS float), CAST(value * 0.04 AS float), CAST(value * 0.05 AS float)) AS vector(5))\nFROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX probe_vs_rebuild_ix ON dbo.probe_vs_rebuild (v) WITH (METRIC = 'cosine', TYPE = 'diskann');\nGO\nALTER INDEX probe_vs_rebuild_ix ON dbo.probe_vs_rebuild REBUILD;",
+            "expect": {
+              "error": 42250
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. There is no rebuild for a vector index, so the maintenance job every DBA already has will fail on this table. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_dropcol (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, v vector(5) NOT NULL);\nINSERT INTO dbo.probe_vs_dropcol (v)\nSELECT CAST(JSON_ARRAY(CAST(value * 0.01 AS float), CAST(value * 0.02 AS float), CAST(value * 0.03 AS float), CAST(value * 0.04 AS float), CAST(value * 0.05 AS float)) AS vector(5))\nFROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX probe_vs_dropcol_ix ON dbo.probe_vs_dropcol (v) WITH (METRIC = 'cosine', TYPE = 'diskann');\nGO\nALTER TABLE dbo.probe_vs_dropcol DROP COLUMN v;",
+            "expect": {
+              "error": 5074
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The index holds the column, so a migration that drops it has to drop the index first. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_sortkey (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, v vector(5) NOT NULL);\nINSERT INTO dbo.probe_vs_sortkey (v)\nSELECT CAST(JSON_ARRAY(CAST(value * 0.01 AS float), CAST(value * 0.02 AS float), CAST(value * 0.03 AS float), CAST(value * 0.04 AS float), CAST(value * 0.05 AS float)) AS vector(5))\nFROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX probe_vs_sortkey_ix ON dbo.probe_vs_sortkey (v) WITH (METRIC = 'cosine', TYPE = 'diskann');\nGO\nDECLARE @q vector(5) = N'[0.3,0.3,0.3,0.3,0.3]';\nSELECT TOP (3) WITH APPROXIMATE t.id, r.distance\nFROM VECTOR_SEARCH(TABLE = dbo.probe_vs_sortkey AS t, COLUMN = v, SIMILAR_TO = @q, METRIC = 'cosine') AS r\nORDER BY r.distance, t.id;",
+            "expect": {
+              "error": 42271
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The ORDER BY of an approximate search is fixed to the distance column ascending and nothing else. Microsoft Learn's own end to end example on the CREATE VECTOR INDEX page adds a second sort key, so this is the number a reader hits by copying the documentation. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_heap (id int NOT NULL, v vector(5) NOT NULL);\nINSERT INTO dbo.probe_vs_heap (id, v)\nSELECT value, CAST(JSON_ARRAY(CAST(value * 0.01 AS float), CAST(value * 0.02 AS float), CAST(value * 0.03 AS float), CAST(value * 0.04 AS float), CAST(value * 0.05 AS float)) AS vector(5))\nFROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX probe_vs_heap_ix ON dbo.probe_vs_heap (v) WITH (METRIC = 'cosine', TYPE = 'diskann');",
+            "expect": {
+              "error": 42254
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A heap cannot carry a vector index, so the clustered index is a prerequisite and not a recommendation. It goes red if the statement succeeds, or fails with any other number, which is what would happen if the engine relaxed this restriction or renumbered it."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_fallback (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, v vector(5) NOT NULL);\nINSERT INTO dbo.probe_vs_fallback (v)\nSELECT CAST(JSON_ARRAY(CAST(value * 0.01 AS float), CAST(value * 0.02 AS float), CAST(value * 0.03 AS float), CAST(value * 0.04 AS float), CAST(value * 0.05 AS float)) AS vector(5))\nFROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX probe_vs_fallback_ix ON dbo.probe_vs_fallback (v) WITH (METRIC = 'cosine', TYPE = 'diskann');\nGO\nDECLARE @q vector(5) = N'[0.3,0.3,0.3,0.3,0.3]';\nSELECT COUNT(*) AS rows_returned FROM (\n  SELECT TOP (3) WITH APPROXIMATE t.id, r.distance\n  FROM VECTOR_SEARCH(TABLE = dbo.probe_vs_fallback AS t, COLUMN = v, SIMILAR_TO = @q, METRIC = 'euclidean') AS r\n  ORDER BY r.distance\n) AS s;",
+            "expect": {
+              "rows": [
+                [
+                  3
+                ]
+              ]
+            },
+            "why": "THE SILENT FALLBACK, and the correction this probe was written to hold. The index above is built on 'cosine'. Asking VECTOR_SEARCH for 'euclidean' returns a full ordered result set with no error and no warning: measured 2026-09-06 on the container at 18.0.226_4_147. This skill said Msg 42227 here until that measurement, which was backwards in the one direction that matters, because a reader who believes the engine will stop them never checks. It goes red if the statement raises anything, including Msg 42227, or returns any number of rows other than 3."
+          },
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_forceann_metric (id int IDENTITY(1,1) NOT NULL PRIMARY KEY CLUSTERED, v vector(5) NOT NULL);\nINSERT INTO dbo.probe_vs_forceann_metric (v)\nSELECT CAST(JSON_ARRAY(CAST(value * 0.01 AS float), CAST(value * 0.02 AS float), CAST(value * 0.03 AS float), CAST(value * 0.04 AS float), CAST(value * 0.05 AS float)) AS vector(5))\nFROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX probe_vs_forceann_metric_ix ON dbo.probe_vs_forceann_metric (v) WITH (METRIC = 'cosine', TYPE = 'diskann');\nGO\nDECLARE @q vector(5) = N'[0.3,0.3,0.3,0.3,0.3]';\nSELECT TOP (3) WITH APPROXIMATE t.id, r.distance\nFROM VECTOR_SEARCH(TABLE = dbo.probe_vs_forceann_metric AS t, COLUMN = v, SIMILAR_TO = @q, METRIC = 'euclidean') AS r WITH (FORCE_ANN_ONLY)\nORDER BY r.distance;",
+            "expect": {
+              "error": 42227
+            },
+            "why": "The other half of the pair above, and the reason FORCE_ANN_ONLY belongs in a test. The same query that falls back silently raises Msg 42227 the moment the fallback is forbidden, so this hint is the only thing that turns a metric mismatch into an error a pipeline can see. Measured 2026-09-06. It goes red if the statement succeeds, which would mean FORCE_ANN_ONLY had stopped being a guarantee."
+          }
+    ,
+          {
+            "sql": "CREATE TABLE dbo.probe_vs_nvpk (id nvarchar(40) NOT NULL PRIMARY KEY CLUSTERED, v vector(5) NOT NULL);\nINSERT INTO dbo.probe_vs_nvpk (id, v)\nSELECT CAST(value AS nvarchar(40)), CAST(JSON_ARRAY(CAST(value * 0.01 AS float), CAST(value * 0.02 AS float), CAST(value * 0.03 AS float), CAST(value * 0.04 AS float), CAST(value * 0.05 AS float)) AS vector(5))\nFROM GENERATE_SERIES(1, 150);\nGO\nCREATE VECTOR INDEX probe_vs_nvpk_ix ON dbo.probe_vs_nvpk (v) WITH (METRIC = 'cosine', TYPE = 'diskann');",
+            "expect": {
+              "succeeds": true
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. The one claim in this skill that is an ABSENCE: Msg 42217's narrower wording says the clustered index has to be a primary key on particular types, and the skill calls that stale. An nvarchar clustered primary key builds the index, so the narrower rule is not the rule. It goes red if the build ever raises, which is what would happen if 42217's wording became true."
+          }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the vector-search-azure-sql skill",
+      "Add a vector column to my Azure SQL Database table and search it",
+      "Create a vector index on my embeddings column in Azure SQL Database",
+      "How do I run a top k nearest neighbour query on Azure SQL Database",
+      "What are the restrictions on the vector data type in Azure SQL Database"
+    ],
+    "implicit": [
+      "my similarity search returns the right rows but takes seconds and gets slower every week",
+      "why can I not put a primary key or a unique constraint on my embedding column",
+      "Vector search with newer index version does not support explicit TOP_N parameter",
+      "The vector data types cannot be compared or sorted, except when using the IS NULL operator",
+      "The size (3072) given to the column exceeds the maximum allowed",
+      "I cannot truncate my table any more since I added the vector index",
+      "is my query actually using the vector index or is it scanning",
+      "how do I deduplicate rows that have the same embedding",
+      "do I have to turn on PREVIEW_FEATURES before CREATE VECTOR INDEX will work"
+    ],
+    "routing": [
+      "store OpenAI embeddings in Azure SQL Database and query them",
+      "replace my separate vector database with Azure SQL Database",
+      "make my nearest neighbour query on Azure SQL Database faster"
+    ],
+    "negative": [
+      "Build a retrieval augmented generation pipeline over my document library on Azure SQL Database",
+      "Chunk my documents and keep the embeddings up to date as the source changes",
+      "Generate embeddings with an external model from inside the database",
+      "Create an external model and call AI_GENERATE_EMBEDDINGS",
+      "Run a local RAG prototype against the Azure SQL Database container with a local embedding model",
+      "Build a RAG scenario on the container",
+      "Design the schema for my orders and customers tables",
+      "Add retry and connection pooling to my data access layer",
+      "Set up full text search and rank the results"
+    ]
+  }
+}

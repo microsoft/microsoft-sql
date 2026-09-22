@@ -1,0 +1,145 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "azuresql-db-container",
+  "domain": "azure-sql-database-container",
+  "value": [
+    "not-in-training-data",
+    "corrects-a-wrong-assumption",
+    "changes-too-fast-to-memorize"
+  ],
+  "correction": "Asked for a local SQL database, an agent reaches for mcr.microsoft.com/mssql/server. That is SQL Server, not Azure SQL Database: the container runs the PaaS engine, where SERVERPROPERTY('EngineEdition') returns 5 and Edition is 'SQL Azure', and it does not auto-create databases, so a plan that connects straight after docker run has nothing to connect to.",
+  "posture": [
+    "read",
+    "inspect",
+    "execute",
+    "provision"
+  ],
+  "maturity": "preview",
+  "value_declaration": {
+    "rationale": "This skill's kernel is the whole set of ways this image behaves like the platform rather than like the boxed engine. The Azure SQL Database container is a gated private preview and the image is not publicly available, so no model has training data on the product, and the arm of a two-arm value run that ran without this skill would fail for the least interesting reason available: it has never heard of the thing. Running that measurement across all seventeen container skills would spend around a thousand model requests to re-establish what the product's release status already establishes. Carlos Robles accepted value for this collection on 2026-09-04 on this written argument instead. THIS IS A DECLARATION AND NOT A MEASUREMENT, and nothing may report it as one. The argument reaches only the container-specific corrections listed in covers, which are the ones no training data contains. It does not reach Docker run and Compose syntax, port publishing, volume mounts and the shape of a readiness loop, which is ordinary material an ordinary model already handles, and whether this skill improves an answer there is unmeasured and stays unmeasured. The argument ends when the Azure SQL Database container reaches Public Preview: training data begins to contain the product, the premise that nothing could know it stops being true, and this skill has to be measured or demoted. AMENDED 2026-09-19, TEXT ONLY, AND THIS SENTENCE IS THE RECORD OF IT. One line in covers said there is no msdb on this engine. The first live run of this skill's probes, on image tag 18.0.226_4_147, EngineEdition 5, Edition 'SQL Azure', build 12.0.2000.8, in a container started with no MSSQL_AAD_* configuration, lists msdb in sys.databases from master and from a user database alike. What is absent is the Agent job store: OBJECT_ID('msdb.dbo.sysjobs') is NULL. The line was corrected in place on 2026-09-19 to say that instead, and nothing else in this block was touched. The argument did not move: the parity claim it rests on is that there is no SQL Server Agent here, and that still stands, so what Carlos Robles signed on 2026-09-04 still stands. The claim was right and its stated evidence was wrong, which is the worse of the two failures and the reason this sentence is here rather than a silent edit.",
+    "covers": [
+      "the engine never creating a database when a connection names one, so it is created on a master connection first",
+      "USE being refused in a user-database session with Msg 40508",
+      "BACKUP and RESTORE being refused with Msg 40510",
+      "sp_configure being absent rather than blocked, so the engine answers Msg 2812 and there is nothing to be permitted to call",
+      "there being no SQL Server Agent job store on this engine, so OBJECT_ID('msdb.dbo.sysjobs') is NULL, even though sys.databases does list an msdb database",
+      "/docker-entrypoint-initdb.d being absent from the image, so a seed placed there runs silently never",
+      "the native VECTOR(n) type and VECTOR_DISTANCE being present on this build",
+      "a container reporting Up while the engine inside it never started, which is what a password failing the complexity policy produces"
+    ],
+    "does_not_cover": [
+      "Docker run and Compose syntax, port publishing and volume mounts",
+      "retry with backoff as a pattern, as distinct from the fact that Up is not serving"
+    ],
+    "decided_by": "Carlos Robles",
+    "decided_on": "2026-09-04",
+    "expires_when": "the-container-reaches-public-preview"
+  },
+  "applies_to": [
+    "azure-sql-db-container"
+  ],
+  "validation": {
+    "target": "container",
+    "assert": [
+      "engine reports EngineEdition 5",
+      "user database created explicitly, not assumed"
+    ],
+    "probes": [
+      {
+        "sql": "SELECT CAST(SERVERPROPERTY('EngineEdition') AS int) AS engine_edition, CAST(SERVERPROPERTY('Edition') AS nvarchar(128)) AS edition;",
+        "expect": {
+          "rows": [
+            [
+              5,
+              "SQL Azure"
+            ]
+          ]
+        },
+        "why": "The self-check the skill puts in front of every other instruction. Engine edition 5 with edition 'SQL Azure' is the Azure SQL Database engine; the SQL Server image mcr.microsoft.com/mssql/server returns different values, so any other answer means the lane ran against the wrong engine and every probe below it is measuring something else."
+      },
+      {
+        "sql": "USE master;",
+        "expect": {
+          "error": 40508
+        },
+        "why": "The skill states that in a user-database session USE returns Msg 40508, exactly as in Azure SQL Database in the cloud, and that the fix is always to select the database in the connection string. Every probe here runs against a scratch user database, which is the session where the Azure statement filter is enforced. If this ever succeeds, the filter is not being applied to the lane's session and the skill's central connection-model rule has stopped being true locally."
+      },
+      {
+        "sql": "SELECT CASE WHEN DB_NAME() = 'master' THEN 1 ELSE 0 END AS running_on_master;",
+        "expect": {
+          "rows": [
+            [
+              0
+            ]
+          ]
+        },
+        "why": "The skill's third connection-model fact is that a master connection is for provisioning only and that real work happens on the user database, because master is the session where the Azure statement filter is not enforced. This probe asserts that the lane itself obeys that rule. If it returns 1, the refusal probes around it prove nothing: they would be measuring a provisioning session, which is exactly the session where the skill says the refusals do not appear."
+      },
+      {
+        "sql": "DECLARE @stmt nvarchar(max) = N'BACKUP DATABASE ' + QUOTENAME(DB_NAME()) + N' TO DISK = ''/var/opt/mssql/data/probe_backup.bak''';\nEXEC (@stmt);",
+        "expect": {
+          "error": 40510
+        },
+        "why": "references/connection-model.md and references/paas-parity-checklist.md both state that BACKUP and RESTORE are not supported in any session and return Msg 40510, and that this matches Azure SQL Database in the cloud. Msg 40510 is the refusal of a whole statement, as distinct from Msg 40517, which refuses one option of a statement the engine does support. The database name is built from DB_NAME() so the refusal is measured against the scratch database this lane actually holds, not against master, where a different rule could produce a different number."
+      },
+      {
+        "sql": "EXEC sp_configure;",
+        "expect": {
+          "error": 2812
+        },
+        "why": "Measured on this image in a sibling project: sp_configure is absent rather than refusing, so the engine answers with Msg 2812, could not find stored procedure. It is worth a round trip because the failure mode is misread constantly. An agent that sees a refusal assumes a permission or a filter and goes looking for a way to be allowed, when there is nothing there to be allowed to call. The parity checklist used to list RECONFIGURE among the statements the Azure filter blocks, which read as a refusal and blurred the two failures together; it now records the absence instead, and this probe pins it. If this ever returns a different number, the surface has changed and the parity checklist needs re-reading rather than the probe being patched."
+      },
+      {
+        "sql": "SELECT CASE WHEN OBJECT_ID('msdb.dbo.sysjobs') IS NULL THEN 1 ELSE 0 END AS no_agent_job_store;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "references/paas-parity-checklist.md states there is no SQL Server Agent on this engine and that an external scheduler is required. THE PROBE ASKED THE WRONG QUESTION UNTIL 2026-09-19. It read sys.databases for a row named msdb and expected none, on the belief that a user-database session on this engine lists master and the current database only. It does not: from a user database sys.databases returns master, tempdb, model, msdb and the scratch database, and from master the same five. msdb is present. The claim underneath was never affected, because the database is not the job store: OBJECT_ID('msdb.dbo.sysjobs') is NULL, and this probe now asks that instead, which is the question the parity claim actually rests on. A three-part reference into msdb is refused with Msg 40515 in any case. A NOT NULL here would mean an Agent job store exists on an engine whose parity list says it cannot, which is the finding this probe is for. Re-measured 2026-09-19 on image tag 18.0.226_4_147, EngineEdition 5, Edition 'SQL Azure', build 12.0.2000.8, in a scratch container started with no MSSQL_AAD_* configuration."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_container_vector (id int NOT NULL PRIMARY KEY, v vector(3) NOT NULL);\nINSERT INTO dbo.probe_container_vector (id, v) VALUES (1, CAST(CAST(N'[1.0,2.0,3.0]' AS nvarchar(max)) AS vector(3)));\nSELECT CASE WHEN VECTOR_DISTANCE('cosine', v, CAST(CAST(N'[1.0,2.0,3.0]' AS nvarchar(max)) AS vector(3))) < 0.000001 THEN 1 ELSE 0 END AS distance_to_self_is_zero\nFROM dbo.probe_container_vector;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "references/paas-parity-checklist.md claims the VECTOR(n) column type and VECTOR_DISTANCE('cosine', a, b) are present, and prescribes the double CAST insert shape with a literal dimension. This probe runs exactly that shape and checks the one value the maths guarantees: the cosine distance from a vector to itself is zero. A failure here means either the type is gone or the prescribed insert shape no longer compiles, and both are reasons to stop recommending it."
+      },
+      {
+        "cmd": "/opt/mssql-tools18/bin/sqlcmd -?",
+        "where": "container",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Every command in this skill, including the readiness retry loop and the identity self-check, is written as docker exec against this exact absolute path. The claim is that the image ships sqlcmd there, so where this probe runs is half of it: on the host the path does not exist and the failure would be the developer's laptop, not the image. -? prints usage and needs no engine, so this measures the file and not a connection."
+      },
+      {
+        "cmd": "test ! -e /docker-entrypoint-initdb.d",
+        "where": "container",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The skill states in two places that the image does not auto-run /docker-entrypoint-initdb.d/*.sql, because that is a Postgres and MySQL convention, and that a seed relying on it runs silently never. This is the closest executable form of that claim: the directory the convention depends on is not in the image. It is evidence and not proof, since a future image could carry the directory and still ignore it, so read a red here as a prompt to test the convention end to end rather than as proof that seeding now works."
+      }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the azuresql-db-container skill"
+    ],
+    "implicit": [
+      "spin up a local mssql container I can query"
+    ],
+    "negative": [
+      "set up a local PostgreSQL database with docker compose",
+      "provision an Azure SQL Database in my subscription",
+      "connect to SQL Server on my company network"
+    ]
+  }
+}

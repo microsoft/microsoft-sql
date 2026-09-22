@@ -1,0 +1,23 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "microsoft-sql-ssms",
+  "version": "0.1.0",
+  "description": "From the Microsoft SQL product team. Running Azure SQL Database: diagnosing slow queries, blocking and resource pressure, reading execution plans, capturing Extended Events, restoring after data loss, row level security, passwordless access, provisioning and bulk data movement.",
+  "author": {
+    "name": "Microsoft SQL",
+    "url": "https://microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/microsoft-sql",
+  "repository": "https://github.com/microsoft/microsoft-sql",
+  "license": "MIT",
+  "keywords": [
+    "microsoft-sql",
+    "azure-sql",
+    "sql",
+    "database",
+    "tsql",
+    "agent-skills",
+    "vector-search",
+    "entra-id"
+  ]
+}

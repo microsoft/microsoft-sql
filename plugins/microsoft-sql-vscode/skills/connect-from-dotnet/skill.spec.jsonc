@@ -1,0 +1,126 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "connect-from-dotnet",
+  "domain": "drivers-and-connectivity",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption"],
+  "correction": "Agents treat Microsoft Entra authentication in .NET as a connection string setting alone, writing Authentication=Active Directory Default against a single Microsoft.Data.SqlClient package reference; since version 7.0 the core package no longer carries the Entra dependencies, confirmed in the restored graph for 7.0.2, so it registers zero authentication providers and every Active Directory mode has nothing to resolve to until Microsoft.Data.SqlClient.Extensions.Azure is added as a second package reference. Which failure a developer sees depends on the server, because the provider is looked up during the login exchange rather than before it: a server offering Microsoft Entra authentication produces ArgumentException, Cannot find an authentication provider, at Open time, while the local Azure SQL Database container refuses the login first and returns SqlException 18456, measured on 2026-08-28, which is a subject for diagnose-connection-errors rather than for this skill. The package rule is a property of the dependency graph and holds on both, so a local run is not where the exception reproduces and is not evidence that the extension package can be skipped.",
+  "value_probe": {
+    "task": "Our .NET 8 background worker talks to a database in Azure using Microsoft.Data.SqlClient directly. There is no ORM, we open a SqlConnection and run commands. The project file has exactly one database package in it:\n\n```xml\n<ItemGroup>\n  <PackageReference Include=\"Microsoft.Data.SqlClient\" Version=\"7.0.2\" />\n</ItemGroup>\n```\n\nSecurity asked us to stop shipping a password, so we changed the connection string from a user name and password to this:\n\n```\nServer=tcp:ourserver.database.windows.net,1433;Database=orders;Authentication=Active Directory Default;Encrypt=True;\n```\n\nIt compiles. It restores. The moment the worker calls OpenAsync in Azure it throws before anything reaches the database, and the exception is complaining that it cannot find something it needs rather than reporting a login failure. Reverting the connection string to the user name and password makes it work again, so the server and the network are fine.\n\nAn engineer has spent two days checking that the worker's identity exists and has been granted access on the database side. What is actually wrong, and what do we change?",
+    "gate": "The answer identifies that the project is missing a package the driver needs for the Active Directory authentication modes to resolve to anything, and adds that second package reference, rather than only editing the connection string or making further changes on the database and identity side.",
+    "states": [
+      "The base driver package on its own registers no authentication provider for the Active Directory modes, so the connection string value has nothing to resolve to.",
+      "The fix is a second package reference added to the project, not a change to the connection string.",
+      "The provider is resolved during the login exchange, which is why the failure appears at connection open time and not at startup or at build time.",
+      "The identity work already done on the database side is necessary but is not what is failing here."
+    ],
+    "refutes": [
+      "A single reference to the base data provider package is all that is needed for the Active Directory authentication modes to work, and no additional package is required.",
+      "The failure means the application identity has not been created as a database user or has not been granted the right database role.",
+      "The connection string keyword is spelled wrong, or a different Active Directory mode value should be substituted to make it work.",
+      "Downgrading or upgrading the single existing package to a different version restores the Active Directory modes without adding anything else."
+    ]
+  },
+  "posture": ["read", "write", "execute"],
+  // Demoted from preview to draft on 2026-09-20, and the reason is a direction
+  // rather than a verdict. The value measurement of 2026-09-05, ten runs per arm,
+  // returned UNCLEAR, and inside it the skill makes the answer worse twice. The
+  // statement that the provider is resolved during the login exchange reads 1 of 10
+  // with the skill against 6 of 10 without, so loading the skill costs a fact the
+  // model already had. A falsehood, that the connection string keyword is spelled
+  // wrong or wants a different Active Directory value, reads 4 of 10 with against 2
+  // of 10 without, so loading it also nudges the reader toward the one edit that
+  // cannot fix this. The gate is 10 of 10 in both arms.
+  // This is an author declaring below the ceiling, which the ladder permits, and
+  // it is not the skill failing. Its engine probes still pass and nothing here is
+  // unverified. Do not raise this field to clear the promotion backlog. It moves
+  // when the skill is rewritten to say something the model does not already know
+  // and a fresh measurement shows lift, and not before.
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "related": [
+    "connect-to-azure-sql",
+    "diagnose-connection-errors",
+    "ef-core-azure-sql",
+    "dapper-and-ado-net-azure-sql",
+    "managed-identity-across-azure-services"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a .NET project referencing Microsoft.Data.SqlClient 7.0 or later",
+      "a reachable Azure SQL database, or the local container"
+    ],
+    "assert": [
+      "a project using any Active Directory authentication mode also references Microsoft.Data.SqlClient.Extensions.Azure",
+      "the project references Microsoft.Data.SqlClient and not System.Data.SqlClient",
+      "Encrypt is absent or set to Mandatory or Strict, and TrustServerCertificate is absent or false",
+      "a user-assigned managed identity supplies its client id in User Id",
+      "connection strings differ only where a separate pool is intended",
+      "the extension package requirement is decided from the dependency graph and the authentication mode, not from the outcome of a connection to the local container"
+    ],
+    "probes": [
+      {
+        "cmd": "dotnet list package --help | grep -q -- '--include-transitive'",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The flag both dependency-graph checks in SKILL.md depend on. Read out of the tool's own help on .NET SDK 8.0.421, measured 2026-09-03. dotnet is a client SDK a developer installs, never something the engine image ships, so this is a host probe and it opens no database connection."
+      },
+      {
+        "cmd": "d=$(mktemp -d) && cd \"$d\" && dotnet new console -o app >/dev/null && cd app && dotnet add package Microsoft.Data.SqlClient >/dev/null && before=$(dotnet list package --include-transitive | grep -cE '> (Azure\\.Identity|Azure\\.Core|Microsoft\\.Identity\\.Client) ' || true) && dotnet add package Microsoft.Data.SqlClient.Extensions.Azure >/dev/null && after=$(dotnet list package --include-transitive | grep -cE '> (Azure\\.Identity|Azure\\.Core|Microsoft\\.Identity\\.Client) ' || true) && test \"$before\" = 0 && test \"$after\" = 3",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The correction this skill exists for, made executable: none of Azure.Identity, Azure.Core or Microsoft.Identity.Client is in the restored graph of Microsoft.Data.SqlClient alone, and all three appear once Microsoft.Data.SqlClient.Extensions.Azure is referenced. Measured 2026-09-03 on 7.0.2 with .NET SDK 8.0.421: 0 then 3, with Azure.Identity 1.18.0, Azure.Core 1.51.1 and Microsoft.Identity.Client 4.84.2. A host probe, and it needs NuGet access to restore the two packages into a throwaway project."
+      },
+      {
+        "sql": "SELECT COUNT(*) AS rows_for_this_session FROM sys.dm_exec_connections WHERE session_id = @@SPID;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "The fourth check in SKILL.md reads encrypt_option, SUSER_SNAME, USER_NAME and DB_NAME over the application's own connection, and all of it rests on sys.dm_exec_connections returning the row for the current session. One row here means the check is runnable; zero means the connection lacks VIEW DATABASE STATE, which is the permission case the section calls out."
+      },
+      {
+        "sql": "SELECT CASE WHEN CONNECTIONPROPERTY('auth_scheme') IS NOT NULL AND CONNECTIONPROPERTY('encrypt_option') IS NULL THEN 1 ELSE 0 END AS no_unprivileged_substitute;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "SKILL.md tells a reader there is no unprivileged substitute for the DMV, because CONNECTIONPROPERTY carries auth_scheme but not encrypt_option and returns NULL for any other property name. Sourced from CONNECTIONPROPERTY (Transact-SQL) on Microsoft Learn, whose argument table lists seven property names, none of them encrypt_option, and ends with 'Any other string: Returns NULL for invalid input'."
+      }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the connect-from-dotnet skill",
+      "Connect my .NET app to Azure SQL Database",
+      "Set up managed identity authentication with Microsoft.Data.SqlClient"
+    ],
+    "implicit": [
+      "do I need Microsoft.Data.SqlClient.Extensions.Azure to use Active Directory Default",
+      "my API worked locally with a password but fails in Azure with a login error",
+      "should I use System.Data.SqlClient or Microsoft.Data.SqlClient",
+      "how do I size the connection pool for a .NET service on Azure SQL"
+    ],
+    "routing": [
+      "add a data access layer to my ASP.NET service",
+      "passwordless database access for a .NET app running in Azure",
+      "add a data access layer to my ASP.NET service that talks to Azure SQL"
+    ],
+    "negative": [
+      "connect to Azure SQL from Python with mssql-python",
+      "set the mssql pool size in my Node.js API",
+      "add an EF Core migration for a new column",
+      "why does my first connection to a paused database fail"
+    ]
+  }
+}

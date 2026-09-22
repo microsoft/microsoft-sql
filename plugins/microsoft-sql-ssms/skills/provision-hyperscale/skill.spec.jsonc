@@ -1,0 +1,130 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "provision-hyperscale",
+  "domain": "provisioning-and-local-dev",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption"],
+  "correction": "Agents treat Hyperscale as an ordinary service objective change, reversible like any other, and treat the free offer as a starting point that grows into it. Neither holds. A free offer database cannot change tier at all until the free limit is turned off, and turning it off is permanent: the database can never return to the free offer. Coming back out of Hyperscale is not a tier change either. Reverse migration exists only for a database that was CONVERTED to Hyperscale, only within 45 days of that conversion, only to General Purpose, only outside an elastic pool and only at 2 vCores or more; a database created as Hyperscale is refused outright with 'ineligible for reverse migration. Database created as brand-new Hyperscale application.' The cost is a one-way door walked through by accident, because the exit from a brand-new Hyperscale database is a bacpac export and import that the portal, the CLI, PowerShell and the REST API do not support for Hyperscale at all, leaving a client-side tool documented as reliable only to about 150 GB.",
+  "value_probe": {
+    "gate": "The answer names which moves in this plan cannot be undone before recommending any of them, and treats getting back to a smaller tier later as a separate question with conditions of its own rather than as another size change.",
+    "task": "We prototyped on the free monthly Azure SQL Database and it has outgrown that: we are a few hundred gigabytes now and still growing. Our architect wants us on the tier that scales storage out for databases this size, and finance has asked whether we can move this month and then move back down next quarter if the bill turns out worse than they expect. Tell me what I would actually have to do, in order, and flag anything I would not be able to undo, because I have to take this to them on Thursday.",
+    "states": [
+      "Turning off the free limit is permanent and the database can never return to the free offer afterwards.",
+      "A database on the free offer cannot change service tier at all while the free limit is still in place.",
+      "Any path back to a smaller tier is time limited and carries conditions on the target tier, the pool and the vCore count.",
+      "Exporting and importing the database as a portable file is the fallback exit, and it has tooling limits of its own."
+    ],
+    "refutes": [
+      "A database can be moved back down from that tier at any time with an ordinary service objective change.",
+      "The free offer is a starting point that simply grows into a larger tier when the workload needs it.",
+      "A database created directly on that tier has the same path back as one that was converted to it.",
+      "The portal, the CLI, PowerShell or the REST API can export this database to a portable file."
+    ]
+  },
+  "posture": ["read", "write", "provision"],
+  "maturity": "ga",
+  "applies_to": ["azure-sql-db"],
+  "related": [
+    "provision-azure-sql-db",
+    "connect-to-azure-sql",
+    "hyperscale-target-sizing",
+    "diagnose-resource-pressure",
+    "restore-and-recover"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a General Purpose serverless database on a logical server the caller can update",
+      "a second database created directly in the Hyperscale service tier"
+    ],
+    "assert": [
+      "setting the free limit on a Hyperscale database is refused, so the free offer must be turned off before the tier changes",
+      "a converted database returns to General Purpose with a plain edition and service objective update, so the conversion is not one way for every database",
+      "a database created as Hyperscale is refused reverse migration, naming it as created brand new",
+      "read scale-out follows the high availability replica count, and the read-scale switch is accepted and ignored on Hyperscale",
+      "a Hyperscale database reports no maximum size, so no max size is chosen at creation",
+      "the premium-series hardware families are not the values the create command's help text lists"
+    ],
+    "probes": [
+      {
+        "where": "host",
+        "cmd": "az sql db create --help 2>&1 | tr -s '[:space:]' ' ' | grep -q 'Allowed values include: Gen4, Gen5'",
+        "expect": { "succeeds": true },
+        "why": "The sizing gotcha only makes sense while the help text really does offer Gen4 and Gen5 and nothing else for --family, which is why the body tells a reader to pass --service-objective instead. Measured 2026-09-03 on Azure CLI 2.90.0, exit 0. If Azure CLI ever lists 8IM and 8IH here the gotcha is stale and this probe goes red first. The Hyperscale-only families themselves cannot be probed without creating a database, which this skill is not allowed to do."
+      },
+      {
+        "where": "host",
+        "cmd": "az sql db create --help 2>&1 | tr -s '[:space:]' ' ' | grep -q 'Allowed on one database in a subscription'",
+        "expect": { "succeeds": true },
+        "why": "The free offer section quotes this line to show that the Azure CLI help and the free offer FAQ disagree about how many free databases a subscription gets, which is why the body quotes neither as the answer. Measured 2026-09-03 on Azure CLI 2.90.0, exit 0."
+      },
+      {
+        "where": "host",
+        "cmd": "az sql db update --help 2>&1 | tr -s '[:space:]' ' ' | grep -q 'only settable for Premium and Business Critical databases'",
+        "expect": { "succeeds": true },
+        "why": "The body quotes this sentence as the reason --read-scale is accepted and ignored on Hyperscale. Measured 2026-09-03 on Azure CLI 2.90.0, exit 0. The silent no-op itself needs a live Hyperscale database to observe, so this probe pins the quoted wording rather than the behaviour."
+      },
+      {
+        "where": "host",
+        "cmd": "az sql db update --help 2>&1 | grep -q -- '--ha-replicas'",
+        "expect": { "succeeds": true },
+        "why": "Read scale-out in this skill is configured entirely through --ha-replicas, so the flag existing is the precondition for that whole section. Measured 2026-09-03 on Azure CLI 2.90.0, exit 0."
+      },
+      {
+        "where": "host",
+        "cmd": "az sql db update --help 2>&1 | grep -q -- '--manual-cutover' && az sql db update --help 2>&1 | grep -q -- '--perform-cutover'",
+        "expect": { "succeeds": true },
+        "why": "The conversion procedure is three commands and two of them depend on these flags, which are what keep the cutover in the caller's hands instead of the service's. Measured 2026-09-03 on Azure CLI 2.90.0, both present, exit 0."
+      },
+      {
+        "where": "host",
+        "cmd": "az sql db replica create --help 2>&1 | tr -s '[:space:]' ' ' | grep -q 'Allowed values include: Geo, Named'",
+        "expect": { "succeeds": true },
+        "why": "The named replica command in the body passes --secondary-type Named, and Named is a Hyperscale-only value that a reader coming from geo-replication will not expect to find here. Measured 2026-09-03 on Azure CLI 2.90.0, exit 0."
+      },
+      {
+        "sql": "SELECT COUNT(*) AS n, MAX(CASE WHEN dso.edition = 'Hyperscale' THEN 1 ELSE 0 END) AS is_hyperscale FROM sys.database_service_objectives AS dso JOIN sys.databases AS d ON dso.database_id = d.database_id WHERE d.name = DB_NAME();",
+        "expect": { "rows": [[1, 0]] },
+        "why": "The Check it worked section hands a reader this join and tells them to expect exactly one row whose edition reads Hyperscale. The join, the two column names and the one-row shape are settled here; the Hyperscale value is not, and the second column is what says so, because a container database reports GeneralPurpose and GP_Gen5_2. Measured 2026-09-05 on 18.0.226_4_147: one row, edition GeneralPurpose, service_objective GP_Gen5_2. Red if sys.database_service_objectives stops resolving, if edition or service_objective is renamed, if the filter on DB_NAME() stops returning exactly one row, or if a container ever reported itself as Hyperscale, which would make the skill's warning that this is not a container check the wrong warning."
+      },
+      {
+        "sql": "SELECT TOP 1 operation, state_desc FROM sys.dm_operation_status WHERE major_resource_id = DB_NAME() ORDER BY start_time DESC;",
+        "expect": { "rows": [["CREATE DATABASE", "COMPLETED"]] },
+        "why": "The cutover check in Check it worked reads sys.dm_operation_status filtered on major_resource_id and ordered by start_time, and says a state_desc of Completed is what a finished operation looks like. Those four names and that shape are settled here against the one operation a scratch database is guaranteed to have, its own CREATE DATABASE. Measured 2026-09-05: CREATE DATABASE, COMPLETED. Red if the view is gone, if operation, state_desc, major_resource_id or start_time is renamed, or if the engine stops recording the create."
+      },
+      {
+        "sql": "SELECT TOP 1 phase_desc FROM sys.dm_operation_status;",
+        "expect": { "error": 207 },
+        "why": "The same check tells a reader phase_desc reads WaitingForCutover while a manual cutover waits. Microsoft Learn documents phase_desc and phase_code on sys.dm_operation_status as Hyperscale conversion columns, and this build does not carry the column at all: measured 2026-09-05, Msg 207, Invalid column name 'phase_desc'. So the cutover half of that check is settled only by a real Azure SQL Database and this probe records the boundary rather than implying it was tested. Red if a later build adds the column, which is the day the claim becomes locally checkable."
+      },
+      {
+        "sql": "ALTER DATABASE [probe_provision_hyperscale] ADD SECONDARY ON SERVER [probe_partner_server] WITH (SERVICE_OBJECTIVE = 'HS_Gen5_2', SECONDARY_TYPE = Named, DATABASE_NAME = [probe_provision_hyperscale_reporting]);",
+        "expect": { "error": 41920 },
+        "why": "The named replica section prints this statement for a reader with no Azure credentials at hand, so at minimum the engine has to accept it as T-SQL. It does: measured 2026-09-05 the statement is refused by feature, Msg 41920, while the same statement with SECONDARY_TYPE misspelled is refused by the parser, Msg 102. A feature refusal rather than a syntax error is the whole evidence available locally, because a named replica needs a logical server. Red if this build ever answers Msg 102, which would mean the clause order or the option names in the skill are wrong."
+      }
+    ]
+  },
+  "triggering": {
+    "explicit": ["Use the provision-hyperscale skill"],
+    "implicit": [
+      "should I put this database on Hyperscale",
+      "convert my Azure SQL database to Hyperscale",
+      "how many vCores should I pick for Hyperscale",
+      "can I go back after moving to Hyperscale",
+      "my free Azure SQL database has outgrown the free offer and needs a bigger tier",
+      "add a read replica to my Hyperscale database"
+    ],
+    "routing": [
+      "our database is about to hit the four terabyte ceiling",
+      "writes are the bottleneck and scaling up did not help",
+      "we want one pool for a lot of tenant databases that each grow unpredictably"
+    ],
+    "negative": [
+      "create an Azure SQL database and open the firewall for my IP",
+      "give me a connection string for my new database",
+      "this query got slow after the last deployment",
+      "add retry logic to my data access layer",
+      "run Azure SQL locally in a container",
+      "restore my database to how it looked yesterday morning"
+    ]
+  }
+}

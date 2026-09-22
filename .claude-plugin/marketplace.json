@@ -74,6 +74,27 @@
         "./skills/t-sql-upserts-merge",
         "./skills/vector-search-azure-sql"
       ]
+    },
+    {
+      "name": "microsoft-sql-vscode",
+      "displayName": "Microsoft SQL for Visual Studio Code",
+      "source": "./plugins/microsoft-sql-vscode",
+      "description": "From the Microsoft SQL product team. Application work on Azure SQL Database in Visual Studio Code: connections and drivers, schema and ORMs, T-SQL, vector search and RAG, Azure Functions bindings, and database projects.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "microsoft-sql-ssms",
+      "displayName": "Microsoft SQL for SQL Server Management Studio",
+      "source": "./plugins/microsoft-sql-ssms",
+      "description": "From the Microsoft SQL product team. Running Azure SQL Database: diagnosing slow queries, blocking and resource pressure, reading execution plans, capturing Extended Events, restoring after data loss, row level security, passwordless access, provisioning and bulk data movement.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "microsoft-azuresql-db-container",
+      "displayName": "Azure SQL Database container",
+      "source": "./plugins/microsoft-azuresql-db-container",
+      "description": "From the Microsoft SQL product team. Local development against the Azure SQL Database container, the real cloud engine on your machine: running it, connecting to it, seeding and testing against it, importing an existing database, and proving the same code runs unchanged in Azure.",
+      "version": "0.1.0"
     }
   ]
 }
