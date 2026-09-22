@@ -6,7 +6,7 @@
   "author": {
     "name": "Microsoft"
   },
-  "repository": "https://msdata.visualstudio.com/DefaultCollection/Database%20Systems/_git/AgentSkills",
+  "repository": "https://github.com/microsoft/azure-sql-skills",
   "keywords": [
     "azure-sql",
     "sql-server",

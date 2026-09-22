@@ -3,7 +3,7 @@
 Agent skill plugins for Azure SQL Database and SQL Server to Azure migration.
 
 This repository is a generated distribution of agent plugins. Skill content is maintained in
-`https://msdata.visualstudio.com/DefaultCollection/Database%20Systems/_git/AgentSkills`; do not edit skills here.
+`https://github.com/microsoft/azure-sql-skills`; do not edit skills here.
 
 | Plugin | Version | Skills | Description |
 | --- | --- | ---: | --- |
