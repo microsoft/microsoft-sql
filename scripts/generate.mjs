@@ -298,6 +298,31 @@ emit('.claude-plugin/plugin.json', j({ displayName: STORE_NAME, ...base }));
 //   'copy'     a byte-for-byte copy, regenerated here and diffed by --check
 // Nothing else changes between the two, so the clients can be measured against
 // the same manifests.
+//
+// MEASURED 2026-09-21, installing this branch from git into each client:
+//
+//   symlink  Claude Code    20 / 8 / 4 / 6, correct. It dereferences the link
+//                           into the cache, exactly as its documentation says.
+//            GitHub Copilot 20 / 8 / 4 / 6, correct, dereferenced the same way.
+//            Codex          ZERO. "Added plugin" and an empty skills/ in the
+//                           plugin cache. Its git clone keeps the links and its
+//                           copy into the cache drops every one, with no error
+//                           anywhere. An install that reports success and loads
+//                           nothing is the exact failure this project keeps
+//                           finding late, so symlinks are out.
+//
+//   Also out on Windows. `git clone -c core.symlinks=false`, which is the
+//   default without the create-symlink privilege, writes each link as a 39-byte
+//   text file holding the path. No SKILL.md under any of them.
+//
+//   copy     Claude Code, GitHub Copilot and Codex all load 20 / 8 / 4 / 6 with
+//            the Data API builder skills absent from the Visual Studio Code
+//            plugin. Cursor is UNMEASURED: no Cursor agent CLI on the machine.
+//
+// So the content exists four more times on disk, and the repository still has
+// exactly one place a human edits: skills/. The --check arm above diffs every
+// copy against its source, which was proved by editing one copy by hand and
+// watching the gate fail.
 // ---------------------------------------------------------------------------
 const SUBSET_SHARING = 'copy';
 
