@@ -3,7 +3,9 @@
 A skill curated for Fabric Database Hub estate observability through read-only, Entra-authenticated Fabric APIs: tenant-wide database inventory across Azure SQL, Arc SQL Server, Azure Database for PostgreSQL, Azure Cosmos DB and Fabric SQL; operational health; and authentication, auditing and customer-managed-key security posture. Draft maturity: local evaluation passed with findings on 2026-09-22; live Fabric qualification pending.
 
 Portable [Agent Plugins 1.0](https://agent-plugins.org/specification) package with Claude Code,
-Codex and Cursor descriptors. Built from `https://github.com/microsoft/azure-sql-skills`; edit the skills there, not here.
+Codex and Cursor descriptors. Published by
+[`microsoft/microsoft-sql`](https://github.com/microsoft/microsoft-sql); bundled skill files are
+generated artifacts.
 
 ## Skills (1)
 

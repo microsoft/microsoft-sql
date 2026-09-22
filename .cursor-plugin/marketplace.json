@@ -2,7 +2,7 @@
   "name": "microsoft-sql",
   "owner": {
     "name": "Microsoft Database Systems",
-    "url": "https://github.com/microsoft/azure-sql-skills"
+    "url": "https://github.com/microsoft/microsoft-sql"
   },
   "description": "Microsoft SQL agent skill plugins for direct use, Visual Studio Code, SQL Server Management Studio, SQL Server to Azure migration, and Fabric Database Hub estate observability.",
   "plugins": [

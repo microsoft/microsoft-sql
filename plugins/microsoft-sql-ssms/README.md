@@ -3,7 +3,9 @@
 Fifteen skills curated for database administration with SQL Server Management Studio: diagnosing slow queries, blocking and resource pressure, reading execution plans, capturing Extended Events, restoring after data loss, row-level security, passwordless access, provisioning, and bulk data movement. Application frameworks, serverless bindings, Data API Builder, and AI development skills are omitted.
 
 Portable [Agent Plugins 1.0](https://agent-plugins.org/specification) package with Claude Code,
-Codex and Cursor descriptors. Built from `https://github.com/microsoft/azure-sql-skills`; edit the skills there, not here.
+Codex and Cursor descriptors. Published by
+[`microsoft/microsoft-sql`](https://github.com/microsoft/microsoft-sql); bundled skill files are
+generated artifacts.
 
 ## Skills (15)
 

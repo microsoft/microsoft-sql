@@ -1,10 +1,10 @@
 ---
 name: skill-feedback
 description: >-
-  Turns a defect in an Azure SQL Database agent skill, or in this catalog itself, into a
+  Turns a defect in a Microsoft SQL agent skill, plugin, or marketplace into a
   redacted, prefilled GitHub issue the user reviews and submits. Use when a skill gave wrong or
   missing instructions, the wrong skill fired or none did, a skill would not install, or a
-  description or routing in the catalog is wrong; also when the agent worked around a defect in
+  description or routing in the marketplace is wrong; also when the agent worked around a defect in
   the skill it was following even though the task succeeded. Triggers on "file a bug", "report
   this", "open an issue", "give feedback on this skill". Not for an ordinary Azure SQL Database
   or T-SQL failure where the skill's guidance was correct and only the service or the query is
@@ -14,32 +14,27 @@ description: >-
 ---
 
 
-# Report a defect in a skill, or in the catalog itself
+# Report a defect in a skill, plugin, or marketplace
 
 **This reports on the skills, not on Azure SQL Database.** If the skill said the right thing and the
 engine or the query is what misbehaved, that belongs to the skill that owns the topic. If the skill
 said the wrong thing, said nothing when it should have, or the wrong skill fired at all, this builds
 the report.
 
-Measured 2026-09-03 against the two live `skill_feedback.yml` forms and against
-`scripts/check-prefill-contract.mjs` in `microsoft/azure-sql-skills`. The permission and error-code
-claims are GitHub's own, from "Creating an issue from a URL query".
+Measured 2026-09-22 against the public `skill_feedback.yml` form in
+`microsoft/microsoft-sql`. The permission and error-code claims are GitHub's own, from
+"Creating an issue from a URL query".
 
-## Two forms exist, and the wrong one loses the report
+## Use the public Microsoft SQL form
 
-Both are named `skill_feedback.yml` and expose the same nine field ids; their option lists and label
-sets differ. Find out which one this reader reaches before drafting anything:
+Verify the public repository is reachable before drafting anything:
 
 ```bash
-gh api repos/microsoft/azure-sql-skills --jq '.full_name + " reachable"' \
-  || echo "not reachable, fall back to microsoft/azure-sql-database-container"
+gh api repos/microsoft/microsoft-sql --jq '.full_name + " reachable"'
 ```
 
-Prefer `microsoft/azure-sql-skills`: it owns all forty skills and every command below uses it. It is
-private to the preview and 404s to everyone else, so when that command fails and the report is about
-an `azuresql-db-*` skill, fall back to the public `microsoft/azure-sql-database-container`, reading
-the comparison in [references/issue-fields.md](references/issue-fields.md) before you switch. If
-neither is reachable, say so rather than handing over a dead link.
+Every command below uses `microsoft/microsoft-sql`, the public distribution for all five plugins
+and all seventy unique skills. If it is not reachable, say so rather than handing over a dead link.
 
 **`https://aka.ms/sql-agent-skills-feedback` is not a substitute.** It 301s to the container
 repository's empty form and drops the whole query string on the way:
@@ -61,10 +56,10 @@ question filed here reaches the wrong queue.
 
 ## Step 2: gather, then redact, before any URL exists
 
-Take what the conversation already shows and ask only for the rest: the skill's exact catalog id,
-the agent harness, how the skills were installed, the prompt, and above all **the instruction that
-was wrong or missing, quoted, with what actually worked instead**, the one field maintainers are
-otherwise blind to. Write each long field to a file, so newlines survive:
+Take what the conversation already shows and ask only for the rest: the plugin id, the skill's
+exact id, the agent harness, how the plugin was installed, relevant versions, the prompt, and above
+all **the instruction that was wrong or missing, quoted, with what actually worked instead**, the
+one field maintainers are otherwise blind to. Write each long field to a file, so newlines survive:
 
 ```bash
 mkdir -p report && cd report
@@ -89,25 +84,26 @@ judgment: no customer name or internal hostname trips it, so read the files too.
 
 ## Step 3: copy the dropdown values from the live form, never from memory
 
-Four fields are dropdowns and none takes free text. Pull the form once, then check each value you
+Five fields are dropdowns and none takes free text. Pull the form once, then check each value you
 mean to use is in it character for character:
 
 ```bash
-gh api repos/microsoft/azure-sql-skills/contents/.github/ISSUE_TEMPLATE/skill_feedback.yml \
+gh api repos/microsoft/microsoft-sql/contents/.github/ISSUE_TEMPLATE/skill_feedback.yml \
   --jq '.content' | base64 -d > form.yml
 grep -E '^    id: ' form.yml
+grep -Fx '        - microsoft-sql' form.yml
 grep -Fx '        - Claude Code' form.yml
 ```
 
-The first grep must print exactly nine ids: `skill`, `problem-type`, `agent`, `install-method`,
-`what-happened`, `skill-said`, `repro`, `additional`, `confirm`. That set is the contract
-`check-prefill-contract.mjs` enforces, and any other name arrives silently empty. The second must
-print its line; exit 1 means the value is gone, and a near neighbour reaches the wrong person.
+The first grep must print exactly eleven ids: `plugin`, `skill`, `problem-type`, `agent`,
+`install-method`, `version`, `what-happened`, `skill-said`, `repro`, `additional`, `confirm`.
+Any other name arrives silently empty. Each exact-value grep must print its line; exit 1 means the
+value is gone, and a near neighbour reaches the wrong person.
 
-Two traps in the `skill` list: divider entries such as `-- Drivers and connectivity --` are
-selectable and mean nothing, so never emit one, and a missing id becomes `Not sure`, or
-`The collection as a whole (install, discovery, or the wrong skill loaded)` for install or routing. Open [references/issue-fields.md](references/issue-fields.md) whenever `form.yml`
-cannot be fetched, or for those lists without a network round trip.
+A missing skill id becomes `Not sure`, or
+`The plugin as a whole (install, discovery, or wrong skill loaded)` for install or routing.
+Open [references/issue-fields.md](references/issue-fields.md) whenever `form.yml` cannot be
+fetched, or for the stable option lists without a network round trip.
 
 ## Step 4: build the URL, and leave `labels` out of it
 
@@ -116,12 +112,14 @@ python3 - <<'PY' > issue-url.txt
 import urllib.parse as u
 f = {"template": "skill_feedback.yml",
      "title": "[Skill]: connect-from-typescript-and-node hardcodes the port",
+     "plugin": "microsoft-sql",
      "skill": "connect-from-typescript-and-node",
      "problem-type": "The skill told the agent to do something wrong",
      "agent": "Claude Code",
-     "install-method": "npx skills add"}
+     "install-method": "Claude Code plugin marketplace",
+     "version": "microsoft-sql 1.0.0; Claude Code <version>"}
 f.update({k: open(k + ".txt").read() for k in ("what-happened", "skill-said")})
-print("https://github.com/microsoft/azure-sql-skills/issues/new?"
+print("https://github.com/microsoft/microsoft-sql/issues/new?"
       + u.urlencode(f, quote_via=u.quote))
 PY
 wc -c < issue-url.txt
@@ -156,7 +154,7 @@ submission until they are. Say so before the user opens the link, not after they
 only evidence anything was sent:
 
 ```bash
-gh issue list --repo microsoft/azure-sql-skills --limit 3 \
+gh issue list --repo microsoft/microsoft-sql --limit 3 \
   --json number,title,labels,createdAt
 ```
 
@@ -172,5 +170,5 @@ so in a comment.
   the only thing that leaves the machine.
 - Do not include a password, token, connection-string secret, subscription id, tenant id or real
   email address in any field, ever, even redacted-looking ones that still carry real digits.
-- Do not guess a dropdown value or emit a divider entry, do not carry a prefilled report on the
+- Do not guess a dropdown value, do not carry a prefilled report on the
   `aka.ms` short link, and do not add `&labels=`.

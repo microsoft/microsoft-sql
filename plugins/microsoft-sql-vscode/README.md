@@ -3,7 +3,9 @@
 Twenty-three skills curated for application work with the MSSQL extension in Visual Studio Code: connections and drivers, schema and ORMs, T-SQL, vector search and RAG, Azure Functions bindings, and database projects. Data API Builder skills are omitted to avoid conflicting with the extension's agent tools.
 
 Portable [Agent Plugins 1.0](https://agent-plugins.org/specification) package with Claude Code,
-Codex and Cursor descriptors. Built from `https://github.com/microsoft/azure-sql-skills`; edit the skills there, not here.
+Codex and Cursor descriptors. Published by
+[`microsoft/microsoft-sql`](https://github.com/microsoft/microsoft-sql); bundled skill files are
+generated artifacts.
 
 ## Skills (23)
 

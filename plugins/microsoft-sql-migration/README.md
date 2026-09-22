@@ -3,7 +3,9 @@
 Twelve skills curated for assessing, planning, executing and validating SQL Server to Azure migrations: recommend a migration path, generate a prerequisite plan, run or retrieve Azure Arc migration assessments, evaluate offline readiness, size an Azure SQL SKU from performance data, analyze readiness across an estate, migrate with backup/restore to SQL Server on Azure VM, BACPAC to Azure SQL Database, or Log Replay Service to Azure SQL Managed Instance, and validate data after migration.
 
 Portable [Agent Plugins 1.0](https://agent-plugins.org/specification) package with Claude Code,
-Codex and Cursor descriptors. Built from `https://github.com/microsoft/azure-sql-skills`; edit the skills there, not here.
+Codex and Cursor descriptors. Published by
+[`microsoft/microsoft-sql`](https://github.com/microsoft/microsoft-sql); bundled skill files are
+generated artifacts.
 
 ## Skills (12)
 
