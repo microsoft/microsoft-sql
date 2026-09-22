@@ -73,6 +73,34 @@
         "./skills/t-sql-upserts-merge",
         "./skills/vector-search-azure-sql"
       ]
+    },
+    {
+      "name": "microsoft-sql-vscode",
+      "displayName": "Microsoft SQL for Visual Studio Code",
+      "source": "./plugins/microsoft-sql-vscode",
+      "description": "EXPERIMENTAL. Building an application against Azure SQL Database inside Visual Studio Code: drivers, ORMs, T-SQL correctness, vector search and retrieval. Without the Data API builder skills, which clash with the Data API builder tooling GitHub Copilot already carries there.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "microsoft-sql-ssms",
+      "displayName": "Microsoft SQL for SQL Server Management Studio",
+      "source": "./plugins/microsoft-sql-ssms",
+      "description": "EXPERIMENTAL. Operating and diagnosing a running Azure SQL Database: slow queries, blocking, resource pressure, execution plans, extended events, restore, and row-level security.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "microsoft-sql-migration",
+      "displayName": "Microsoft SQL migration",
+      "source": "./plugins/microsoft-sql-migration",
+      "description": "EXPERIMENTAL. Moving an existing database to Azure SQL Database: what SQL Server does that the service does not, and the four ways to get the data across.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "microsoft-sql-fdh",
+      "displayName": "Microsoft SQL provisioning and delivery",
+      "source": "./plugins/microsoft-sql-fdh",
+      "description": "EXPERIMENTAL. Standing a database up and keeping schema moving: provisioning, Hyperscale, database projects, safe migrations, GitHub Actions, and deploying the application beside it.",
+      "version": "0.1.0"
     }
   ]
 }

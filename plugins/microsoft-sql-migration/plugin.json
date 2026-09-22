@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "microsoft-sql-migration",
+  "version": "0.1.0",
+  "description": "EXPERIMENTAL. Moving an existing database to Azure SQL Database: what SQL Server does that the service does not, and the four ways to get the data across.",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/azure-sql-skills",
+  "repository": "https://github.com/microsoft/azure-sql-skills",
+  "license": "MIT",
+  "keywords": [
+    "azure-sql",
+    "sql",
+    "database",
+    "tsql",
+    "agent-skills",
+    "vector-search",
+    "entra-id"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "microsoft-sql-fdh",
+  "version": "0.1.0",
+  "description": "EXPERIMENTAL. Standing a database up and keeping schema moving: provisioning, Hyperscale, database projects, safe migrations, GitHub Actions, and deploying the application beside it.",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/azure-sql-skills",
+  "repository": "https://github.com/microsoft/azure-sql-skills",
+  "license": "MIT",
+  "keywords": [
+    "azure-sql",
+    "sql",
+    "database",
+    "tsql",
+    "agent-skills",
+    "vector-search",
+    "entra-id"
+  ]
+}

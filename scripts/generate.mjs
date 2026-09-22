@@ -11,7 +11,7 @@
 // manifests hide in dot-directories as .json. Generating them from one source
 // makes drift a build failure instead of a discovery.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, symlinkSync, readlinkSync, rmSync, cpSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 
 const CATALOG = JSON.parse(readFileSync('catalog/catalog.json', 'utf8'));
@@ -250,12 +250,197 @@ const j = (o) => JSON.stringify({ $comment: BANNER, ...o }, null, 2) + '\n';
 const STORE_NAME = 'Azure SQL';
 
 emit('.claude-plugin/plugin.json', j({ displayName: STORE_NAME, ...base }));
+
+// ---------------------------------------------------------------------------
+// EXPERIMENTAL, 2026-09-21: tool-specific plugins carrying subsets of the one
+// skills tree.
+//
+// The earlier experiment on experiment-scoped-collections put every entry at
+// `source: "./"` and gave each its own `skills` list. Claude Code honoured it.
+// GitHub Copilot CLI printed a filtered count and then loaded all 57 under
+// every entry, Cursor ignored the list, and Codex refused the install outright
+// with "plugin.json name 'azure-sql' does not match marketplace plugin name
+// 'azure-sql-vscode'".
+//
+// This is the approach that error asked for: a FOLDER PER PLUGIN under
+// plugins/, each with its own plugin.json whose `name` matches its marketplace
+// entry, and each with its own skills/ holding only that plugin's skills.
+//
+// The open question is how plugins/<name>/skills/ gets content without a second
+// hand-maintained copy. Two sources settle what is allowed:
+//
+//   Agent Plugins specification, agent-plugins.org/specification:
+//     "The fixed discovery location is skills/."
+//     "plugin.json cannot override these locations or contain inline component
+//      configuration."
+//     "Its schema is closed: the only permitted top-level fields are $schema,
+//      name, version, description, author, homepage, repository, license,
+//      keywords, and extensions."
+//   So a `skills` field pointing back at ../../skills is not merely rejected,
+//   it is not a field. That closes approach 2 by design.
+//
+//   The same specification on symlinks:
+//     "Symlinks, junctions, reparse points, and equivalent filesystem
+//      mechanisms MAY resolve to targets within the plugin root, but clients
+//      MUST reject package paths that resolve outside it."
+//   A link from plugins/<name>/skills/<skill> to ../../../skills/<skill>
+//   escapes the PLUGIN root while staying inside the MARKETPLACE root.
+//
+//   Claude Code, code.claude.com/docs/en/plugin-marketplaces, on caching a
+//   marketplace that does exactly that:
+//     "Elsewhere within the same marketplace: the symlink is dereferenced. The
+//      target's content is copied into the cache in its place"
+//   So Claude Code resolves the link away before discovery ever runs. Whether
+//   any other client does is measured, not assumed.
+//
+// SUBSET_SHARING selects what is written into plugins/<name>/skills/.
+//   'symlink'  one relative symlink per skill, pointing at the canonical tree
+//   'copy'     a byte-for-byte copy, regenerated here and diffed by --check
+// Nothing else changes between the two, so the clients can be measured against
+// the same manifests.
+// ---------------------------------------------------------------------------
+const SUBSET_SHARING = 'symlink';
+
+// Data API builder is excluded from the Visual Studio Code plugin because it
+// clashes with Data API builder tooling GitHub Copilot already carries there.
+const DAB_SKILLS = ['dab-rest-and-graphql', 'azuresql-db-dab'];
+
+// The membership is a first defensible cut, not a decided one. Each list is a
+// job someone does in that tool, and each is pinned to an exact size so a
+// silent drop or a rename fails the build instead of shipping a short plugin.
+const SUBSETS = [
+  {
+    name: 'microsoft-sql-vscode',
+    displayName: 'Microsoft SQL for Visual Studio Code',
+    description:
+      'EXPERIMENTAL. Building an application against Azure SQL Database inside Visual Studio Code: ' +
+      'drivers, ORMs, T-SQL correctness, vector search and retrieval. Without the Data API builder ' +
+      'skills, which clash with the Data API builder tooling GitHub Copilot already carries there.',
+    skills: [
+      'connect-to-azure-sql', 'connect-from-dotnet', 'connect-from-python',
+      'connect-from-typescript-and-node', 'diagnose-connection-errors',
+      'design-azure-sql-schema', 'ef-core-azure-sql', 'prisma-azure-sql', 'sqlalchemy-azure-sql',
+      't-sql-correctness', 't-sql-json-and-openjson', 't-sql-upserts-merge',
+      'prevent-sql-injection', 'entra-id-auth',
+      'vector-search-azure-sql', 'embeddings-and-external-models', 'rag-on-azure-sql',
+      'langchain-and-llamaindex-on-azure-sql',
+      'build-app-on-azure-sql', 'azure-functions-sql-bindings',
+    ],
+  },
+  {
+    name: 'microsoft-sql-ssms',
+    displayName: 'Microsoft SQL for SQL Server Management Studio',
+    description:
+      'EXPERIMENTAL. Operating and diagnosing a running Azure SQL Database: slow queries, blocking, ' +
+      'resource pressure, execution plans, extended events, restore, and row-level security.',
+    skills: [
+      'diagnose-slow-query', 'diagnose-blocking-and-deadlocks', 'diagnose-resource-pressure',
+      'read-execution-plan', 'capture-with-extended-events', 'restore-and-recover',
+      'rls-multi-tenant', 'entra-id-auth',
+    ],
+  },
+  {
+    name: 'microsoft-sql-migration',
+    displayName: 'Microsoft SQL migration',
+    description:
+      'EXPERIMENTAL. Moving an existing database to Azure SQL Database: what SQL Server does that ' +
+      'the service does not, and the four ways to get the data across.',
+    skills: [
+      'azuresql-db-from-sql-server', 'azuresql-db-local-to-cloud',
+      'sqlpackage-import-export', 'bulk-load-and-bulk-copy',
+    ],
+  },
+  {
+    name: 'microsoft-sql-fdh',
+    displayName: 'Microsoft SQL provisioning and delivery',
+    description:
+      'EXPERIMENTAL. Standing a database up and keeping schema moving: provisioning, Hyperscale, ' +
+      'database projects, safe migrations, GitHub Actions, and deploying the application beside it.',
+    skills: [
+      'provision-azure-sql-db', 'provision-hyperscale', 'deploy-app-to-azure',
+      'sql-database-projects', 'schema-migrations-safely', 'github-actions-for-sql',
+    ],
+  },
+];
+
+// Fail loudly rather than emit a plugin that resolves to nothing, to something
+// short, or to the whole catalog. An install that resolves the wrong set is the
+// failure mode this repository keeps finding late.
+const EXPECTED = { 'microsoft-sql-vscode': 20, 'microsoft-sql-ssms': 8, 'microsoft-sql-migration': 4, 'microsoft-sql-fdh': 6 };
+const onDisk = new Set(present.map((p) => p.name));
+for (const s of SUBSETS) {
+  const missing = s.skills.filter((id) => !onDisk.has(id));
+  if (missing.length) {
+    console.error(`x ${s.name} lists ${missing.length} skill(s) not on disk: ${missing.join(', ')}`);
+    process.exit(1);
+  }
+  if (new Set(s.skills).size !== s.skills.length) {
+    console.error(`x ${s.name} lists a skill twice`);
+    process.exit(1);
+  }
+  if (s.skills.length !== EXPECTED[s.name]) {
+    console.error(`x ${s.name} resolved ${s.skills.length} skills, expected ${EXPECTED[s.name]}`);
+    process.exit(1);
+  }
+}
+const vscode = SUBSETS.find((s) => s.name === 'microsoft-sql-vscode');
+for (const dab of DAB_SKILLS) {
+  if (vscode.skills.includes(dab)) {
+    console.error(`x ${dab} must not appear in ${vscode.name}`);
+    process.exit(1);
+  }
+}
+
+// Each subset folder gets the portable plugin.json, whose `name` matches the
+// marketplace entry, plus the per-tool manifests so a storefront has a display
+// name here too. No `skills` key anywhere: the specification fixes discovery at
+// skills/ and forbids a manifest from saying otherwise.
+for (const s of SUBSETS) {
+  const dir = `plugins/${s.name}`;
+  const sub = { ...base, name: s.name, description: s.description };
+  emit(`${dir}/plugin.json`, JSON.stringify({
+    $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',
+    name: s.name,
+    version: PKG.version,
+    description: s.description,
+    author: { name: 'Microsoft', url: 'https://microsoft.com' },
+    homepage: HOMEPAGE,
+    repository: REPO,
+    license: 'MIT',
+    keywords: KEYWORDS,
+  }, null, 2) + '\n');
+  emit(`${dir}/.claude-plugin/plugin.json`, j({ displayName: s.displayName, ...sub }));
+  emit(`${dir}/.codex-plugin/plugin.json`, j({
+    ...sub,
+    skills: './skills/',
+    interface: {
+      displayName: s.displayName,
+      shortDescription: s.description,
+      category: 'Databases',
+      logo: 'assets/plugin-logo.svg',
+      composerIcon: 'assets/plugin-logo.svg',
+    },
+  }));
+  emit(`${dir}/.cursor-plugin/plugin.json`, j({ displayName: s.displayName, ...sub, skills: 'skills/', logo: 'assets/plugin-logo.svg' }));
+}
+
 emit('.claude-plugin/marketplace.json', j({
   name: NAME,
   owner: { name: 'Microsoft', url: REPO },
   metadata: { description: SUMMARY },
-  // Wave 2 adds one entry per persona, each with its own skills array.
-  plugins: [{ name: NAME, source: './', description: SUMMARY, version: PKG.version, skills: skillPaths }],
+  plugins: [
+    { name: NAME, source: './', description: SUMMARY, version: PKG.version, skills: skillPaths },
+    // No `skills` array on these. Their source is a real plugin folder, so the
+    // default skills/ scan inside it is the whole declaration, which is the one
+    // thing every client in the measurement agrees on.
+    ...SUBSETS.map((s) => ({
+      name: s.name,
+      displayName: s.displayName,
+      source: `./plugins/${s.name}`,
+      description: s.description,
+      version: PKG.version,
+    })),
+  ],
 }));
 
 // PER-TOOL MANIFESTS, and why there are now two of them.
@@ -391,7 +576,83 @@ emit('plugin.json', JSON.stringify({
 // finding. It lands when the endpoint does.
 // ---------------------------------------------------------------------------
 
-let stale = 0;
+// ---------------------------------------------------------------------------
+// plugins/<name>/skills/, materialised. EXPERIMENTAL, see SUBSET_SHARING.
+//
+// This is the part `emit` cannot do, because it writes file bodies and what is
+// needed here is either a symlink or a whole subtree. Both modes are checkable:
+// --check reports a difference rather than repairing it, the same contract the
+// rest of this script keeps.
+// ---------------------------------------------------------------------------
+let subsetStale = 0;
+const subsetNote = (msg) => {
+  subsetStale++;
+  if (check) console.error(`x ${msg}`);
+};
+
+const listDir = (p) => (existsSync(p) ? readdirSync(p).filter((n) => n !== '.DS_Store').sort() : []);
+
+// A skill directory, flattened to [relative path, contents] pairs, so two trees
+// can be compared without walking them in lockstep.
+const flatten = (root, prefix = '') => {
+  const out = [];
+  for (const name of readdirSync(root).filter((n) => n !== '.DS_Store').sort()) {
+    const full = join(root, name);
+    if (statSync(full).isDirectory()) out.push(...flatten(full, `${prefix}${name}/`));
+    else out.push([`${prefix}${name}`, readFileSync(full)]);
+  }
+  return out;
+};
+
+for (const s of SUBSETS) {
+  const dir = join('plugins', s.name, 'skills');
+  const want = [...s.skills].sort();
+
+  if (!check) {
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+  }
+
+  const have = listDir(dir);
+  if (have.join(',') !== want.join(',')) subsetNote(`${dir} holds [${have.join(', ')}], expected [${want.join(', ')}]`);
+
+  for (const id of want) {
+    const dest = join(dir, id);
+    const source = join('skills', id);
+
+    if (SUBSET_SHARING === 'symlink') {
+      // Relative, and up three levels: plugins/<name>/skills/<id> back to
+      // skills/<id>. Relative rather than absolute so a clone on another
+      // machine resolves, and so git stores the link rather than a path from
+      // this laptop.
+      const target = `../../../skills/${id}`;
+      if (check) {
+        let actual = null;
+        try { actual = readlinkSync(dest); } catch { /* not a symlink, or absent */ }
+        if (actual !== target) subsetNote(`${dest} should be a symlink to ${target}, found ${actual ?? 'a non-symlink or nothing'}`);
+      } else {
+        symlinkSync(target, dest);
+      }
+    } else if (SUBSET_SHARING === 'copy') {
+      if (check) {
+        if (!existsSync(dest)) { subsetNote(`${dest} is missing`); continue; }
+        const a = flatten(source);
+        const b = flatten(dest);
+        if (a.length !== b.length || a.some(([p, body], i) => b[i][0] !== p || !body.equals(b[i][1]))) {
+          subsetNote(`${dest} differs from skills/${id}`);
+        }
+      } else {
+        cpSync(source, dest, { recursive: true });
+      }
+    } else {
+      console.error(`x SUBSET_SHARING is "${SUBSET_SHARING}", which is not a mode`);
+      process.exit(1);
+    }
+  }
+  if (!check) console.log(`  wrote ${dir} (${want.length} skills, ${SUBSET_SHARING})`);
+}
+
+let stale = subsetStale;
 for (const [path, body] of outputs) {
   const current = existsSync(path) ? readFileSync(path, 'utf8') : null;
   if (current === body) continue;

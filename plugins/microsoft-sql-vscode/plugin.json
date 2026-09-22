@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "microsoft-sql-vscode",
+  "version": "0.1.0",
+  "description": "EXPERIMENTAL. Building an application against Azure SQL Database inside Visual Studio Code: drivers, ORMs, T-SQL correctness, vector search and retrieval. Without the Data API builder skills, which clash with the Data API builder tooling GitHub Copilot already carries there.",
+  "author": {
+    "name": "Microsoft",
+    "url": "https://microsoft.com"
+  },
+  "homepage": "https://github.com/microsoft/azure-sql-skills",
+  "repository": "https://github.com/microsoft/azure-sql-skills",
+  "license": "MIT",
+  "keywords": [
+    "azure-sql",
+    "sql",
+    "database",
+    "tsql",
+    "agent-skills",
+    "vector-search",
+    "entra-id"
+  ]
+}
