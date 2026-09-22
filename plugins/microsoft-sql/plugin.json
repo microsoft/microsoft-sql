@@ -1,0 +1,21 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "microsoft-sql",
+  "version": "1.0.0",
+  "description": "The complete collection of fifty-seven skills for agents working directly with Azure SQL Database and the Azure SQL Database container: provisioning, application development, connecting from .NET, Python and TypeScript, schema design and migrations, bulk load, RAG and vector search, Data API Builder, Azure Functions, CI, security, diagnostics, and T-SQL correctness.",
+  "author": {
+    "name": "Microsoft"
+  },
+  "repository": "https://github.com/microsoft/azure-sql-skills",
+  "keywords": [
+    "microsoft-sql",
+    "azure-sql",
+    "sql-server",
+    "database",
+    "container",
+    "rag",
+    "vector-search",
+    "t-sql",
+    "diagnostics"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "microsoft-sql-vscode",
+  "displayName": "Microsoft SQL for Visual Studio Code",
+  "version": "0.1.0",
+  "description": "Twenty-three skills curated for application work with the MSSQL extension in Visual Studio Code: connections and drivers, schema and ORMs, T-SQL, vector search and RAG, Azure Functions bindings, and database projects. Data API Builder skills are omitted to avoid conflicting with the extension's agent tools.",
+  "author": {
+    "name": "Microsoft"
+  },
+  "repository": "https://github.com/microsoft/azure-sql-skills",
+  "keywords": [
+    "microsoft-sql",
+    "azure-sql",
+    "vscode",
+    "mssql",
+    "application-development",
+    "orm",
+    "t-sql",
+    "vector-search",
+    "rag"
+  ]
+}

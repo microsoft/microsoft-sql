@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "suppressions": [
+    {
+      "finding_code": "SD-11",
+      "scanner_rule": "SQL_AST_PARSE_INCOMPLETE",
+      "description": "ScriptDom rejects REFERENCES on the DATABASE SCOPED CREDENTIAL securable in the permission-grant fence.",
+      "decision": "suppress-parser-gap",
+      "reason": "The complete statement executed successfully on Azure SQL Database after creating the referenced external model, credential, and principal. The SQL is valid on the advertised target; changing it to satisfy the parser would be incorrect.",
+      "validated_on": "2026-09-16",
+      "target": "Azure SQL Database S0"
+    }
+  ]
+}

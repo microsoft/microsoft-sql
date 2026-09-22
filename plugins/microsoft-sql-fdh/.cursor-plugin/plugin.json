@@ -1,0 +1,23 @@
+{
+  "name": "microsoft-sql-fdh",
+  "displayName": "Microsoft SQL for Fabric Database Hub",
+  "version": "0.1.0",
+  "description": "A skill curated for Fabric Database Hub estate observability through read-only, Entra-authenticated Fabric APIs: tenant-wide database inventory across Azure SQL, Arc SQL Server, Azure Database for PostgreSQL, Azure Cosmos DB and Fabric SQL; operational health; and authentication, auditing and customer-managed-key security posture. Draft maturity: local evaluation passed with findings on 2026-09-22; live Fabric qualification pending.",
+  "author": {
+    "name": "Microsoft"
+  },
+  "repository": "https://github.com/microsoft/azure-sql-skills",
+  "keywords": [
+    "microsoft-sql",
+    "fabric",
+    "database-hub",
+    "estate",
+    "inventory",
+    "observability",
+    "azure-sql",
+    "postgresql",
+    "cosmos-db",
+    "security-posture"
+  ],
+  "skills": "skills/"
+}
