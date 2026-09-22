@@ -588,51 +588,82 @@ or Blob authorization error blocks this workflow.
 
 ## 8. Inspect paths and restore from URL
 
-Use the target managed identity for all URL reads:
+Build each query in PowerShell, then execute it through the already validated
+target SQL connection.
 
-```sql
-RESTORE HEADERONLY FROM URL = N'<validated-blob-url>';
-GO
-RESTORE FILELISTONLY FROM URL = N'<validated-blob-url>';
-GO
+Use the target managed identity for all URL reads. Materialize the escaped Blob
+literal and target database forms before building any executable batch:
+
+```powershell
+$escapedBlobUrl = $blobUrl.Replace("'", "''")
+$escapedTargetDatabase = $targetDatabaseName.Replace(']', ']]')
+$escapedTargetDatabaseLiteral = $targetDatabaseName.Replace("'", "''")
+$blobUrlLiteral = "N'$escapedBlobUrl'"
+$targetDatabaseIdentifier = "[$escapedTargetDatabase]"
+$targetDatabaseLiteral = "N'$escapedTargetDatabaseLiteral'"
+
+$headerQuery = @"
+RESTORE HEADERONLY FROM URL = $blobUrlLiteral;
+"@
+
+$fileListQuery = @"
+RESTORE FILELISTONLY FROM URL = $blobUrlLiteral;
+"@
 ```
+
+Execute `$headerQuery` and then `$fileListQuery` before constructing the
+mappings below.
 
 Map every returned logical file to a complete target path. Verify each parent
 directory is visible to SQL Server, each volume has sufficient free space, and no
 physical file belongs to another database. Check the target database collision:
 
-```sql
+```powershell
+$moveClauses = @()
+$targetPathLiterals = @()
+foreach ($mapping in $fileMappings) {
+    $escapedLogicalName = ([string] $mapping.LogicalName).Replace("'", "''")
+    $escapedTargetPath = ([string] $mapping.TargetPath).Replace("'", "''")
+    $logicalNameLiteral = "N'$escapedLogicalName'"
+    $targetPathLiteral = "N'$escapedTargetPath'"
+    $moveClauses += "MOVE $logicalNameLiteral TO $targetPathLiteral"
+    $targetPathLiterals += $targetPathLiteral
+}
+$moveClauseList = $moveClauses -join ",`r`n         "
+$targetPathLiteralList = $targetPathLiterals -join ', '
+
+$collisionQuery = @"
 SELECT name, state_desc
 FROM sys.databases
-WHERE name = N'<target-database>';
+WHERE name = $targetDatabaseLiteral;
 
 SELECT DB_NAME(database_id) AS database_name, name, physical_name
 FROM sys.master_files
-WHERE physical_name IN (N'<planned-data-file>', N'<planned-log-file>');
-GO
+WHERE physical_name IN ($targetPathLiteralList);
+"@
 ```
 
 Run verification with the final mapping:
 
-```sql
+```powershell
+$verifyQuery = @"
 RESTORE VERIFYONLY
-    FROM URL = N'<validated-blob-url>'
-    WITH MOVE N'<logical-data>' TO N'<target-data-path>',
-         MOVE N'<logical-log>' TO N'<target-log-path>',
+    FROM URL = $blobUrlLiteral
+    WITH $moveClauseList,
          CHECKSUM;
-GO
+"@
 ```
 
 Add one `MOVE` for every data, log, FILESTREAM, or memory-optimized file. For a
 new target database, restore without `REPLACE`:
 
-```sql
-RESTORE DATABASE [<target-database>]
-    FROM URL = N'<validated-blob-url>'
-    WITH MOVE N'<logical-data>' TO N'<target-data-path>',
-         MOVE N'<logical-log>' TO N'<target-log-path>',
+```powershell
+$restoreQuery = @"
+RESTORE DATABASE $targetDatabaseIdentifier
+    FROM URL = $blobUrlLiteral
+    WITH $moveClauseList,
          RECOVERY, CHECKSUM, STATS = 10;
-GO
+"@
 ```
 
 Only when `OverwriteExistingTarget=true` was explicitly accepted may the same
@@ -643,7 +674,8 @@ Require the final state to be online. Emit this query as a strict `FINAL`
 delimited row using the text-field encoding contract, then require exactly one
 row and decode and type-check every field:
 
-```sql
+```powershell
+$finalStateQuery = @"
 SET NOCOUNT ON;
 
 SELECT
@@ -655,8 +687,8 @@ SELECT
     is_read_only,
     compatibility_level
 FROM sys.databases
-WHERE name = N'<target-database>';
-GO
+WHERE name = $targetDatabaseLiteral;
+"@
 ```
 
 Do not delete the local backup, Blob, or managed-identity credential. Report the

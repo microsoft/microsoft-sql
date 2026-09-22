@@ -1,0 +1,21 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "database-hub",
+  "version": "0.1.0",
+  "description": "Analyzes a Fabric Database Hub estate through read-only, Entra-authenticated Fabric APIs: tenant-wide database inventory and counts across Azure SQL, Arc SQL Server, Azure Database for PostgreSQL, Azure Cosmos DB and Fabric SQL; CPU, storage and memory health; Cosmos DB availability and RU coverage; and authentication, auditing and customer-managed-key security posture. Draft maturity: local evaluation passed with findings on 2026-09-22; live Fabric qualification pending.",
+  "author": {
+    "name": "Microsoft"
+  },
+  "repository": "https://github.com/microsoft/azure-sql-skills",
+  "keywords": [
+    "fabric",
+    "database-hub",
+    "estate",
+    "inventory",
+    "observability",
+    "azure-sql",
+    "postgresql",
+    "cosmos-db",
+    "security-posture"
+  ]
+}

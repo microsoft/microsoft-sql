@@ -17,6 +17,18 @@
       "category": "Databases"
     },
     {
+      "name": "database-hub",
+      "source": {
+        "source": "local",
+        "path": "./plugins/database-hub"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Databases"
+    },
+    {
       "name": "sql-migration",
       "source": {
         "source": "local",

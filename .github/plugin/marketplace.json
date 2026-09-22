@@ -5,7 +5,7 @@
     "url": "https://github.com/microsoft/azure-sql-skills"
   },
   "metadata": {
-    "description": "Agent skill plugins for Azure SQL Database and SQL Server to Azure migration.",
+    "description": "Agent skill plugins for Azure SQL Database, SQL Server to Azure migration, and Fabric Database Hub estate observability.",
     "version": "1.0.0"
   },
   "plugins": [
@@ -14,6 +14,13 @@
       "description": "Fifty-seven skills for building on Azure SQL Database and the Azure SQL Database container: provisioning, connecting from .NET, Python and TypeScript, schema design and migrations, bulk load, RAG and vector search, Data API Builder, Azure Functions, CI, security, diagnostics, and T-SQL correctness.",
       "version": "1.0.0",
       "source": "./plugins/azure-sql",
+      "category": "Databases"
+    },
+    {
+      "name": "database-hub",
+      "description": "Analyzes a Fabric Database Hub estate through read-only, Entra-authenticated Fabric APIs: tenant-wide database inventory and counts across Azure SQL, Arc SQL Server, Azure Database for PostgreSQL, Azure Cosmos DB and Fabric SQL; CPU, storage and memory health; Cosmos DB availability and RU coverage; and authentication, auditing and customer-managed-key security posture. Draft maturity: local evaluation passed with findings on 2026-09-22; live Fabric qualification pending.",
+      "version": "0.1.0",
+      "source": "./plugins/database-hub",
       "category": "Databases"
     },
     {

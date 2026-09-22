@@ -136,11 +136,16 @@ if (-not (Get-Module -ListAvailable -Name CredentialManager)) {
     Install-Module CredentialManager -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
 }
 ```
-Then resolve the credential and build the connection string locally:
+Then resolve the credential and build the connection string locally using the
+previously collected server value in `$serverName`:
 ```powershell
 $cred = Get-StoredCredential -Target "SQLMigration_TargetServer"
 $plainPassword = $cred.GetNetworkCredential().Password
-$connectionString = "Server={server};Initial Catalog=master;User Id=$($cred.UserName);Password=$plainPassword;TrustServerCertificate=True;Encrypt=True;"
+$builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
+$builder['Data Source'] = $serverName; $builder['Initial Catalog'] = 'master'
+$builder['User ID'] = $cred.UserName; $builder['Password'] = $plainPassword
+$builder['Encrypt'] = $true; $builder['TrustServerCertificate'] = $true
+$connectionString = $builder.ConnectionString
 ```
 ### If user types a plaintext password in chat:
 - **Do NOT refuse to proceed** — the user has made their choice. Use it to complete the task.
