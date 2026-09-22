@@ -1,0 +1,983 @@
+{
+  "schemaVersion": "1.0",
+  "knowledgeBaseVersion": "v1.11",
+  "commonQuestionFields": [
+    "source_version",
+    "source_edition",
+    "source_os",
+    "source_location",
+    "database_count",
+    "largest_database_size_gb",
+    "target_region",
+    "target_tier",
+    "source_permissions",
+    "target_permissions",
+    "downtime_tolerance",
+    "rpo",
+    "rto",
+    "peak_change_rate",
+    "performance_baseline_status",
+    "tde_status",
+    "authentication_model",
+    "feature_inventory_status",
+    "instance_object_inventory_status",
+    "network_path_status",
+    "dns_status",
+    "validation_plan_status",
+    "rollback_plan_status",
+    "application_cutover_owner"
+  ],
+  "paths": [
+    {
+      "ordinal": 1,
+      "id": "P01",
+      "slug": "sql-vm-distributed-ag",
+      "title": "SQL Server on Azure VM — Distributed Availability Group",
+      "target": "SQL Server on Azure VM",
+      "targetVariants": [
+        "SQL Server on Azure VM"
+      ],
+      "method": "Distributed Availability Group",
+      "advisorAliases": [
+        "Distributed AG",
+        "Distributed AG or Always On AG",
+        "Distributed / Always On AG",
+        "Distributed availability group (DAG)"
+      ],
+      "supportStatus": "supported",
+      "disambiguation": {
+        "field": "ha_migration_pattern",
+        "equals": "DISTRIBUTED_AG"
+      },
+      "questionFields": [
+        "source_version",
+        "source_edition",
+        "source_os",
+        "source_ha_topology",
+        "domain_model",
+        "ag_endpoint_status",
+        "network_path_status",
+        "dns_status",
+        "quorum_status",
+        "peak_change_rate",
+        "downtime_tolerance",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 2,
+      "id": "P02",
+      "slug": "sql-vm-always-on-ag",
+      "title": "SQL Server on Azure VM — Always On Availability Group",
+      "target": "SQL Server on Azure VM",
+      "targetVariants": [
+        "SQL Server on Azure VM"
+      ],
+      "method": "Always On Availability Group",
+      "advisorAliases": [
+        "Always On AG",
+        "Distributed AG or Always On AG",
+        "Distributed / Always On AG"
+      ],
+      "supportStatus": "supported",
+      "disambiguation": {
+        "field": "ha_migration_pattern",
+        "equals": "ALWAYS_ON_AG"
+      },
+      "questionFields": [
+        "source_version",
+        "source_edition",
+        "source_os",
+        "source_ha_topology",
+        "domain_model",
+        "ag_endpoint_status",
+        "network_path_status",
+        "dns_status",
+        "quorum_status",
+        "peak_change_rate",
+        "downtime_tolerance",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 3,
+      "id": "P03",
+      "slug": "sql-vm-log-shipping",
+      "title": "SQL Server on Azure VM — Log Shipping",
+      "target": "SQL Server on Azure VM",
+      "targetVariants": [
+        "SQL Server on Azure VM"
+      ],
+      "method": "Log shipping",
+      "advisorAliases": [
+        "Log shipping"
+      ],
+      "supportStatus": "supported",
+      "questionFields": [
+        "source_version",
+        "source_os",
+        "recovery_model",
+        "backup_chain_status",
+        "network_path_status",
+        "tde_status",
+        "tde_material_status",
+        "peak_change_rate",
+        "downtime_tolerance",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 4,
+      "id": "P04",
+      "slug": "sql-vm-native-backup-restore",
+      "title": "SQL Server on Azure VM — Native Backup/Restore",
+      "target": "SQL Server on Azure VM",
+      "targetVariants": [
+        "SQL Server on Azure VM"
+      ],
+      "method": "Native backup/restore",
+      "advisorAliases": [
+        "Native backup/restore"
+      ],
+      "supportStatus": "supported",
+      "questionFields": [
+        "source_version",
+        "source_edition",
+        "database_count",
+        "largest_database_size_gb",
+        "backup_chain_status",
+        "blob_https_status",
+        "blob_access_model",
+        "tde_status",
+        "tde_material_status",
+        "target_region",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 5,
+      "id": "P05",
+      "slug": "sql-vm-standalone-assessment-native-restore",
+      "title": "SQL Server on Azure VM — Standalone Assessment then Native Backup/Restore",
+      "target": "SQL Server on Azure VM",
+      "targetVariants": [
+        "SQL Server on Azure VM"
+      ],
+      "method": "Standalone assessment then Native Backup/Restore",
+      "advisorAliases": [
+        "Standalone assessment / native backup/restore"
+      ],
+      "supportStatus": "supported",
+      "questionFields": [
+        "source_version",
+        "source_edition",
+        "feature_inventory_status",
+        "instance_object_inventory_status",
+        "performance_baseline_status",
+        "largest_database_size_gb",
+        "backup_chain_status",
+        "blob_https_status",
+        "tde_status",
+        "target_region",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 6,
+      "id": "P06",
+      "slug": "sql-vm-azure-migrate-replication",
+      "title": "SQL Server on Azure VM — Azure Migrate Replication",
+      "target": "SQL Server on Azure VM",
+      "targetVariants": [
+        "SQL Server on Azure VM"
+      ],
+      "method": "Azure Migrate replication",
+      "advisorAliases": [
+        "Azure Migrate",
+        "Azure Migrate replication",
+        "Azure Migrate lift and shift",
+        "Azure Migrate (lift & shift)"
+      ],
+      "supportStatus": "supported",
+      "standaloneOnly": true,
+      "standaloneReason": "Azure Migrate replication (lift and shift) is a VM-level online replication method documented outside section 8; only Azure Migrate assessment is promoted into that summary matrix, so replication itself carries no matrix cell to reference.",
+      "disambiguation": {
+        "field": "azure_migrate_intent",
+        "equals": "REPLICATE"
+      },
+      "questionFields": [
+        "azure_migrate_intent",
+        "azure_migrate_platform",
+        "azure_migrate_appliance_status",
+        "source_os",
+        "source_permissions",
+        "network_path_status",
+        "target_region",
+        "target_permissions",
+        "performance_baseline_status",
+        "test_migration_status",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 7,
+      "id": "P07",
+      "slug": "avs-hcx-vmotion",
+      "title": "Azure VMware Solution — VMware HCX / vMotion",
+      "target": "Azure VMware Solution",
+      "targetVariants": [
+        "Azure VMware Solution"
+      ],
+      "method": "VMware HCX / vMotion",
+      "advisorAliases": [
+        "VMware HCX / vMotion",
+        "HCX / vMotion"
+      ],
+      "supportStatus": "supported",
+      "questionFields": [
+        "source_location",
+        "source_os",
+        "hcx_service_mesh_status",
+        "network_path_status",
+        "dns_status",
+        "target_region",
+        "performance_baseline_status",
+        "test_migration_status",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 8,
+      "id": "P08",
+      "slug": "sql-mi-managed-instance-link",
+      "title": "Azure SQL Managed Instance — Managed Instance Link",
+      "target": "Azure SQL Managed Instance",
+      "targetVariants": [
+        "Azure SQL Managed Instance"
+      ],
+      "method": "Managed Instance Link",
+      "advisorAliases": [
+        "MI Link",
+        "Managed Instance link"
+      ],
+      "supportStatus": "supported",
+      "questionFields": [
+        "source_version",
+        "source_edition",
+        "source_os",
+        "source_permissions",
+        "database_count",
+        "target_tier",
+        "target_region",
+        "mi_link_ports_status",
+        "mi_link_capacity_status",
+        "network_path_status",
+        "dns_status",
+        "tde_status",
+        "peak_change_rate",
+        "downtime_tolerance",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 9,
+      "id": "P09",
+      "slug": "sql-mi-log-replay-service",
+      "title": "Azure SQL Managed Instance — Log Replay Service",
+      "target": "Azure SQL Managed Instance",
+      "targetVariants": [
+        "Azure SQL Managed Instance"
+      ],
+      "method": "Log Replay Service",
+      "advisorAliases": [
+        "LRS",
+        "Log Replay Service",
+        "Log Replay Service (LRS)"
+      ],
+      "supportStatus": "supported",
+      "questionFields": [
+        "source_version",
+        "recovery_model",
+        "backup_chain_status",
+        "database_count",
+        "target_tier",
+        "target_region",
+        "lrs_window_days",
+        "lrs_storage_layout_status",
+        "blob_access_model",
+        "tde_status",
+        "tde_material_status",
+        "peak_change_rate",
+        "downtime_tolerance",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 10,
+      "id": "P10",
+      "slug": "sql-mi-native-backup-restore",
+      "title": "Azure SQL Managed Instance — Native Backup/Restore",
+      "target": "Azure SQL Managed Instance",
+      "targetVariants": [
+        "Azure SQL Managed Instance"
+      ],
+      "method": "Native backup/restore",
+      "advisorAliases": [
+        "Native backup/restore",
+        "Native backup & restore (.bak)"
+      ],
+      "supportStatus": "supported",
+      "questionFields": [
+        "source_version",
+        "database_count",
+        "largest_database_size_gb",
+        "backup_chain_status",
+        "blob_https_status",
+        "blob_access_model",
+        "tde_status",
+        "tde_material_status",
+        "target_tier",
+        "target_region",
+        "instance_object_inventory_status",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 11,
+      "id": "P11",
+      "slug": "sql-db-bacpac-sqlpackage",
+      "title": "Azure SQL Database — BACPAC / SqlPackage",
+      "target": "Azure SQL Database / SQL Server on Azure VM / Azure SQL Managed Instance / Azure Arc-enabled SQL Managed Instance / SQL Server in a container",
+      "targetVariants": [
+        "Azure SQL Database",
+        "SQL Server on Azure VM",
+        "Azure SQL Managed Instance",
+        "Azure Arc-enabled SQL Managed Instance",
+        "SQL Server in a container"
+      ],
+      "method": "BACPAC / SqlPackage",
+      "advisorAliases": [
+        "BACPAC/SqlPackage",
+        "BACPAC / SqlPackage"
+      ],
+      "supportStatus": "supported",
+      "questionFields": [
+        "source_version",
+        "largest_database_size_gb",
+        "schema_compatibility_status",
+        "bacpac_consistency_status",
+        "blob_https_status",
+        "source_permissions",
+        "target_permissions",
+        "target_tier",
+        "target_region",
+        "authentication_model",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 12,
+      "id": "P12",
+      "slug": "sql-db-modern-dms-offline",
+      "title": "Azure SQL Database — Modern DMS Offline",
+      "target": "Azure SQL Database",
+      "targetVariants": [
+        "Azure SQL Database"
+      ],
+      "method": "Modern DMS offline",
+      "advisorAliases": [
+        "modern DMS (offline)",
+        "Modern DMS offline",
+        "DMS",
+        "Modern DMS",
+        "Azure Database Migration Service",
+        "DMS offline",
+        "Azure DMS (offline)",
+        "Azure DMS offline"
+      ],
+      "supportStatus": "supported",
+      "questionFields": [
+        "source_version",
+        "schema_compatibility_status",
+        "dms_runtime_status",
+        "source_permissions",
+        "target_permissions",
+        "network_path_status",
+        "blob_https_status",
+        "target_region",
+        "target_tier",
+        "downtime_tolerance",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 13,
+      "id": "P13",
+      "slug": "transactional-replication-managed-targets",
+      "title": "SQL MI / SQL DB / Fabric SQL DB — Transactional Replication",
+      "target": "Azure SQL Managed Instance / Azure SQL Database / SQL database in Fabric / SQL Server on Azure VM / Azure Arc-enabled SQL Managed Instance / SQL Server in a container",
+      "targetVariants": [
+        "Azure SQL Managed Instance",
+        "Azure SQL Database",
+        "SQL database in Fabric",
+        "SQL Server on Azure VM",
+        "Azure Arc-enabled SQL Managed Instance",
+        "SQL Server in a container"
+      ],
+      "method": "Transactional replication",
+      "advisorAliases": [
+        "Transactional replication"
+      ],
+      "supportStatus": "supported_with_target_specific_limits",
+      "questionFields": [
+        "source_version",
+        "source_edition",
+        "source_permissions",
+        "target_permissions",
+        "replication_primary_keys_status",
+        "replication_topology",
+        "network_path_status",
+        "dns_status",
+        "peak_change_rate",
+        "schema_compatibility_status",
+        "downtime_tolerance",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 14,
+      "id": "P14",
+      "slug": "sql-db-data-box-seed-delta",
+      "title": "Azure SQL Database — Data Box Seed then Delta Synchronization",
+      "target": "Azure SQL Database",
+      "targetVariants": [
+        "Azure SQL Database"
+      ],
+      "method": "Data Box seed then Delta Synchronization",
+      "advisorAliases": [
+        "Data Box seed → sync delta",
+        "Data Box seed then delta synchronization"
+      ],
+      "supportStatus": "composed_pattern",
+      "standaloneOnly": true,
+      "standaloneReason": "Data Box is a one-time physical seed transport, not a data-movement method row in the Advisor section 8 matrix; it must always pair with a separately supported delta mechanism, so no single matrix cell can name this composed pattern.",
+      "questionFields": [
+        "largest_database_size_gb",
+        "network_path_status",
+        "data_box_device_status",
+        "delta_sync_method",
+        "schema_compatibility_status",
+        "target_region",
+        "target_tier",
+        "source_permissions",
+        "target_permissions",
+        "peak_change_rate",
+        "downtime_tolerance",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 15,
+      "id": "P15",
+      "slug": "sql-db-striim-online-cdc",
+      "title": "Azure SQL Database — Striim Online CDC",
+      "target": "Azure SQL Database",
+      "targetVariants": [
+        "Azure SQL Database"
+      ],
+      "method": "Striim Online CDC",
+      "advisorAliases": [
+        "STRIIM (online)",
+        "Striim online CDC"
+      ],
+      "supportStatus": "third_party",
+      "standaloneOnly": true,
+      "standaloneReason": "Striim is third-party CDC runtime software with no row in the Advisor section 8 matrix; it appears only in narrative guidance as the online path to Azure SQL Database, so it is reachable solely through standalone selection.",
+      "questionFields": [
+        "source_version",
+        "source_permissions",
+        "target_permissions",
+        "striim_runtime_status",
+        "network_path_status",
+        "schema_compatibility_status",
+        "authentication_model",
+        "peak_change_rate",
+        "downtime_tolerance",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 16,
+      "id": "P16",
+      "slug": "fabric-migration-assistant",
+      "title": "SQL Database in Fabric — Fabric Migration Assistant",
+      "target": "SQL database in Fabric",
+      "targetVariants": [
+        "SQL database in Fabric"
+      ],
+      "method": "Fabric Migration Assistant",
+      "advisorAliases": [
+        "Fabric Migration Assistant"
+      ],
+      "supportStatus": "preview_tool_ga_target",
+      "questionFields": [
+        "source_location",
+        "source_permissions",
+        "fabric_capacity_status",
+        "fabric_workspace_role",
+        "fabric_gateway_type",
+        "fabric_dacpac_size_mb",
+        "schema_compatibility_status",
+        "network_path_status",
+        "authentication_model",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 17,
+      "id": "P17",
+      "slug": "arc-mi-native-backup-direct",
+      "title": "Arc-enabled SQL Managed Instance — Native Backup/Restore Direct",
+      "target": "Azure Arc-enabled SQL Managed Instance",
+      "targetVariants": [
+        "Azure Arc-enabled SQL Managed Instance"
+      ],
+      "method": "Native Backup/Restore Direct",
+      "advisorAliases": [
+        "Native backup/restore"
+      ],
+      "supportStatus": "supported",
+      "disambiguation": {
+        "field": "arc_restore_entrypoint",
+        "equals": "DIRECT_POD_OR_STORAGE"
+      },
+      "questionFields": [
+        "arc_cluster_support_status",
+        "arc_connectivity_mode",
+        "arc_backup_storage_class_status",
+        "container_volume_status",
+        "backup_chain_status",
+        "tde_status",
+        "tde_material_status",
+        "source_permissions",
+        "target_permissions",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 18,
+      "id": "P18",
+      "slug": "arc-mi-native-backup-after-endpoint",
+      "title": "Arc-enabled SQL Managed Instance — Native Backup/Restore after Endpoint Availability",
+      "target": "Azure Arc-enabled SQL Managed Instance",
+      "targetVariants": [
+        "Azure Arc-enabled SQL Managed Instance"
+      ],
+      "method": "Native Backup/Restore after Endpoint Availability",
+      "advisorAliases": [
+        "Native backup/restore after endpoint is available",
+        "Native backup/restore"
+      ],
+      "supportStatus": "supported",
+      "disambiguation": {
+        "field": "arc_restore_entrypoint",
+        "equals": "EXTERNAL_SQL_ENDPOINT"
+      },
+      "questionFields": [
+        "arc_cluster_support_status",
+        "arc_connectivity_mode",
+        "arc_backup_storage_class_status",
+        "arc_external_endpoint_status",
+        "network_path_status",
+        "dns_status",
+        "backup_chain_status",
+        "tde_status",
+        "source_permissions",
+        "target_permissions",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 19,
+      "id": "P19",
+      "slug": "sql-container-mounted-volume-restore",
+      "title": "SQL Server Container — Backup/Restore through Mounted Volume",
+      "target": "SQL Server in a container",
+      "targetVariants": [
+        "SQL Server in a container"
+      ],
+      "method": "Backup/Restore through Mounted Volume",
+      "advisorAliases": [
+        "Backup/restore via mounted volume",
+        "Native backup/restore",
+        "Native backup/restore (.bak)"
+      ],
+      "supportStatus": "supported",
+      "questionFields": [
+        "source_version",
+        "container_image_status",
+        "container_volume_status",
+        "largest_database_size_gb",
+        "backup_chain_status",
+        "tde_status",
+        "tde_material_status",
+        "network_path_status",
+        "target_permissions",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 20,
+      "id": "P20",
+      "slug": "bulk-copy-bcp",
+      "title": "SQL MI / SQL DB / Fabric SQL DB — bcp",
+      "target": "Azure SQL Managed Instance / Azure SQL Database / SQL database in Fabric / SQL Server on Azure VM / Azure Arc-enabled SQL Managed Instance / SQL Server in a container",
+      "targetVariants": [
+        "Azure SQL Managed Instance",
+        "Azure SQL Database",
+        "SQL database in Fabric",
+        "SQL Server on Azure VM",
+        "Azure Arc-enabled SQL Managed Instance",
+        "SQL Server in a container"
+      ],
+      "method": "bcp",
+      "advisorAliases": [
+        "bcp",
+        "bcp / Smart Bulk Copy"
+      ],
+      "supportStatus": "supported",
+      "disambiguation": {
+        "field": "bulk_copy_tool",
+        "equals": "BCP"
+      },
+      "questionFields": [
+        "bulk_copy_tool",
+        "bulk_target_schema_status",
+        "source_permissions",
+        "target_permissions",
+        "network_path_status",
+        "authentication_model",
+        "schema_compatibility_status",
+        "largest_database_size_gb",
+        "downtime_tolerance",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 21,
+      "id": "P21",
+      "slug": "adf-copy-managed-targets",
+      "title": "SQL MI / SQL DB / Fabric SQL DB — Data Factory Copy",
+      "target": "Azure SQL Managed Instance / Azure SQL Database / SQL database in Fabric / SQL Server on Azure VM / Azure Arc-enabled SQL Managed Instance / SQL Server in a container",
+      "targetVariants": [
+        "Azure SQL Managed Instance",
+        "Azure SQL Database",
+        "SQL database in Fabric",
+        "SQL Server on Azure VM",
+        "Azure Arc-enabled SQL Managed Instance",
+        "SQL Server in a container"
+      ],
+      "method": "Data Factory Copy",
+      "advisorAliases": [
+        "Data Factory Copy",
+        "ADF Copy",
+        "Azure Data Factory Copy",
+        "Fabric Data Factory copy job"
+      ],
+      "supportStatus": "supported",
+      "questionFields": [
+        "adf_integration_runtime_status",
+        "adf_connection_status",
+        "source_permissions",
+        "target_permissions",
+        "network_path_status",
+        "authentication_model",
+        "bulk_target_schema_status",
+        "schema_compatibility_status",
+        "largest_database_size_gb",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 22,
+      "id": "P22",
+      "slug": "smart-bulk-copy",
+      "title": "SQL MI / SQL DB — Smart Bulk Copy",
+      "target": "Azure SQL Managed Instance / Azure SQL Database / SQL Server on Azure VM",
+      "targetVariants": [
+        "Azure SQL Managed Instance",
+        "Azure SQL Database",
+        "SQL Server on Azure VM"
+      ],
+      "method": "Smart Bulk Copy",
+      "advisorAliases": [
+        "Smart Bulk Copy",
+        "bcp / Smart Bulk Copy"
+      ],
+      "supportStatus": "deprecated_archived_sample",
+      "requiresExplicitOptIn": true,
+      "optInReason": "Azure-Samples/smartbulkcopy is archived read-only (last commit 146a905, 2023-07-12) and its README requires .NET Core 3.1, which is out of support. The path must never be resolved by inference; the user has to choose it knowing both facts.",
+      "disambiguation": {
+        "field": "bulk_copy_tool",
+        "equals": "SMART_BULK_COPY"
+      },
+      "questionFields": [
+        "bulk_copy_tool",
+        "bulk_target_schema_status",
+        "source_permissions",
+        "target_permissions",
+        "network_path_status",
+        "authentication_model",
+        "schema_compatibility_status",
+        "largest_database_size_gb",
+        "downtime_tolerance",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 23,
+      "id": "P23",
+      "slug": "dms-managed-instance-offline",
+      "title": "Azure SQL Managed Instance — Modern DMS Offline",
+      "target": "Azure SQL Managed Instance",
+      "targetVariants": [
+        "Azure SQL Managed Instance"
+      ],
+      "method": "Modern DMS Offline",
+      "advisorAliases": [
+        "DMS",
+        "Modern DMS",
+        "Azure Database Migration Service",
+        "DMS offline",
+        "Azure DMS (offline)",
+        "Azure DMS offline"
+      ],
+      "supportStatus": "supported",
+      "disambiguation": {
+        "field": "dms_migration_mode",
+        "equals": "OFFLINE"
+      },
+      "questionFields": [
+        "dms_migration_mode",
+        "dms_backup_landing_zone",
+        "source_permissions",
+        "target_permissions",
+        "network_path_status",
+        "tde_status",
+        "largest_database_size_gb",
+        "downtime_tolerance",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 24,
+      "id": "P24",
+      "slug": "dms-managed-instance-online",
+      "title": "Azure SQL Managed Instance — Modern DMS Online",
+      "target": "Azure SQL Managed Instance",
+      "targetVariants": [
+        "Azure SQL Managed Instance"
+      ],
+      "method": "Modern DMS Online",
+      "advisorAliases": [
+        "DMS",
+        "Modern DMS",
+        "Azure Database Migration Service",
+        "DMS online",
+        "Azure DMS (online)",
+        "Azure DMS online"
+      ],
+      "supportStatus": "supported",
+      "disambiguation": {
+        "field": "dms_migration_mode",
+        "equals": "ONLINE"
+      },
+      "questionFields": [
+        "dms_migration_mode",
+        "dms_backup_landing_zone",
+        "recovery_model_status",
+        "source_permissions",
+        "target_permissions",
+        "network_path_status",
+        "tde_status",
+        "largest_database_size_gb",
+        "downtime_tolerance",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 25,
+      "id": "P25",
+      "slug": "dms-azure-vm-offline",
+      "title": "SQL Server on Azure VM — Modern DMS Offline",
+      "target": "SQL Server on Azure VM",
+      "targetVariants": [
+        "SQL Server on Azure VM"
+      ],
+      "method": "Modern DMS Offline",
+      "advisorAliases": [
+        "DMS",
+        "Modern DMS",
+        "Azure Database Migration Service",
+        "DMS offline",
+        "Azure DMS (offline)",
+        "Azure DMS offline"
+      ],
+      "supportStatus": "supported",
+      "disambiguation": {
+        "field": "dms_migration_mode",
+        "equals": "OFFLINE"
+      },
+      "questionFields": [
+        "dms_migration_mode",
+        "dms_backup_landing_zone",
+        "source_permissions",
+        "target_permissions",
+        "network_path_status",
+        "tde_status",
+        "largest_database_size_gb",
+        "downtime_tolerance",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 26,
+      "id": "P26",
+      "slug": "dms-azure-vm-online",
+      "title": "SQL Server on Azure VM — Modern DMS Online",
+      "target": "SQL Server on Azure VM",
+      "targetVariants": [
+        "SQL Server on Azure VM"
+      ],
+      "method": "Modern DMS Online",
+      "advisorAliases": [
+        "DMS",
+        "Modern DMS",
+        "Azure Database Migration Service",
+        "DMS online",
+        "Azure DMS (online)",
+        "Azure DMS online"
+      ],
+      "supportStatus": "supported",
+      "disambiguation": {
+        "field": "dms_migration_mode",
+        "equals": "ONLINE"
+      },
+      "questionFields": [
+        "dms_migration_mode",
+        "dms_backup_landing_zone",
+        "recovery_model_status",
+        "source_permissions",
+        "target_permissions",
+        "network_path_status",
+        "tde_status",
+        "largest_database_size_gb",
+        "downtime_tolerance",
+        "validation_plan_status",
+        "rollback_plan_status"
+      ]
+    },
+    {
+      "ordinal": 27,
+      "id": "P27",
+      "slug": "avs-hosted-sql-platform",
+      "title": "Azure VMware Solution — hosted SQL Server platform overlay",
+      "target": "Azure VMware Solution",
+      "targetVariants": [
+        "Azure VMware Solution"
+      ],
+      "method": "Hosted SQL Server platform overlay",
+      "advisorAliases": [
+        "Hosted SQL Server platform overlay",
+        "AVS platform overlay"
+      ],
+      "supportStatus": "supported",
+      "overlay": true,
+      "attachesToTargetVariant": "Azure VMware Solution",
+      "overlayNote": "Never a selectedMethodPath. This entry describes the platform that hosts SQL Server, not a way of moving data, so it attaches to whichever method path was resolved for an Azure VMware Solution target and appears in appliedOverlays[]. It previously carried AVS and Azure VMware Solution as advisorAliases, which are target names, so a request naming only the target resolved straight to the overlay and produced a readiness plan for a platform nobody migrates to. A target-only request now returns unresolved_path with the method candidates instead.",
+      "licensingBoundary": {
+        "prerequisite": "P27-003",
+        "rule": "VCF licence coverage must span the whole planned period. An existing license-included reservation covers the hosts only until the earlier of its own expiry and 2027-08-30; portable VCF licensing is required from that boundary onward.",
+        "licenseIncludedPayGoRetires": "2026-10-15",
+        "licenseIncludedNewSalesEnd": "2026-10-31",
+        "licenseIncludedServiceEnds": "2027-08-30",
+        "note": "AVS itself is not retiring, only the bundled-licence purchasing option. Never render this as the target going away. Quoting only the 2027 date understates the deadline by ten months, and Broadcom procurement runs in weeks.",
+        "source": "https://azure.microsoft.com/updates?id=569535"
+      },
+      "questionFields": [
+        "source_location",
+        "target_region",
+        "network_path_status",
+        "dns_status",
+        "authentication_model",
+        "largest_database_size_gb",
+        "validation_plan_status",
+        "avs_host_quota_status",
+        "avs_vcf_subscription_status",
+        "avs_address_plan_status",
+        "avs_interconnect_topology",
+        "avs_outbound_internet_method"
+      ]
+    },
+    {
+      "ordinal": 28,
+      "id": "P28",
+      "slug": "azure-migrate-assessment",
+      "title": "Azure Migrate assessment for SQL Server estates",
+      "target": "SQL Server on Azure VM / Azure VMware Solution / Azure SQL Managed Instance / Azure SQL Database",
+      "targetVariants": [
+        "SQL Server on Azure VM",
+        "Azure VMware Solution",
+        "Azure SQL Managed Instance",
+        "Azure SQL Database"
+      ],
+      "method": "Azure Migrate assessment",
+      "advisorAliases": [
+        "Azure Migrate",
+        "Azure Migrate (assess)",
+        "Azure Migrate assessment"
+      ],
+      "supportStatus": "supported",
+      "disambiguation": {
+        "field": "azure_migrate_intent",
+        "equals": "ASSESS"
+      },
+      "questionFields": [
+        "azure_migrate_intent",
+        "source_location",
+        "source_version",
+        "source_edition",
+        "database_count",
+        "performance_baseline_status",
+        "source_permissions",
+        "network_path_status",
+        "feature_inventory_status",
+        "target_region",
+        "azure_migrate_project_access_status",
+        "azure_migrate_discovery_mode",
+        "azure_migrate_source_platform"
+      ]
+    }
+  ]
+}

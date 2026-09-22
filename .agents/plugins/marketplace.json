@@ -1,0 +1,68 @@
+{
+  "name": "microsoft-sql",
+  "interface": {
+    "displayName": "Microsoft SQL agent skills"
+  },
+  "plugins": [
+    {
+      "name": "microsoft-sql",
+      "source": {
+        "source": "local",
+        "path": "./plugins/microsoft-sql"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Databases"
+    },
+    {
+      "name": "microsoft-sql-fdh",
+      "source": {
+        "source": "local",
+        "path": "./plugins/microsoft-sql-fdh"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Databases"
+    },
+    {
+      "name": "microsoft-sql-migration",
+      "source": {
+        "source": "local",
+        "path": "./plugins/microsoft-sql-migration"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Databases"
+    },
+    {
+      "name": "microsoft-sql-ssms",
+      "source": {
+        "source": "local",
+        "path": "./plugins/microsoft-sql-ssms"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Databases"
+    },
+    {
+      "name": "microsoft-sql-vscode",
+      "source": {
+        "source": "local",
+        "path": "./plugins/microsoft-sql-vscode"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Databases"
+    }
+  ]
+}

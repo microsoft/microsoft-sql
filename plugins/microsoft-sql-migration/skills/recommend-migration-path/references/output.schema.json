@@ -1,0 +1,1093 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fredgis/sql-migration-advisor/skills/recommend-migration-path/schemas/output.schema.json",
+  "title": "Migration path recommendation",
+  "description": "The object recommend-migration-path produces and generate-migration-prerequisite-plan consumes. reference/output-contract.md remains the prose authority; this file is the machine-checkable form of its section 2 structure and its section 1 vocabularies, so that a contract change which is not mirrored here fails the build instead of surfacing as a handoff that silently accepts the wrong shape. Written in the JSON Schema subset implemented by tests/validate-scenarios.mjs, so the repository can validate against it without a dependency.",
+  "type": "object",
+  "required": [
+    "metadata",
+    "normalizedProfile",
+    "eligibilityTrace"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "metadata": {
+      "$ref": "#/$defs/metadata"
+    },
+    "normalizedProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What the skill believes it was told, after labels and prose were converted to canonical IDs. Invariant 13: it is always present, so a misreading is visible rather than buried. Its property names are the ones input.schema.json defines, and normalized-profile-matches-input-schema keeps the two in step. Fields are optional here because a profile may be partial; nothing is required beyond what the interview established. Each property mirrors the definition input.schema.json gives it, plus null for a field the interview never established. It used to type every field as {}, which accepts anything: the shipped example carried SQL_SERVER_2014 where the contract tabulates SQL2014, and an object where feature_dependencies must be an array, and validation reported nothing. A profile may be partial while the interview is still running, so nothing is required outright. Once a recommendation is present the six fields the input schema requires must be echoed: Phase A cannot reach a target without them, so a card showing one and an empty profile is claiming a conclusion drawn from nothing.",
+      "properties": {
+        "scope": {
+          "enum": [
+            "SINGLE_DB",
+            "FEW_DATABASES",
+            "LARGE_ESTATE",
+            "NONE_CONFIRMED",
+            "UNKNOWN",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "Constrained to the IDs reference/input-contract.md tabulates for this field, plus the absence markers. It used to be a bare non-empty string while advisor-fact-mappings.json mapped its exact values, so a plausible variant validated here and fell through to the crosswalk fallback: a port the user reported blocked stopped being a blocker."
+        },
+        "source_location": {
+          "enum": [
+            "ON_PREM",
+            "AZURE_VM",
+            "AWS_EC2",
+            "AWS_RDS",
+            "GCP_COMPUTE",
+            "GCP_CLOUD_SQL",
+            "NONE_CONFIRMED",
+            "UNKNOWN",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "Constrained to the IDs reference/input-contract.md tabulates for this field, plus the absence markers. It used to be a bare non-empty string while advisor-fact-mappings.json mapped its exact values, so a plausible variant validated here and fell through to the crosswalk fallback: a port the user reported blocked stopped being a blocker."
+        },
+        "source_version": {
+          "enum": [
+            "SQL2008",
+            "SQL2012",
+            "SQL2014",
+            "SQL2016",
+            "SQL2017_2019",
+            "SQL2022",
+            "SQL2025",
+            "NONE_CONFIRMED",
+            "UNKNOWN",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "Constrained to the IDs reference/input-contract.md tabulates for this field, plus the absence markers. It used to be a bare non-empty string while advisor-fact-mappings.json mapped its exact values, so a plausible variant validated here and fell through to the crosswalk fallback: a port the user reported blocked stopped being a blocker."
+        },
+        "intent": {
+          "enum": [
+            "MIGRATE_NOW",
+            "MODERNIZE_IN_PLACE",
+            "ASSESSMENT_ONLY",
+            "REHOST_FIRST",
+            "NONE_CONFIRMED",
+            "UNKNOWN",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "Constrained to the IDs reference/input-contract.md tabulates for this field, plus the absence markers. It used to be a bare non-empty string while advisor-fact-mappings.json mapped its exact values, so a plausible variant validated here and fell through to the crosswalk fallback: a port the user reported blocked stopped being a blocker."
+        },
+        "driver": {
+          "enum": [
+            "EOS_ESU",
+            "COST",
+            "APP_MODERNIZATION",
+            "DATACENTER_EXIT",
+            "FABRIC_ANALYTICS",
+            "SOVEREIGNTY_EDGE",
+            "NONE_CONFIRMED",
+            "UNKNOWN",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "Constrained to the IDs reference/input-contract.md tabulates for this field, plus the absence markers. It used to be a bare non-empty string while advisor-fact-mappings.json mapped its exact values, so a plausible variant validated here and fell through to the crosswalk fallback: a port the user reported blocked stopped being a blocker."
+        },
+        "management_model": {
+          "enum": [
+            "MANAGED_PAAS",
+            "OS_CONTROL",
+            "KUBERNETES",
+            "NONE_CONFIRMED",
+            "UNKNOWN",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "Constrained to the IDs reference/input-contract.md tabulates for this field, plus the absence markers. It used to be a bare non-empty string while advisor-fact-mappings.json mapped its exact values, so a plausible variant validated here and fell through to the crosswalk fallback: a port the user reported blocked stopped being a blocker."
+        },
+        "kubernetes_model": {
+          "enum": [
+            "ARC_MANAGED_ENGINE",
+            "DIY_CONTAINER",
+            "NONE_CONFIRMED",
+            "UNKNOWN",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "Constrained to the IDs reference/input-contract.md tabulates for this field, plus the absence markers. It used to be a bare non-empty string while advisor-fact-mappings.json mapped its exact values, so a plausible variant validated here and fell through to the crosswalk fallback: a port the user reported blocked stopped being a blocker."
+        },
+        "source_os": {
+          "enum": [
+            "WINDOWS_SERVER_2012_OR_LATER",
+            "WINDOWS_SERVER_BELOW_2012",
+            "WINDOWS_CLIENT",
+            "LINUX",
+            "UNKNOWN",
+            "NONE_CONFIRMED",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "The contract tabulates these IDs and the crosswalk maps their exact values, so a plausible normalization variant used to pass both schemas and fall into the crosswalk's `otherwise`, where a known answer became UNKNOWN. A canonical-ID field is enumerated or it is not canonical."
+        },
+        "source_edition": {
+          "enum": [
+            "ENTERPRISE",
+            "STANDARD",
+            "DEVELOPER",
+            "EXPRESS",
+            "WEB",
+            "UNKNOWN",
+            "NONE_CONFIRMED",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "The contract tabulates these IDs and the crosswalk maps their exact values, so a plausible normalization variant used to pass both schemas and fall into the crosswalk's `otherwise`, where a known answer became UNKNOWN. A canonical-ID field is enumerated or it is not canonical."
+        },
+        "clr_permission_set": {
+          "enum": [
+            "CLR_SAFE",
+            "CLR_EXTERNAL_ACCESS",
+            "CLR_UNSAFE",
+            "UNKNOWN",
+            "NONE_CONFIRMED",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "The contract tabulates these IDs and the crosswalk maps their exact values, so a plausible normalization variant used to pass both schemas and fall into the crosswalk's `otherwise`, where a known answer became UNKNOWN. A canonical-ID field is enumerated or it is not canonical."
+        },
+        "tde_status": {
+          "enum": [
+            "TDE_ENABLED",
+            "TDE_NOT_ENABLED",
+            "UNKNOWN",
+            "NONE_CONFIRMED",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "The contract tabulates these IDs and the crosswalk maps their exact values, so a plausible normalization variant used to pass both schemas and fall into the crosswalk's `otherwise`, where a known answer became UNKNOWN. A canonical-ID field is enumerated or it is not canonical."
+        },
+        "source_permissions": {
+          "enum": [
+            "SYSADMIN_AVAILABLE",
+            "LIMITED_RIGHTS",
+            "UNKNOWN",
+            "NONE_CONFIRMED",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "The contract tabulates these IDs and the crosswalk maps their exact values, so a plausible normalization variant used to pass both schemas and fall into the crosswalk's `otherwise`, where a known answer became UNKNOWN. A canonical-ID field is enumerated or it is not canonical."
+        },
+        "authentication": {
+          "enum": [
+            "SQL_LOGINS_ONLY",
+            "WINDOWS_LOGINS",
+            "ENTRA_ID",
+            "MIXED_AUTH",
+            "UNKNOWN",
+            "NONE_CONFIRMED",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "The contract tabulates these IDs and the crosswalk maps their exact values, so a plausible normalization variant used to pass both schemas and fall into the crosswalk's `otherwise`, where a known answer became UNKNOWN. A canonical-ID field is enumerated or it is not canonical."
+        },
+        "feature_dependencies": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "A list, not prose, so a rule can read a subtype such as PolyBase to an external RDBMS directly. An empty list is not the same as NONE_CONFIRMED: use the marker to record that the user checked."
+        },
+        "size": {
+          "enum": [
+            "UNDER_150_GB",
+            "FROM_150_GB_TO_4_TB",
+            "FROM_4_TB_TO_128_TB",
+            "OVER_128_TB",
+            "UNKNOWN",
+            "NONE_CONFIRMED",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "Constrained to the IDs reference/input-contract.md tabulates for this field, plus the absence markers. It used to be a bare non-empty string while advisor-fact-mappings.json mapped its exact values, so a plausible variant validated here and fell through to the crosswalk fallback: a port the user reported blocked stopped being a blocker."
+        },
+        "downtime": {
+          "enum": [
+            "NEAR_ZERO",
+            "MINIMAL",
+            "OFFLINE",
+            "UNKNOWN",
+            "NONE_CONFIRMED",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "Constrained to the IDs reference/input-contract.md tabulates for this field, plus the absence markers. It used to be a bare non-empty string while advisor-fact-mappings.json mapped its exact values, so a plausible variant validated here and fell through to the crosswalk fallback: a port the user reported blocked stopped being a blocker."
+        },
+        "compliance": {
+          "enum": [
+            "STANDARD_COMMERCIAL",
+            "EU_DATA_BOUNDARY",
+            "GOVERNMENT_SOVEREIGN",
+            "EDGE_AIR_GAPPED",
+            "UNKNOWN",
+            "NONE_CONFIRMED",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "Constrained to the IDs reference/input-contract.md tabulates for this field, plus the absence markers. It used to be a bare non-empty string while advisor-fact-mappings.json mapped its exact values, so a plausible variant validated here and fell through to the crosswalk fallback: a port the user reported blocked stopped being a blocker."
+        },
+        "network_bandwidth": {
+          "enum": [
+            "GOOD_BANDWIDTH",
+            "LIMITED_WAN",
+            "VERY_LARGE_MULTI_TB",
+            "UNKNOWN",
+            "NONE_CONFIRMED",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "Constrained to the IDs reference/input-contract.md tabulates for this field, plus the absence markers. It used to be a bare non-empty string while advisor-fact-mappings.json mapped its exact values, so a plausible variant validated here and fell through to the crosswalk fallback: a port the user reported blocked stopped being a blocker."
+        },
+        "mi_link_ports": {
+          "enum": [
+            "PORTS_CONFIRMED_OPEN",
+            "PORTS_BLOCKED",
+            "UNKNOWN",
+            "NONE_CONFIRMED",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "Constrained to the IDs reference/input-contract.md tabulates for this field, plus the absence markers. It used to be a bare non-empty string while advisor-fact-mappings.json mapped its exact values, so a plausible variant validated here and fell through to the crosswalk fallback: a port the user reported blocked stopped being a blocker."
+        },
+        "blob_https_reachability": {
+          "enum": [
+            "BLOB_HTTPS_CONFIRMED",
+            "BLOB_HTTPS_BLOCKED",
+            "BLOB_HTTPS_UNKNOWN",
+            "NONE_CONFIRMED",
+            "UNKNOWN",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "Constrained to the IDs reference/input-contract.md tabulates for this field, plus the absence markers. It used to be a bare non-empty string while advisor-fact-mappings.json mapped its exact values, so a plausible variant validated here and fell through to the crosswalk fallback: a port the user reported blocked stopped being a blocker."
+        },
+        "network_ports": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "description": "A canonical option ID from reference/input-contract.md section 3, or one of the three absence markers. NONE_CONFIRMED means the user checked and there are none, and it clears a blocker. UNKNOWN means not checked, declined, blank or unrecognised, and it holds the candidate at unknown_requires_assessment. NOT_APPLICABLE means the question cannot apply to this profile. The distinction is the whole point: we have no linked servers clears a blocker, I have not looked at linked servers must not."
+        },
+        "rpo": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Recorded as written, never converted into a gate result. Free prose is context, not evidence."
+        },
+        "rto": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Recorded as written, never converted into a gate result. Free prose is context, not evidence."
+        },
+        "target_region": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Recorded as written, never converted into a gate result. Free prose is context, not evidence."
+        },
+        "performance": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "null means the question was asked and left unanswered, which is not the same as absent. When unresolved the tier becomes unknown_requires_assessment rather than defaulting to General Purpose."
+        },
+        "tenant_count": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Recorded as written, never converted into a gate result. Free prose is context, not evidence."
+        },
+        "fabric_constraints": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Recorded as written, never converted into a gate result. Free prose is context, not evidence."
+        },
+        "database_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Read against MI Link capacity: 100 links on General Purpose and Business Critical, 500 on Next-gen General Purpose."
+        },
+        "migration_batch_size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Only evaluated when the Arc portal migration is used."
+        },
+        "arc_extension_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "description": "Never treated as recent when absent. The Arc wizard batch limit is 10 per batch from 1.1.3348.364 and 1 otherwise, so an unknown version yields unknown_requires_assessment."
+        },
+        "evidence": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "dependenciesToolConfirmed": {
+              "type": "boolean"
+            },
+            "performanceMeasured": {
+              "type": "boolean"
+            },
+            "regionAvailabilityConfirmed": {
+              "type": "boolean"
+            },
+            "architectSignedOff": {
+              "type": "boolean"
+            }
+          },
+          "description": "Four self-reported booleans. They are recorded as claims to verify elsewhere and have no effect on the recommendation, because this skill reads no artefact. They once promoted a recommendation to validated and high, which turned an unverified statement into an assurance; that path no longer exists."
+        },
+        "feature_dependencies_state": {
+          "enum": [
+            "ANSWERED",
+            "NONE_CONFIRMED",
+            "UNKNOWN",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "Whether the dependency question was answered, and how. feature_dependencies is a list, and a list cannot say why it is empty: NONE_CONFIRMED means the user checked and found none, which clears a PaaS blocker, while UNKNOWN means blank, declined or unrecognised, which must hold the candidate at unknown_requires_assessment. The distinction was documented in the description of the list and enforced nowhere, so an unanswered question and a confirmed absence validated identically. ANSWERED means the list carries at least one dependency."
+        },
+        "preview_acceptable": {
+          "enum": [
+            "PREVIEW_ACCEPTED",
+            "PREVIEW_REFUSED",
+            "UNKNOWN",
+            null
+          ],
+          "description": "Whether the customer accepts a service or capability still in preview. Two indexed rules read it, MI-TIER for zone redundancy and COPILOT-AGENT for the control-plane branch, and the profile could not carry it: additionalProperties is false, so a decision those rules made could not be reproduced from a schema-valid input. UNKNOWN holds the preview option rather than granting it."
+        },
+        "recovery_model": {
+          "enum": [
+            "FULL",
+            "BULK_LOGGED",
+            "SIMPLE",
+            "UNKNOWN",
+            null
+          ],
+          "description": "The recovery model the source databases run in. DMS-MODE refuses to assume online DMS without FULL, and the log shipping route in the prerequisite catalog also accepts BULK_LOGGED, so the two readings are not interchangeable and the field carries the answer rather than a verdict. The rule text demanded this fact while the closed profile had nowhere to put it, so an online DMS decision could not be reproduced from a schema-valid input. UNKNOWN holds the online mode at unknown_requires_assessment rather than granting it."
+        },
+        "log_chain_status": {
+          "enum": [
+            "CHAIN_INTACT",
+            "CHAIN_BROKEN",
+            "UNKNOWN",
+            null
+          ],
+          "description": "Whether the log backup chain is unbroken. The second half of what online DMS requires, and independent of the recovery model: a database can sit in FULL and still have had its chain cut by a standalone copy-only or a switch through SIMPLE. Same reason as recovery_model for existing: the rule read it and the profile could not carry it."
+        },
+        "ancillary_services": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "SSIS, SSRS, SSAS, TDE, SQL Agent jobs, logins and the rest of what sits around the database. Question 12 collects it and the closed profile had nowhere to put it, so emitting the answer failed validation and omitting it dropped facts the remediation and the handoff both read."
+        },
+        "ancillary_services_state": {
+          "enum": [
+            "ANSWERED",
+            "NONE_CONFIRMED",
+            "UNKNOWN",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "Why the ancillary list is empty, which the list itself cannot say. Same distinction as feature_dependencies_state: a confirmed absence clears remediation work, an unanswered question does not."
+        },
+        "tier_drivers_state": {
+          "enum": [
+            "ANSWERED",
+            "NONE_CONFIRMED",
+            "UNKNOWN",
+            "NOT_APPLICABLE",
+            null
+          ],
+          "description": "Says why the tier-driver list is empty, which the list itself cannot. The same distinction feature_dependencies_state and ancillary_services_state carry: a confirmed absence clears a tier question, a blank one holds it. Question 13 collects the selector and the profile had nowhere to record what it established."
+        }
+      }
+    },
+    "eligibilityTrace": {
+      "type": "array",
+      "minItems": 8,
+      "items": {
+        "$ref": "#/$defs/eligibilityEntry"
+      },
+      "description": "Invariant 11: every one of the eight target families appears, including the ones that lost. A family that silently disappears cannot be argued with. uniqueItems compares whole entries, so on its own it allows the same family twice under two different reasons while another family is missing; the allOf below names each family and requires it exactly once, which is the constraint invariant 11 actually states.",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "target"
+            ],
+            "properties": {
+              "target": {
+                "const": "sql_vm"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "target"
+            ],
+            "properties": {
+              "target": {
+                "const": "avs"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "target"
+            ],
+            "properties": {
+              "target": {
+                "const": "sql_mi"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "target"
+            ],
+            "properties": {
+              "target": {
+                "const": "sql_db"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "target"
+            ],
+            "properties": {
+              "target": {
+                "const": "fabric_sql_db"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "target"
+            ],
+            "properties": {
+              "target": {
+                "const": "arc_sql_mi"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "target"
+            ],
+            "properties": {
+              "target": {
+                "const": "container"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "target"
+            ],
+            "properties": {
+              "target": {
+                "const": "arc_in_place"
+              }
+            }
+          },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ]
+    },
+    "recommendation": {
+      "$ref": "#/$defs/recommendation"
+    },
+    "alternative": {
+      "$ref": "#/$defs/alternative"
+    },
+    "methodCandidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/methodCandidate"
+      },
+      "description": "Invariant 14: every method the section 8 matrix marks primary or secondary for the chosen target appears here, including the ones that lost. A method that is never a candidate is never rejected either, so its absence cannot be argued with. Invariant 15 additionally requires the recommended method to appear here with a status that agrees with its gate: `available` with `passed`, or `unknown_requires_assessment` with `unknown_requires_assessment`. Never `unavailable`. This description used to demand `available` outright, which contradicted the output contract and made the ordinary provisional case unrepresentable."
+    },
+    "methodGateTrace": {
+      "$ref": "#/$defs/methodGateTrace"
+    },
+    "blockers": {
+      "$ref": "#/$defs/statements"
+    },
+    "unknowns": {
+      "$ref": "#/$defs/statements"
+    },
+    "assumptions": {
+      "$ref": "#/$defs/statements"
+    },
+    "evidenceRequired": {
+      "$ref": "#/$defs/statements"
+    },
+    "nextActions": {
+      "$ref": "#/$defs/statements"
+    },
+    "evidenceLinks": {
+      "$ref": "#/$defs/statements"
+    },
+    "largestRisk": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One sentence. A risk register with no single largest entry does not help a reader decide what to look at first."
+    },
+    "shortlist": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "$ref": "#/$defs/shortlistEntry"
+      },
+      "description": "The families that remain when no rule separates them. At least two, because a shortlist of one is a recommendation that would not say its own name."
+    }
+  },
+  "$defs": {
+    "version": {
+      "type": "string",
+      "pattern": "^v[0-9]+\\.[0-9]+(\\.[0-9]+)?$",
+      "description": "The coordinated version line, for example v2.8. A recommendation that cannot say which facts produced it cannot be reproduced or challenged."
+    },
+    "recommendationStatus": {
+      "enum": [
+        "provisional",
+        "shortlist"
+      ],
+      "description": "`provisional` is a recommendation: one target, one method, and the gates that got there. `shortlist` is the refusal to invent one, and it is a first-class state rather than a sentence in the target field. Section B1 says never invent a winner when no rule separates the candidates, and until now the only way to say so was to put the phrase \"provisional shortlist only\" where a target name belongs, which validated because that field accepted any string. A consumer reading it got something shaped like a target and resolvable as nothing. The skill still reads no assessment artefact, so neither value certifies anything."
+    },
+    "confidence": {
+      "enum": [
+        "medium",
+        "low"
+      ],
+      "description": "medium is the ceiling: triage complete and internally consistent. low means a decision-driving unknown remains, or two answers conflict. high does not exist here for the same reason validated does not."
+    },
+    "eligibilityStatus": {
+      "enum": [
+        "eligible",
+        "eligible_with_remediation",
+        "unsupported",
+        "excluded_by_preference",
+        "unknown_requires_assessment"
+      ],
+      "description": "unsupported and excluded_by_preference are not interchangeable. unsupported marks a technical incompatibility; excluded_by_preference marks an answer the user gave. A preference can be revisited, an incompatibility cannot, and conflating them makes a reversible decision look final."
+    },
+    "targetFamily": {
+      "enum": [
+        "sql_vm",
+        "avs",
+        "sql_mi",
+        "sql_db",
+        "fabric_sql_db",
+        "arc_sql_mi",
+        "container",
+        "arc_in_place"
+      ],
+      "description": "The eight families of the Phase A trace, in the ids used by the regression mirror."
+    },
+    "targetAvailabilityDuringSync": {
+      "enum": [
+        "read-write",
+        "read-only",
+        "unavailable",
+        "not-present",
+        "unknown_requires_assessment"
+      ],
+      "description": "What the target can serve while the migration synchronises. not-present is not the same as unavailable: one target does not exist yet, the other exists and refuses connections."
+    },
+    "businessCutoverDowntime": {
+      "enum": [
+        "<1min",
+        "near-zero",
+        "minutes",
+        "minimal",
+        "hours",
+        "full-restore-time",
+        "full-load-time",
+        "total-migration-time",
+        "unknown_requires_assessment"
+      ],
+      "description": "Never inferred from the chosen method. When the downtime tolerance is unknown, this is unknown_requires_assessment rather than the class the method usually achieves."
+    },
+    "methodGateStatus": {
+      "enum": [
+        "passed",
+        "unknown_requires_assessment",
+        "refused"
+      ],
+      "description": "Three states, not two. With only passed and refused, an unverified prerequisite has nowhere to go and gets reported as passed, which is what happened to a real session whose Blob upload path nobody had tested. Invariant 10: a gate may not report passed while any field it consumes is unknown."
+    },
+    "ruleId": {
+      "enum": [
+        "AG-VERSION",
+        "ARC-IN-PLACE",
+        "ARC-WIZARD-BATCH",
+        "AVS-LICENSING",
+        "BACKUP-BLOB-PATH",
+        "CLR-PERMISSION",
+        "COPILOT-AGENT",
+        "DEPENDENCY-INVENTORY",
+        "DMS-MODE",
+        "DOWNTIME-CLASS",
+        "DTC-TOPOLOGY",
+        "FABRIC-ASSISTANT",
+        "FABRIC-TARGET",
+        "FILESTREAM-PAAS",
+        "HYPERSCALE-CEILING",
+        "LINKED-SERVERS",
+        "LRS-VERSION",
+        "LRS-WINDOW",
+        "MANAGEMENT-MODEL",
+        "MI-LINK-CAPACITY",
+        "MI-LINK-HOST",
+        "MI-LINK-PORTS",
+        "MI-LINK-SOURCE",
+        "MI-LINK-VERSION",
+        "MI-TIER",
+        "OUTPUT-CONSISTENCY",
+        "POLYBASE-KIND",
+        "RANK-ORDER",
+        "REPL-PUBLISHER",
+        "SOURCE-PERMISSIONS",
+        "SQLDB-TIER"
+      ],
+      "description": "The rule that decided this line, as it appears in reference/decision-rules.md. The enum is generated from that index rather than written beside it, because a permissive pattern accepted any capitalised token and the shipped exemplars cited seven rules that do not exist: a reader following the contract's promise to look a verdict up found nothing to challenge."
+    },
+    "statements": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "A list of readable statements. Empty is meaningful and allowed; an entry that is an empty string is not."
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "knowledgeBaseVersion",
+        "decisionRulesVersion",
+        "evaluatedAt",
+        "recommendationStatus",
+        "confidence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "knowledgeBaseVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "decisionRulesVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "sourceCommit": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional, because it is only known when the caller can see it. Recorded when available so a recommendation can be reproduced against an exact tree."
+        },
+        "evaluatedAt": {
+          "type": "string",
+          "minLength": 1,
+          "description": "When the recommendation was produced. Facts move; a card with no date cannot be aged.",
+          "format": "date-time"
+        },
+        "recommendationStatus": {
+          "$ref": "#/$defs/recommendationStatus"
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        }
+      }
+    },
+    "eligibilityEntry": {
+      "type": "object",
+      "required": [
+        "target",
+        "status",
+        "ruleId",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/targetFamily"
+        },
+        "status": {
+          "$ref": "#/$defs/eligibilityStatus"
+        },
+        "ruleId": {
+          "$ref": "#/$defs/ruleId"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One line. A status with no reason is an assertion, not a trace."
+        }
+      }
+    },
+    "recommendation": {
+      "type": "object",
+      "required": [
+        "target",
+        "method",
+        "targetAvailabilityDuringSync",
+        "businessCutoverDowntime",
+        "controlPlane"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/targetLabel"
+        },
+        "tier": {
+          "type": "string",
+          "minLength": 1
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetAvailabilityDuringSync": {
+          "$ref": "#/$defs/targetAvailabilityDuringSync"
+        },
+        "businessCutoverDowntime": {
+          "$ref": "#/$defs/businessCutoverDowntime"
+        },
+        "controlPlane": {
+          "enum": [
+            "standalone",
+            "azure-arc",
+            "ssms-migration-component",
+            "azure-migrate",
+            "azure-dms",
+            "fabric",
+            "vmware-hcx"
+          ],
+          "description": "Which control plane runs the migration. The card already prints this under Assess / orchestrate, but it was absent from the JSON, so native backup/restore through the Azure Arc portal could not be told apart from standalone native backup/restore and the Arc extension, identity and batch prerequisites disappeared at the handoff. It also decides which support matrix applies: standalone LRS is documented for SQL Server 2008-2022 while the Arc route lists 2025."
+        }
+      },
+      "description": "Invariants 1 and 6: the target named here is eligible or eligible_with_remediation in the trace above, never one marked unsupported. That cross-reference is checked by the skill's self-check, not by this schema."
+    },
+    "alternative": {
+      "type": "object",
+      "required": [
+        "target",
+        "method",
+        "condition"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "condition": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The condition under which the alternative wins. An alternative with no condition is a second opinion, not a decision aid."
+        }
+      }
+    },
+    "methodCandidate": {
+      "type": "object",
+      "required": [
+        "method",
+        "role",
+        "status",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "enum": [
+            "primary",
+            "secondary"
+          ],
+          "description": "From advisor-coverage.json. A primary method may be the recommendation on its own; a secondary one is a legitimate alternative that belongs in a shortlist. Methods classified documentary are supported but never recommended, so they do not appear here."
+        },
+        "status": {
+          "enum": [
+            "available",
+            "unavailable",
+            "unknown_requires_assessment"
+          ],
+          "description": "Whether the candidate passes its own gate for this profile. Three states, not two: an unverified prerequisite is not a satisfied one."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the candidate is available, or why it lost. A candidate list without reasons tells the reader what was considered but not what to do about it."
+        },
+        "prerequisitePaths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^P(0[1-9]|1[0-9]|2[0-8])$",
+            "description": "A path in the bundled catalog, which runs P01 to P28. The previous pattern accepted P00 and P29 to P99, so a plan could cite a path nobody ships."
+          },
+          "description": "Prerequisite catalog paths that apply, so the reader can hand this candidate to the prerequisite-plan skill instead of the recommendation."
+        },
+        "selected": {
+          "type": "boolean",
+          "description": "True for the recommended method. Invariant 15 requires exactly one selected candidate, and requires its status to agree with its gate: `available` with `passed`, or `unknown_requires_assessment` with `unknown_requires_assessment`. Never `unavailable`. Demanding `available` here contradicted the output contract, which permits a winner waiting on one unproven fact."
+        }
+      }
+    },
+    "methodGateTrace": {
+      "type": "object",
+      "required": [
+        "method",
+        "result"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "$ref": "#/$defs/methodGateStatus"
+        },
+        "unverified": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "What is not verified when the result is unknown_requires_assessment. Naming it is the difference between a gate a reader can close and one they can only worry about."
+        }
+      },
+      "allOf": [
+        {
+          "$comment": "Invariant 10: a listed unverified field holds the gate open.",
+          "if": {
+            "required": [
+              "unverified"
+            ],
+            "properties": {
+              "unverified": {
+                "type": "array",
+                "minItems": 1
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "result": {
+                "const": "unknown_requires_assessment"
+              }
+            }
+          }
+        }
+      ],
+      "description": "The gate for the recommended method. Invariant 10 says a method gate may not report passed while any field it consumes is unknown, and the shipped example asserted passed with the Blob upload path listed as unverified. The two fields are tied together here, so the contradiction is no longer expressible."
+    },
+    "answerEcho": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "What the skill believes it was told for this field, echoed back so a misreading is visible rather than buried."
+    },
+    "targetLabel": {
+      "enum": [
+        "SQL Server on Azure VM",
+        "Azure VMware Solution",
+        "Azure SQL Managed Instance",
+        "Azure SQL Database",
+        "SQL database in Fabric",
+        "Arc-enabled SQL Managed Instance",
+        "SQL Server in a container",
+        "SQL Server enabled by Azure Arc"
+      ],
+      "description": "The eight target families, in the long form the card and the handoff use. Typed as an enumeration because a free string is what let a whole sentence sit here and pass."
+    },
+    "shortlistEntry": {
+      "type": "object",
+      "required": [
+        "target",
+        "whyItStands",
+        "whatWouldSeparateIt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/targetLabel"
+        },
+        "whyItStands": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why this family is still standing after Phase A."
+        },
+        "whatWouldSeparateIt": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The fact that would settle it against the others. A shortlist with no route out of it is a refusal without a next step, which is the failure this field exists to prevent."
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "$comment": "A card that recommends carries the facts it read: normalizedProfile echoes what the input schema requires.",
+      "if": {
+        "required": [
+          "recommendation"
+        ]
+      },
+      "then": {
+        "properties": {
+          "normalizedProfile": {
+            "required": [
+              "intent",
+              "source_location",
+              "source_version",
+              "management_model",
+              "feature_dependencies",
+              "downtime"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "metadata": {
+            "properties": {
+              "recommendationStatus": {
+                "const": "provisional"
+              }
+            },
+            "required": [
+              "recommendationStatus"
+            ]
+          }
+        },
+        "required": [
+          "metadata"
+        ]
+      },
+      "then": {
+        "required": [
+          "recommendation"
+        ],
+        "not": {
+          "required": [
+            "shortlist"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "metadata": {
+            "properties": {
+              "recommendationStatus": {
+                "const": "shortlist"
+              }
+            },
+            "required": [
+              "recommendationStatus"
+            ]
+          }
+        },
+        "required": [
+          "metadata"
+        ]
+      },
+      "then": {
+        "required": [
+          "shortlist"
+        ],
+        "not": {
+          "required": [
+            "recommendation"
+          ]
+        }
+      }
+    }
+  ]
+}

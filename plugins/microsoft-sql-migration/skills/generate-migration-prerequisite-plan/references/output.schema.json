@@ -1,0 +1,938 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fredgis/sql-migration-advisor/skills/generate-migration-prerequisite-plan/schemas/output.schema.json",
+  "title": "Migration prerequisite plan output",
+  "type": "object",
+  "required": [
+    "metadata",
+    "overallStatus"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "prerequisiteKnowledgeBaseVersion",
+        "pathCatalogVersion",
+        "evaluatedAt",
+        "mode",
+        "language"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": "1.0"
+        },
+        "prerequisiteKnowledgeBaseVersion": {
+          "const": "v1.11"
+        },
+        "pathCatalogVersion": {
+          "const": "1.0"
+        },
+        "evaluatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "mode": {
+          "enum": [
+            "advisor_handoff",
+            "standalone"
+          ]
+        },
+        "language": {
+          "type": "string",
+          "minLength": 2
+        },
+        "sourceAdvisor": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Where the recommendation came from, present only in advisor_handoff mode. Typed against the producer's own vocabularies rather than as free strings, because provenance that cannot be checked is provenance that is merely carried. It used to accept states and control planes the Advisor cannot emit, and to reject sourceCommit, which is the one field that lets a recommendation be reproduced against an exact tree.",
+          "properties": {
+            "knowledgeBaseVersion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "decisionRulesVersion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "recommendationStatus": {
+              "enum": [
+                "provisional",
+                "shortlist"
+              ]
+            },
+            "confidence": {
+              "enum": [
+                "medium",
+                "low"
+              ]
+            },
+            "controlPlane": {
+              "enum": [
+                "standalone",
+                "azure-arc",
+                "ssms-migration-component",
+                "azure-migrate",
+                "azure-dms",
+                "fabric",
+                "vmware-hcx"
+              ]
+            },
+            "evaluatedAt": {
+              "type": "string",
+              "minLength": 1,
+              "format": "date-time",
+              "description": "When the recommendation was produced, in the same format the producer emits."
+            },
+            "sourceCommit": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Optional, as upstream, because it is only known when the caller can see it. Carried through when the handoff supplied it: dropping it on the way loses the only identifier that pins the recommendation to a tree."
+            }
+          }
+        }
+      }
+    },
+    "selectedPath": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "target",
+        "targetVariant",
+        "method",
+        "supportStatus"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^P(0[1-9]|1[0-9]|2[0-8])$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tier": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "supportStatus": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetVariant": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Which target family was selected. Six method paths cover several families under one slash-separated target string, so the path id alone does not say whether the subscriber is a Managed Instance, a Fabric SQL database or a container, and their prerequisite rows are already written per family. It is one of the method path's targetVariants, or of an applied overlay's: an AVS-hosted SQL Server takes its method from a path that names the platform underneath and its target name from P27, so requiring the method path to supply the variant would block the nine AVS routes the coverage map declares."
+        }
+      },
+      "description": "Deprecated alias for selectedMethodPath, emitted for readers written against the single-path shape. New readers use selectedMethodPath and appliedOverlays[]."
+    },
+    "overallStatus": {
+      "enum": [
+        "ready",
+        "ready_with_conditions",
+        "blocked",
+        "unknown_requires_assessment",
+        "unresolved_path"
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "confirmed",
+        "missing",
+        "unknown",
+        "notApplicable",
+        "blockingMissing",
+        "blockingUnknown",
+        "reported",
+        "blockingReported"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "confirmed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missing": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unknown": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "notApplicable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blockingMissing": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blockingUnknown": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reported": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Prerequisites satisfied by a stated fact the skill cannot verify. Counted separately so a readiness verdict never presents them as confirmed."
+        },
+        "blockingReported": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Blocking prerequisites settled by a stated fact the skill cannot verify. Counted and rendered because a plan held at ready_with_conditions by reported blockers alone used to print zero missing and zero unknown, hiding why it was not ready."
+        }
+      }
+    },
+    "prerequisites": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "area",
+          "title",
+          "requirementType",
+          "applicability",
+          "status",
+          "blocking",
+          "owner",
+          "basis",
+          "evidenceRequired",
+          "acceptedEvidence",
+          "officialSources",
+          "lastVerified"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^(COM|P[0-9]{2})-[0-9]{3}$"
+          },
+          "area": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requirementType": {
+            "enum": [
+              "required",
+              "conditional",
+              "recommended"
+            ]
+          },
+          "applicability": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": [
+              "confirmed",
+              "reported",
+              "missing",
+              "unknown",
+              "not_applicable"
+            ],
+            "description": "confirmed means a question in questions.json feeds this prerequisite and the typed answer satisfies it, or an acceptedEvidence record does. reported is a typed claim about a prerequisite no question feeds, which the skill has no way to check because it makes no network calls. missing is a typed answer establishing the requirement is unmet; unknown is not established; not_applicable means the applicability condition is demonstrably false. The discriminator between confirmed and reported is the question mapping, not the evidenceRequired column: that column is required on all 291 rows, and keying on it made confirmed unreachable. The condition therefore lives in a gate that can read questions.json rather than in a schema that cannot."
+          },
+          "blocking": {
+            "type": "boolean"
+          },
+          "owner": {
+            "type": "string",
+            "minLength": 1
+          },
+          "basis": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidenceRequired": {
+            "type": "string",
+            "minLength": 1
+          },
+          "acceptedEvidence": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "officialSources": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https://(learn\\.microsoft\\.com|azure\\.microsoft\\.com|(www\\.)?github\\.com|(www\\.|developer\\.)?striim\\.com)/",
+              "description": "An official public source. The host is constrained rather than left to format: uri, which accepted any public page and let a fabricated prerequisite cite anything at all. Microsoft domains carry the product documentation; github.com carries the archived Smart Bulk Copy sample that P22 documents as a community sample, and striim.com the third-party method P15 documents as third-party. Both are labelled as such in the plan, never as Azure services."
+            }
+          },
+          "lastVerified": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "unknowns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "inheritedAdvisorFacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "field",
+          "value",
+          "source"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "type": "string",
+            "minLength": 1
+          },
+          "value": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "source": {
+            "enum": [
+              "advisor",
+              "advisor_converted",
+              "advisor_not_convertible"
+            ],
+            "description": "Whether the value carried over unchanged, through a documented vocabulary translation, or could not convert and was asked again. The crosswalk in advisor-fact-mappings.json decides which."
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "description": "Facts the Advisor established, carried rather than re-asked. Typed and non-empty: an untyped list of objects could not be read, and an empty one made a handoff that inherited nothing indistinguishable from one that inherited everything."
+    },
+    "questionsAsked": {
+      "type": "array",
+      "description": "The interview questions this plan rests on. Typed, because it used to be `{type: object}`: the validator could read whether a question fed a row but never what the answer returned, so an `UNKNOWN` answer sat under a `confirmed` row without contradiction. `id` names a question in questions.json and `answer` is one of the keys in that question's effects table, which is what says the status the answer produces.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "answer"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "answer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "consumedBy": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^(COM|P[0-9]{2})-[0-9]{3}$"
+            }
+          }
+        }
+      }
+    },
+    "nextActions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sourceRegister": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "title",
+          "url",
+          "verifiedAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "verifiedAt": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      }
+    },
+    "unresolvedReason": {
+      "enum": [
+        "no_matching_path",
+        "multiple_candidate_paths",
+        "ambiguous_disambiguation_answer"
+      ]
+    },
+    "candidatePaths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "target",
+          "method"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^P(0[1-9]|1[0-9]|2[0-8])$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target": {
+            "type": "string",
+            "minLength": 1
+          },
+          "method": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "disambiguation": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "field",
+        "question",
+        "allowedValues"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1
+        },
+        "allowedValues": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "selectedMethodPath": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "target",
+        "targetVariant",
+        "method",
+        "supportStatus"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^P(0[1-9]|1[0-9]|2[0-8])$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tier": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "supportStatus": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetVariant": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Which target family was selected. Six method paths cover several families under one slash-separated target string, so the path id alone does not say whether the subscriber is a Managed Instance, a Fabric SQL database or a container, and their prerequisite rows are already written per family. It is one of the method path's targetVariants, or of an applied overlay's: an AVS-hosted SQL Server takes its method from a path that names the platform underneath and its target name from P27, so requiring the method path to supply the variant would block the nine AVS routes the coverage map declares."
+        }
+      },
+      "description": "The catalog path that moves the data. A route may also require overlays, which belong in appliedOverlays[] and never replace this."
+    },
+    "appliedOverlays": {
+      "type": "array",
+      "description": "Overlays the route requires in addition to the method path. An AVS-hosted SQL Server needs the method path and P27 together: P27 alone describes a platform nobody migrates to, and the method path alone describes a generic SQL Server target rather than AVS. The single-path shape forced one of the two to be dropped.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "role",
+          "why"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^P(0[1-9]|1[0-9]|2[0-8])$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "enum": [
+              "platform",
+              "transport",
+              "control-plane"
+            ],
+            "description": "What the overlay contributes. platform hosts the target, transport carries the data, control-plane orchestrates the move."
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One line saying why this route needs the overlay. An overlay with no reason is a prerequisite nobody can challenge."
+          }
+        }
+      }
+    },
+    "evidenceRegister": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "status",
+          "collectedAt",
+          "origin",
+          "reference",
+          "supports"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^EV-[0-9]{3,}$"
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": [
+              "reported",
+              "verified"
+            ]
+          },
+          "collectedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "origin": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tool": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "toolVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reference": {
+            "type": "string",
+            "minLength": 1
+          },
+          "supports": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^(COM|P[0-9]{2})-[0-9]{3}$"
+            }
+          }
+        }
+      },
+      "description": "The evidence records this plan accepted, in the shape the input carries them. Every acceptedEvidence id on a prerequisite names a record here. It used to name nothing at all: the ids were resolved against sourceRegister, which is a list of citations and cannot hold them, so the plan's own exemplar could not validate against this schema."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "overallStatus": {
+            "const": "unresolved_path"
+          }
+        },
+        "required": [
+          "overallStatus"
+        ]
+      },
+      "then": {
+        "required": [
+          "unresolvedReason",
+          "candidatePaths",
+          "disambiguation"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "selectedPath"
+              ]
+            },
+            {
+              "required": [
+                "prerequisites"
+              ]
+            },
+            {
+              "required": [
+                "summary"
+              ]
+            },
+            {
+              "required": [
+                "blockers"
+              ]
+            },
+            {
+              "required": [
+                "nextActions"
+              ]
+            },
+            {
+              "required": [
+                "selectedMethodPath"
+              ]
+            },
+            {
+              "required": [
+                "appliedOverlays"
+              ]
+            },
+            {
+              "required": [
+                "sourceRegister"
+              ]
+            },
+            {
+              "required": [
+                "unknowns"
+              ]
+            },
+            {
+              "required": [
+                "assumptions"
+              ]
+            },
+            {
+              "required": [
+                "evidenceRegister"
+              ]
+            }
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "summary",
+          "prerequisites",
+          "blockers",
+          "unknowns",
+          "assumptions",
+          "questionsAsked",
+          "nextActions",
+          "sourceRegister",
+          "selectedMethodPath",
+          "appliedOverlays",
+          "evidenceRegister"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "unresolvedReason"
+              ]
+            },
+            {
+              "required": [
+                "candidatePaths"
+              ]
+            },
+            {
+              "required": [
+                "disambiguation"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "metadata": {
+            "properties": {
+              "mode": {
+                "const": "advisor_handoff"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          }
+        },
+        "required": [
+          "metadata"
+        ]
+      },
+      "then": {
+        "required": [
+          "inheritedAdvisorFacts"
+        ],
+        "properties": {
+          "metadata": {
+            "required": [
+              "sourceAdvisor"
+            ],
+            "properties": {
+              "sourceAdvisor": {
+                "required": [
+                  "knowledgeBaseVersion",
+                  "decisionRulesVersion",
+                  "recommendationStatus",
+                  "confidence",
+                  "evaluatedAt"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "overallStatus": {
+            "const": "ready"
+          }
+        },
+        "required": [
+          "overallStatus"
+        ]
+      },
+      "then": {
+        "properties": {
+          "summary": {
+            "properties": {
+              "blockingMissing": {
+                "const": 0
+              },
+              "blockingUnknown": {
+                "const": 0
+              },
+              "blockingReported": {
+                "const": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "overallStatus": {
+            "const": "ready_with_conditions"
+          }
+        },
+        "required": [
+          "overallStatus"
+        ]
+      },
+      "then": {
+        "properties": {
+          "summary": {
+            "properties": {
+              "blockingMissing": {
+                "const": 0
+              },
+              "blockingUnknown": {
+                "const": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "overallStatus": {
+            "const": "blocked"
+          }
+        },
+        "required": [
+          "overallStatus"
+        ]
+      },
+      "then": {
+        "properties": {
+          "summary": {
+            "properties": {
+              "blockingMissing": {
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "overallStatus": {
+            "const": "unknown_requires_assessment"
+          }
+        },
+        "required": [
+          "overallStatus"
+        ]
+      },
+      "then": {
+        "properties": {
+          "summary": {
+            "properties": {
+              "blockingMissing": {
+                "const": 0
+              },
+              "blockingUnknown": {
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "metadata": {
+            "properties": {
+              "mode": {
+                "const": "advisor_handoff"
+              },
+              "sourceAdvisor": {
+                "properties": {
+                  "recommendationStatus": {
+                    "const": "provisional"
+                  }
+                },
+                "required": [
+                  "recommendationStatus"
+                ]
+              }
+            },
+            "required": [
+              "mode",
+              "sourceAdvisor"
+            ]
+          }
+        },
+        "required": [
+          "metadata"
+        ]
+      },
+      "then": {
+        "properties": {
+          "metadata": {
+            "properties": {
+              "sourceAdvisor": {
+                "required": [
+                  "controlPlane"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

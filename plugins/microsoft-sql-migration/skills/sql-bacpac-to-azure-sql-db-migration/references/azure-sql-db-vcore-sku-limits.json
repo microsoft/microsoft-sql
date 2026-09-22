@@ -1,0 +1,128 @@
+{
+  "SchemaVersion": 1,
+  "Source": "https://learn.microsoft.com/en-us/azure/azure-sql/database/resource-limits-vcore-single-databases?view=azuresql",
+  "SourceDate": "2026-03-09",
+  "SourceUpdatedAt": "2026-04-10T17:39:00Z",
+  "Scope": "Azure SQL Database single databases using the vCore purchasing model",
+  "Notes": [
+    "The catalog records documented maximum data size, not every configurable storage increment.",
+    "Region, subscription, quota, capacity, and feature availability must still be validated separately.",
+    "Preview and retired or unavailable-for-new-deployment offerings are excluded."
+  ],
+  "Entries": [
+    {
+      "ServiceType": "GeneralPurpose",
+      "ServiceObjective": "Provisioned - standard-series (Gen5)",
+      "DatabaseServiceObjectiveTemplate": "GP_Gen5_{0}",
+      "AllowedVCores": [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 32, 40, 80, 128],
+      "DocumentedMaxDataSizeGBByVCore": {
+        "2": 1024, "4": 1024, "6": 1536, "8": 2048, "10": 2048,
+        "12": 3072, "14": 3072, "16": 3072, "18": 3072, "20": 3072,
+        "24": 4096, "32": 4096, "40": 4096, "80": 4096, "128": 4096
+      }
+    },
+    {
+      "ServiceType": "GeneralPurpose",
+      "ServiceObjective": "Serverless - standard-series (Gen5)",
+      "DatabaseServiceObjectiveTemplate": "GP_S_Gen5_{0}",
+      "AllowedVCores": [1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 32, 40, 80],
+      "DocumentedMaxDataSizeGBByVCore": {
+        "1": 512, "2": 1024, "4": 1024, "6": 1024, "8": 2048,
+        "10": 2048, "12": 3072, "14": 3072, "16": 3072, "18": 3072,
+        "20": 3072, "24": 4096, "32": 4096, "40": 4096, "80": 4096
+      },
+      "AvailabilityNote": "80 max vCores is available only in specific regions."
+    },
+    {
+      "ServiceType": "GeneralPurpose",
+      "ServiceObjective": "Provisioned - DC-series",
+      "DatabaseServiceObjectiveTemplate": "GP_DC_{0}",
+      "AllowedVCores": [2, 4, 6, 8],
+      "DocumentedMaxDataSizeGBByVCore": {
+        "2": 1024, "4": 1536, "6": 3072, "8": 3072
+      },
+      "AvailabilityNote": "DC-series availability varies by region; 10 through 40 vCores are preview and are excluded."
+    },
+    {
+      "ServiceType": "BusinessCritical",
+      "ServiceObjective": "Provisioned - standard-series (Gen5)",
+      "DatabaseServiceObjectiveTemplate": "BC_Gen5_{0}",
+      "AllowedVCores": [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 32, 40, 80, 128],
+      "DocumentedMaxDataSizeGBByVCore": {
+        "2": 1024, "4": 1024, "6": 1536, "8": 2048, "10": 2048,
+        "12": 3072, "14": 3072, "16": 3072, "18": 3072, "20": 3072,
+        "24": 4096, "32": 4096, "40": 4096, "80": 4096, "128": 4096
+      }
+    },
+    {
+      "ServiceType": "BusinessCritical",
+      "ServiceObjective": "Provisioned - DC-series",
+      "DatabaseServiceObjectiveTemplate": "BC_DC_{0}",
+      "AllowedVCores": [2, 4, 6, 8],
+      "DocumentedMaxDataSizeGBByVCore": {
+        "2": 768, "4": 768, "6": 768, "8": 768
+      },
+      "AvailabilityNote": "DC-series availability varies by region; 10 through 40 vCores are preview and are excluded."
+    },
+    {
+      "ServiceType": "Hyperscale",
+      "ServiceObjective": "Provisioned - standard-series (Gen5)",
+      "DatabaseServiceObjectiveTemplate": "HS_Gen5_{0}",
+      "AllowedVCores": [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 32, 40, 80],
+      "DocumentedMaxDataSizeGBByVCore": {
+        "2": 131072, "4": 131072, "6": 131072, "8": 131072, "10": 131072,
+        "12": 131072, "14": 131072, "16": 131072, "18": 131072, "20": 131072,
+        "24": 131072, "32": 131072, "40": 131072, "80": 131072
+      }
+    },
+    {
+      "ServiceType": "Hyperscale",
+      "ServiceObjective": "Serverless - standard-series (Gen5)",
+      "DatabaseServiceObjectiveTemplate": "HS_S_Gen5_{0}",
+      "AllowedVCores": [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 32, 40, 80],
+      "DocumentedMaxDataSizeGBByVCore": {
+        "2": 131072, "4": 131072, "6": 131072, "8": 131072, "10": 131072,
+        "12": 131072, "14": 131072, "16": 131072, "18": 131072, "20": 131072,
+        "24": 131072, "32": 131072, "40": 131072, "80": 131072
+      },
+      "AvailabilityNote": "80 max vCores is available only in specific regions."
+    },
+    {
+      "ServiceType": "Hyperscale",
+      "ServiceObjective": "Provisioned - DC-series",
+      "DatabaseServiceObjectiveTemplate": "HS_DC_{0}",
+      "AllowedVCores": [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 32, 40],
+      "DocumentedMaxDataSizeGBByVCore": {
+        "2": 131072, "4": 131072, "6": 131072, "8": 131072, "10": 131072,
+        "12": 131072, "14": 131072, "16": 131072, "18": 131072, "20": 131072,
+        "32": 131072, "40": 131072
+      },
+      "AvailabilityNote": "DC-series availability varies by region."
+    },
+    {
+      "ServiceType": "Hyperscale",
+      "ServiceObjective": "Provisioned - premium-series",
+      "DatabaseServiceObjectiveTemplate": "HS_PRMS_{0}",
+      "AllowedVCores": [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 32, 40, 64, 80, 128],
+      "DocumentedMaxDataSizeGBByVCore": {
+        "2": 131072, "4": 131072, "6": 131072, "8": 131072, "10": 131072,
+        "12": 131072, "14": 131072, "16": 131072, "18": 131072, "20": 131072,
+        "24": 131072, "32": 131072, "40": 131072, "64": 131072, "80": 131072,
+        "128": 131072
+      },
+      "AvailabilityNote": "Premium-series might not be available in all regions; preview 160 and 192 vCore options are excluded."
+    },
+    {
+      "ServiceType": "Hyperscale",
+      "ServiceObjective": "Provisioned - premium-series memory optimized",
+      "DatabaseServiceObjectiveTemplate": "HS_MOPRMS_{0}",
+      "AllowedVCores": [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 24, 32, 40, 64, 80],
+      "DocumentedMaxDataSizeGBByVCore": {
+        "2": 131072, "4": 131072, "6": 131072, "8": 131072, "10": 131072,
+        "12": 131072, "14": 131072, "16": 131072, "18": 131072, "20": 131072,
+        "24": 131072, "32": 131072, "40": 131072, "64": 131072, "80": 131072
+      },
+      "AvailabilityNote": "Premium-series memory optimized availability varies by region."
+    }
+  ]
+}

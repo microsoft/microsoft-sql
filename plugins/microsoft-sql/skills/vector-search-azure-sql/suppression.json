@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "suppressions": [
+    {
+      "finding_code": "SD-20",
+      "scanner_rule": "SQL_AST_PARSE_INCOMPLETE",
+      "description": "ScriptDom rejects the FORCE_ANN_ONLY hint on an approximate VECTOR_SEARCH query.",
+      "decision": "suppress-parser-gap",
+      "reason": "The complete indexed query executed successfully on Azure SQL Hyperscale with PREVIEW_FEATURES enabled. The advertised engine accepts the syntax; only the pinned parser rejects it.",
+      "validated_on": "2026-09-16",
+      "target": "Azure SQL Database Hyperscale HS_Gen5_2"
+    }
+  ]
+}

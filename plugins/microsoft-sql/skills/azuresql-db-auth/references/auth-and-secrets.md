@@ -1,0 +1,150 @@
+# Auth and secrets: least-privilege users, connection strings, secret storage
+
+## Contents
+
+- Create a least-privilege SQL user on the container (login + mapped user)
+- Contained user with password (cloud only; does not work on the container)
+- An Entra principal as a database user
+- Connection strings per environment
+- Managed identity in the cloud (and why not Default)
+- Custom token handling (optional, advanced)
+- Keep the secret out of source
+
+## Create a least-privilege SQL user on the container (login + mapped user)
+
+Provision `appdb` as `sa` on a master connection first (the engine does not
+auto-create databases). Then create a **server login** on `master` and map a
+**database user** to it in `appdb`, granting only the roles the app needs. On the
+container this login-plus-user path is the one that works for SQL auth; the
+contained-user path below does not (see the next section).
+
+Load a fresh, deployment-unique `AZURE_SQL_APP_PASSWORD` from secret storage
+and keep it distinct from the `sa` password. Connect to `master` with the
+administrator credential already used by your provisioning system. The SQL
+below is a **non-executable template**: require the environment value and
+replace each single quote in the value with two single quotes, then substitute
+it for `<AZURE_SQL_APP_PASSWORD>` before execution. Render the template at
+execution time using the escaped environment value.
+
+```sql
+-- Non-executable template, on a master connection:
+CREATE LOGIN applogin WITH PASSWORD = '<AZURE_SQL_APP_PASSWORD>';
+```
+
+Then run on an `appdb` connection:
+
+```sql
+-- On an appdb connection (Database=appdb):
+CREATE USER appuser FOR LOGIN applogin;
+ALTER ROLE db_datareader ADD MEMBER appuser;
+ALTER ROLE db_datawriter ADD MEMBER appuser;
+-- Only if the app executes stored procedures:
+-- GRANT EXECUTE TO appuser;
+```
+
+The app connects as `applogin`. Do not add `appuser` to `db_owner`. If the app
+only reads, grant just `db_datareader`. Narrower still: `GRANT SELECT, INSERT,
+UPDATE, DELETE ON SCHEMA::dbo TO appuser;` or per-object grants.
+
+## Contained user with password (cloud only; does not work on the container)
+
+In Azure SQL Database in the cloud, the norm is a **contained user** created
+directly in the database, with no server login:
+
+Use the same caller-supplied secret and replacement rule. This is also a
+**non-executable template**; connect to `appdb` only after rendering it securely:
+
+```sql
+-- Non-executable template, connected to appdb:
+CREATE USER appuser WITH PASSWORD = '<AZURE_SQL_APP_PASSWORD>';
+ALTER ROLE db_datareader ADD MEMBER appuser;
+ALTER ROLE db_datawriter ADD MEMBER appuser;
+```
+
+**This does not work on the container today, and you cannot turn it on.**
+`CREATE USER ... WITH PASSWORD` returns `Msg 33233` ("You can only create a user
+with a password in a contained database"). `ALTER DATABASE appdb SET CONTAINMENT =
+PARTIAL` returns `Msg 12824` ("The sp_configure value 'contained database
+authentication' must be set to 1 in order to alter a contained database"), followed
+by `Msg 5069` ("ALTER DATABASE statement failed"). The setting that message asks for
+cannot be reached: `sp_configure` does not exist on this engine and returns
+`Msg 2812`, so there is no contained database authentication setting for you to
+configure. Measured 2026-09-19 on image tag `18.0.226_4_147`, `EngineEdition` 5,
+Edition `SQL Azure`, build `12.0.2000.8`; the numbers `Msg 15007` and `Msg 12844`
+printed here before that date were wrong, though the refusals themselves were not.
+Locally, use the login-plus-user recipe above; the app code and connection string
+are identical either way (username plus password). This is the inverse of the
+cloud, where contained users are preferred and server logins are limited.
+
+## An Entra principal as a database user
+
+To let the app authenticate as a Microsoft Entra identity (user, group, or
+managed identity), enable Entra on the engine first (see the
+**azuresql-db-container** skill, `references/entra-auth.md`), then create the
+database user from the external provider. This is the same statement you use in
+Azure SQL Database in the cloud.
+
+```sql
+-- Connected to appdb, as an Entra admin:
+CREATE USER [my-app-identity] FROM EXTERNAL PROVIDER;
+ALTER ROLE db_datareader ADD MEMBER [my-app-identity];
+ALTER ROLE db_datawriter ADD MEMBER [my-app-identity];
+```
+
+For a server-scoped Entra login (server admin path), run
+`CREATE LOGIN [name] FROM EXTERNAL PROVIDER` on a master connection.
+
+## Connection strings per environment
+
+Only the connection string changes between environments; the app code does not.
+
+```text
+# Local container, least-privilege SQL login:
+Server=localhost,1433;Database=appdb;User Id=applogin;Password=<from AZURE_SQL_APP_PASSWORD>;Encrypt=true;TrustServerCertificate=true
+
+# Cloud, Entra (interactive/dev or a specific method in prod):
+Server=your-server.database.windows.net,1433;Database=appdb;Authentication=Active Directory Default;Encrypt=true
+
+# Cloud, managed identity (production):
+Server=your-server.database.windows.net,1433;Database=appdb;Authentication=Active Directory Managed Identity;Encrypt=true
+```
+
+`Encrypt=true` everywhere. `TrustServerCertificate=true` **only** for the local
+self-signed cert; never against the cloud. The .NET/ADO.NET form spells the
+keywords `User Id=` / `Password=` as house style; `Uid=` / `Pwd=` are documented
+SqlClient synonyms and work too. ODBC (pyodbc) has its own keyword set and uses
+`Uid=` / `Pwd=`, plus `Authentication=ActiveDirectoryMsi` for managed identity.
+
+## Managed identity in the cloud (and why not Default)
+
+For a production app under load, prefer `Authentication=Active Directory Managed
+Identity` over `Active Directory Default`. `Default` uses `DefaultAzureCredential`,
+which walks a chain of credential sources (env vars, then the hosting service's
+managed identity, then developer sign-in) until one works. That flexibility is
+right for getting started and for running locally against the cloud, but under
+load a specific method is faster (it skips chain probing) and unambiguous about
+which identity is used. `Microsoft.Data.SqlClient` caches the acquired token, so
+you are not fetching one on every connection. For a user-assigned managed
+identity, add `User Id=<client-id>`.
+
+## Custom token handling (optional, advanced)
+
+To control token caching yourself, or to choose the credential based on whether
+the app runs with a managed identity versus a username/password, register a custom
+`SqlAuthenticationProvider` at startup with
+`SqlAuthenticationProvider.SetProvider(...)`. This is **startup wiring, not
+data-layer code** - your queries, schema, and driver calls do not change.
+
+## Keep the secret out of source
+
+The connection string carries a credential; never commit it or the SA password.
+
+- **Env var + git-ignored `.env`:** the app reads one `SQL_CONNECTION_STRING`;
+  keep local values in a `.env` listed in `.gitignore`.
+- **.NET dev:** keep the complete rendered connection string in
+  `dotnet user-secrets` or the IDE secret manager under the key your app reads.
+- **Azure Key Vault (cloud):** store the connection string as a secret and read it
+  at startup (for example via `DefaultAzureCredential` + the Key Vault SDK), or
+  reference it from App Service / Container Apps configuration.
+- **Managed identity:** the strongest option - there is no password to store at
+  all; the platform identity gets the token.

@@ -4,128 +4,44 @@
     "name": "Microsoft Database Systems",
     "url": "https://github.com/microsoft/azure-sql-skills"
   },
-  "description": "Microsoft SQL agent skill plugins for direct use, Visual Studio Code, SQL Server Management Studio, SQL Server to Azure migration, and Fabric Database Hub estate observability.",
-  "version": "2.0.0",
   "metadata": {
-    "pluginRoot": "./plugins"
+    "description": "Microsoft SQL agent skill plugins for direct use, Visual Studio Code, SQL Server Management Studio, SQL Server to Azure migration, and Fabric Database Hub estate observability.",
+    "version": "2.0.0"
   },
   "plugins": [
     {
       "name": "microsoft-sql",
-      "displayName": "Microsoft SQL",
-      "source": "./plugins/microsoft-sql",
       "description": "The complete collection of fifty-seven skills for agents working directly with Azure SQL Database and the Azure SQL Database container: provisioning, application development, connecting from .NET, Python and TypeScript, schema design and migrations, bulk load, RAG and vector search, Data API Builder, Azure Functions, CI, security, diagnostics, and T-SQL correctness.",
       "version": "1.0.0",
-      "author": {
-        "name": "Microsoft"
-      },
-      "repository": "https://github.com/microsoft/azure-sql-skills",
-      "keywords": [
-        "microsoft-sql",
-        "azure-sql",
-        "sql-server",
-        "database",
-        "container",
-        "rag",
-        "vector-search",
-        "t-sql",
-        "diagnostics"
-      ],
+      "source": "./plugins/microsoft-sql",
       "category": "Databases"
     },
     {
       "name": "microsoft-sql-fdh",
-      "displayName": "Microsoft SQL for Fabric Database Hub",
-      "source": "./plugins/microsoft-sql-fdh",
       "description": "A skill curated for Fabric Database Hub estate observability through read-only, Entra-authenticated Fabric APIs: tenant-wide database inventory across Azure SQL, Arc SQL Server, Azure Database for PostgreSQL, Azure Cosmos DB and Fabric SQL; operational health; and authentication, auditing and customer-managed-key security posture. Draft maturity: local evaluation passed with findings on 2026-09-22; live Fabric qualification pending.",
       "version": "0.1.0",
-      "author": {
-        "name": "Microsoft"
-      },
-      "repository": "https://github.com/microsoft/azure-sql-skills",
-      "keywords": [
-        "microsoft-sql",
-        "fabric",
-        "database-hub",
-        "estate",
-        "inventory",
-        "observability",
-        "azure-sql",
-        "postgresql",
-        "cosmos-db",
-        "security-posture"
-      ],
+      "source": "./plugins/microsoft-sql-fdh",
       "category": "Databases"
     },
     {
       "name": "microsoft-sql-migration",
-      "displayName": "Microsoft SQL migration",
-      "source": "./plugins/microsoft-sql-migration",
       "description": "Twelve skills curated for assessing, planning, executing and validating SQL Server to Azure migrations: recommend a migration path, generate a prerequisite plan, run or retrieve Azure Arc migration assessments, evaluate offline readiness, size an Azure SQL SKU from performance data, analyze readiness across an estate, migrate with backup/restore to SQL Server on Azure VM, BACPAC to Azure SQL Database, or Log Replay Service to Azure SQL Managed Instance, and validate data after migration.",
       "version": "1.1.0",
-      "author": {
-        "name": "Microsoft"
-      },
-      "repository": "https://github.com/microsoft/azure-sql-skills",
-      "keywords": [
-        "microsoft-sql",
-        "sql-server",
-        "azure-sql",
-        "migration",
-        "assessment",
-        "azure-arc",
-        "sku-sizing",
-        "managed-instance",
-        "log-replay-service",
-        "bacpac",
-        "backup-restore",
-        "data-validation"
-      ],
+      "source": "./plugins/microsoft-sql-migration",
       "category": "Databases"
     },
     {
       "name": "microsoft-sql-ssms",
-      "displayName": "Microsoft SQL for SQL Server Management Studio",
-      "source": "./plugins/microsoft-sql-ssms",
       "description": "Fifteen skills curated for database administration with SQL Server Management Studio: diagnosing slow queries, blocking and resource pressure, reading execution plans, capturing Extended Events, restoring after data loss, row-level security, passwordless access, provisioning, and bulk data movement. Application frameworks, serverless bindings, Data API Builder, and AI development skills are omitted.",
       "version": "0.1.0",
-      "author": {
-        "name": "Microsoft"
-      },
-      "repository": "https://github.com/microsoft/azure-sql-skills",
-      "keywords": [
-        "microsoft-sql",
-        "azure-sql",
-        "ssms",
-        "database-administration",
-        "diagnostics",
-        "query-store",
-        "extended-events",
-        "security"
-      ],
+      "source": "./plugins/microsoft-sql-ssms",
       "category": "Databases"
     },
     {
       "name": "microsoft-sql-vscode",
-      "displayName": "Microsoft SQL for Visual Studio Code",
-      "source": "./plugins/microsoft-sql-vscode",
       "description": "Twenty-three skills curated for application work with the MSSQL extension in Visual Studio Code: connections and drivers, schema and ORMs, T-SQL, vector search and RAG, Azure Functions bindings, and database projects. Data API Builder skills are omitted to avoid conflicting with the extension's agent tools.",
       "version": "0.1.0",
-      "author": {
-        "name": "Microsoft"
-      },
-      "repository": "https://github.com/microsoft/azure-sql-skills",
-      "keywords": [
-        "microsoft-sql",
-        "azure-sql",
-        "vscode",
-        "mssql",
-        "application-development",
-        "orm",
-        "t-sql",
-        "vector-search",
-        "rag"
-      ],
+      "source": "./plugins/microsoft-sql-vscode",
       "category": "Databases"
     }
   ]

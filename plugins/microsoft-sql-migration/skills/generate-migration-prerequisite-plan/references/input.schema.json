@@ -1,0 +1,1232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fredgis/sql-migration-advisor/skills/generate-migration-prerequisite-plan/schemas/input.schema.json",
+  "title": "Migration prerequisite plan input",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "mode",
+    "requestedOutput"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "mode": {
+      "enum": [
+        "advisor_handoff",
+        "standalone"
+      ]
+    },
+    "requestedOutput": {
+      "enum": [
+        "markdown",
+        "json",
+        "both"
+      ]
+    },
+    "language": {
+      "type": "string",
+      "minLength": 2
+    },
+    "advisorOutput": {
+      "$ref": "#/$defs/advisorOutput"
+    },
+    "standaloneSelection": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "target",
+        "method",
+        "controlPlane"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tier": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "controlPlane": {
+          "enum": [
+            "standalone",
+            "azure-arc",
+            "ssms-migration-component",
+            "azure-migrate",
+            "azure-dms",
+            "fabric",
+            "vmware-hcx"
+          ],
+          "description": "Which control plane runs the migration. It selects prerequisites rather than labelling them: azure-arc pulls in the extension, identity and batch requirements and changes which source-version matrix governs the method. There is no default. An input with no controlPlane is a contract failure and is reported as one, which is what the input contract says and what this description used to contradict: it read \"absent means standalone\", the exact reading the rule was written to prevent, so a route orchestrated by Arc would have been planned as a standalone migration."
+        }
+      }
+    },
+    "knownFacts": {
+      "type": "object",
+      "description": "Facts already established, keyed by question id. Every value is checked against the vocabulary or the type that question accepts, derived from questions.json. It used to be one open union of the readiness enum, any non-empty string, any number, any integer, a boolean and any object, so `tde_status: true`, `database_count: -5` and `mi_link_ports_status: \"BANANA\"` all validated and could then confirm a prerequisite. An unrecognised value is not a typed fact. Omitting a key means the question was never asked; the explicit UNKNOWN value means it was asked and not answered, and every enumerated field offers it so the two cases stay distinguishable.",
+      "additionalProperties": false,
+      "properties": {
+        "source_version": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "source_edition": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "source_os": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "source_location": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "database_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "largest_database_size_gb": {
+          "type": "number",
+          "minimum": 0
+        },
+        "target_region": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "target_tier": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "source_permissions": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "target_permissions": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "downtime_tolerance": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "rpo": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "rto": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "peak_change_rate": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "performance_baseline_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "tde_status": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "authentication_model": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "feature_inventory_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "instance_object_inventory_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "network_path_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "dns_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "validation_plan_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "rollback_plan_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "application_cutover_owner": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "ha_migration_pattern": {
+          "enum": [
+            "DISTRIBUTED_AG",
+            "ALWAYS_ON_AG",
+            "UNKNOWN"
+          ]
+        },
+        "source_ha_topology": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "domain_model": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "ag_endpoint_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "quorum_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "recovery_model": {
+          "enum": [
+            "FULL",
+            "BULK_LOGGED",
+            "SIMPLE",
+            "UNKNOWN"
+          ]
+        },
+        "backup_chain_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "blob_https_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "blob_access_model": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "tde_material_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "azure_migrate_platform": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "azure_migrate_appliance_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "test_migration_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "hcx_service_mesh_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "mi_link_ports_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "mi_link_capacity_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "lrs_window_days": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "lrs_storage_layout_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "schema_compatibility_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "bacpac_consistency_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "dms_runtime_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "replication_primary_keys_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "replication_topology": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "data_box_device_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "delta_sync_method": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "striim_runtime_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "fabric_capacity_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "fabric_workspace_role": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "fabric_gateway_type": {
+          "enum": [
+            "ON_PREMISES",
+            "VNET_OR_PRIVATE_LINK",
+            "UNKNOWN"
+          ]
+        },
+        "fabric_dacpac_size_mb": {
+          "type": "number",
+          "minimum": 0
+        },
+        "arc_cluster_support_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "arc_connectivity_mode": {
+          "enum": [
+            "DIRECT",
+            "INDIRECT",
+            "UNKNOWN"
+          ]
+        },
+        "arc_backup_storage_class_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "arc_external_endpoint_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "arc_restore_entrypoint": {
+          "enum": [
+            "DIRECT_POD_OR_STORAGE",
+            "EXTERNAL_SQL_ENDPOINT",
+            "UNKNOWN"
+          ]
+        },
+        "container_image_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "container_volume_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "bulk_copy_tool": {
+          "enum": [
+            "BCP",
+            "SMART_BULK_COPY",
+            "UNKNOWN"
+          ]
+        },
+        "bulk_target_schema_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "adf_integration_runtime_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "adf_connection_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "dms_migration_mode": {
+          "enum": [
+            "OFFLINE",
+            "ONLINE",
+            "UNKNOWN"
+          ]
+        },
+        "dms_backup_landing_zone": {
+          "enum": [
+            "SMB_NETWORK_SHARE",
+            "AZURE_BLOB_STORAGE",
+            "UNKNOWN"
+          ]
+        },
+        "recovery_model_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "avs_host_quota_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "avs_vcf_subscription_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "avs_address_plan_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "avs_interconnect_topology": {
+          "enum": [
+            "EXPRESSROUTE_GLOBAL_REACH",
+            "AZURE_ROUTED_SOLUTION",
+            "UNKNOWN"
+          ]
+        },
+        "avs_outbound_internet_method": {
+          "enum": [
+            "MANAGED_SNAT",
+            "PUBLIC_IP_NSX_EDGE",
+            "AZURE_FIREWALL_DEFAULT_ROUTE",
+            "NONE",
+            "UNKNOWN"
+          ]
+        },
+        "azure_migrate_project_access_status": {
+          "enum": [
+            "CONFIRMED",
+            "MISSING",
+            "UNKNOWN"
+          ]
+        },
+        "azure_migrate_discovery_mode": {
+          "enum": [
+            "APPLIANCE",
+            "COLLECTOR",
+            "IMPORT",
+            "ARC_ENABLED",
+            "UNKNOWN"
+          ]
+        },
+        "azure_migrate_source_platform": {
+          "enum": [
+            "VMWARE",
+            "HYPERV",
+            "PHYSICAL",
+            "MIXED",
+            "UNKNOWN"
+          ]
+        },
+        "azure_migrate_intent": {
+          "enum": [
+            "ASSESS",
+            "REPLICATE",
+            "UNKNOWN"
+          ]
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "status",
+          "collectedAt",
+          "origin",
+          "reference",
+          "supports"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^EV-[0-9]{3,}$"
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": [
+              "reported",
+              "verified"
+            ]
+          },
+          "collectedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "origin": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tool": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "toolVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reference": {
+            "type": "string",
+            "minLength": 1
+          },
+          "supports": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^(COM|P[0-9]{2})-[0-9]{3}$"
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "const": "advisor_handoff"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "advisorOutput"
+        ],
+        "properties": {
+          "advisorOutput": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "const": "standalone"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "standaloneSelection"
+        ],
+        "properties": {
+          "standaloneSelection": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "advisorOutput": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/advisorPublicOutput"
+        },
+        {
+          "$ref": "#/$defs/advisorMirrorOutput"
+        }
+      ],
+      "description": "Exactly one of the two documented shapes. Both are closed and their required keys are disjoint, so an object is the canonical shape or the regression mirror and never a blend of the two."
+    },
+    "advisorPublicOutput": {
+      "type": "object",
+      "required": [
+        "metadata"
+      ],
+      "description": "The public contract shape of reference/output-contract.md section 2, as rendered for a reader and produced on request as JSON.",
+      "properties": {
+        "metadata": {
+          "type": "object",
+          "required": [
+            "knowledgeBaseVersion",
+            "decisionRulesVersion",
+            "evaluatedAt",
+            "recommendationStatus",
+            "confidence"
+          ],
+          "properties": {
+            "knowledgeBaseVersion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "decisionRulesVersion": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sourceCommit": {
+              "type": "string",
+              "minLength": 1
+            },
+            "evaluatedAt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "recommendationStatus": {
+              "$ref": "#/$defs/advisorRecommendationStatus"
+            },
+            "confidence": {
+              "$ref": "#/$defs/advisorConfidence"
+            }
+          }
+        },
+        "normalizedProfile": {
+          "type": "object"
+        },
+        "eligibilityTrace": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "target": {
+                "$ref": "#/$defs/advisorTargetFamily"
+              },
+              "status": {
+                "$ref": "#/$defs/advisorEligibilityStatus"
+              },
+              "ruleId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "recommendation": {
+          "type": "object",
+          "required": [
+            "target",
+            "method",
+            "targetAvailabilityDuringSync",
+            "businessCutoverDowntime",
+            "controlPlane"
+          ],
+          "properties": {
+            "target": {
+              "$ref": "#/$defs/advisorTargetLabel"
+            },
+            "tier": {
+              "type": "string",
+              "minLength": 1
+            },
+            "method": {
+              "type": "string",
+              "minLength": 1
+            },
+            "targetAvailabilityDuringSync": {
+              "$ref": "#/$defs/advisorTargetAvailability"
+            },
+            "businessCutoverDowntime": {
+              "$ref": "#/$defs/advisorCutoverDowntime"
+            },
+            "controlPlane": {
+              "enum": [
+                "standalone",
+                "azure-arc",
+                "ssms-migration-component",
+                "azure-migrate",
+                "azure-dms",
+                "fabric",
+                "vmware-hcx"
+              ],
+              "description": "Which control plane runs the migration, carried over from the Advisor. It selects prerequisites rather than labelling them: azure-arc pulls in the extension, identity and batch requirements and changes which source-version matrix governs the method. Required, because a handoff that omits it silently produces a standalone plan for an Arc-orchestrated migration."
+            }
+          }
+        },
+        "alternative": {
+          "type": "object"
+        },
+        "methodGateTrace": {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "minLength": 1
+            },
+            "result": {
+              "$ref": "#/$defs/advisorMethodGateStatus"
+            },
+            "unverified": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "blockers": {
+          "$ref": "#/$defs/advisorStatements"
+        },
+        "unknowns": {
+          "$ref": "#/$defs/advisorStatements"
+        },
+        "assumptions": {
+          "$ref": "#/$defs/advisorStatements"
+        },
+        "evidenceRequired": {
+          "$ref": "#/$defs/advisorStatements"
+        },
+        "nextActions": {
+          "$ref": "#/$defs/advisorStatements"
+        },
+        "evidenceLinks": {
+          "$ref": "#/$defs/advisorStatements"
+        },
+        "largestRisk": {
+          "type": "string",
+          "minLength": 1
+        },
+        "methodCandidates": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/advisorMethodCandidate"
+          },
+          "description": "The methods the Advisor weighed, mirrored from the producer. When the user prefers a candidate marked available over the recommended one, its prerequisitePaths are what the plan resolves, so a handoff without this list cannot honour that choice. Both accepted shapes carry it because both stand in for the same run."
+        },
+        "shortlist": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/$defs/advisorShortlistEntry"
+          },
+          "description": "The families the Advisor refused to choose between, carried so the plan can say which they were and what would settle it. Present only when recommendationStatus is shortlist."
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "metadata": {
+                "properties": {
+                  "recommendationStatus": {
+                    "const": "provisional"
+                  }
+                },
+                "required": [
+                  "recommendationStatus"
+                ]
+              }
+            },
+            "required": [
+              "metadata"
+            ]
+          },
+          "then": {
+            "required": [
+              "recommendation"
+            ],
+            "not": {
+              "required": [
+                "shortlist"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "metadata": {
+                "properties": {
+                  "recommendationStatus": {
+                    "const": "shortlist"
+                  }
+                },
+                "required": [
+                  "recommendationStatus"
+                ]
+              }
+            },
+            "required": [
+              "metadata"
+            ]
+          },
+          "then": {
+            "required": [
+              "shortlist"
+            ],
+            "not": {
+              "required": [
+                "recommendation"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "advisorMirrorOutput": {
+      "type": "object",
+      "required": [
+        "method",
+        "recommendationStatus",
+        "confidence",
+        "controlPlane",
+        "knowledgeBaseVersion",
+        "decisionRulesVersion",
+        "evaluatedAt"
+      ],
+      "description": "The flattened shape emitted by the Advisor's regression mirror and used by its golden scenarios. It carries the same decisions under different key names, so a plan can be built from a replayed scenario as well as from a live session.",
+      "properties": {
+        "eligibility": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/advisorTargetFamily"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/advisorEligibilityStatus"
+          }
+        },
+        "primary_target": {
+          "$ref": "#/$defs/advisorTargetLabel"
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tier": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetAvailabilityDuringSync": {
+          "$ref": "#/$defs/advisorTargetAvailability"
+        },
+        "businessCutoverDowntime": {
+          "$ref": "#/$defs/advisorCutoverDowntime"
+        },
+        "methodGateStatus": {
+          "$ref": "#/$defs/advisorMethodGateStatus"
+        },
+        "recommendationStatus": {
+          "$ref": "#/$defs/advisorRecommendationStatus",
+          "enum": [
+            "provisional",
+            "shortlist"
+          ]
+        },
+        "confidence": {
+          "$ref": "#/$defs/advisorConfidence"
+        },
+        "controlPlane": {
+          "enum": [
+            "standalone",
+            "azure-arc",
+            "ssms-migration-component",
+            "azure-migrate",
+            "azure-dms",
+            "fabric",
+            "vmware-hcx"
+          ],
+          "description": "Which control plane runs the migration, mirrored from the Advisor. Required here for the same reason as in the public shape: an absent value produces a standalone plan for what may be an Arc-orchestrated migration."
+        },
+        "methodCandidates": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/advisorMethodCandidate"
+          },
+          "description": "The methods the Advisor weighed, mirrored from the producer. When the user prefers a candidate marked available over the recommended one, its prerequisitePaths are what the plan resolves, so a handoff without this list cannot honour that choice. Both accepted shapes carry it because both stand in for the same run."
+        },
+        "knowledgeBaseVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Which knowledge base line produced the recommendation. The mirror stands in for the Advisor, so a plan built from it carries the same provenance a plan built from the canonical shape carries."
+        },
+        "decisionRulesVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Which decision-rules line produced it. Same reason as knowledgeBaseVersion: provenance the plan is obliged to echo cannot be optional on the shape that supplies it."
+        },
+        "evaluatedAt": {
+          "type": "string",
+          "minLength": 1,
+          "format": "date-time",
+          "description": "When the recommendation was produced. Facts move, and a plan with no date cannot be aged."
+        },
+        "sourceCommit": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional, as upstream. Recorded when the caller can see it, so a plan can be reproduced against an exact tree."
+        },
+        "shortlist": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/$defs/advisorShortlistEntry"
+          },
+          "description": "The families the Advisor refused to choose between, carried so the plan can say which they were and what would settle it. Present only when recommendationStatus is shortlist."
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "recommendationStatus": {
+                "const": "provisional"
+              }
+            },
+            "required": [
+              "recommendationStatus"
+            ]
+          },
+          "then": {
+            "required": [
+              "primary_target"
+            ],
+            "not": {
+              "required": [
+                "shortlist"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "recommendationStatus": {
+                "const": "shortlist"
+              }
+            },
+            "required": [
+              "recommendationStatus"
+            ]
+          },
+          "then": {
+            "required": [
+              "shortlist"
+            ],
+            "not": {
+              "required": [
+                "primary_target"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "advisorRecommendationStatus": {
+      "enum": [
+        "provisional",
+        "shortlist"
+      ]
+    },
+    "advisorConfidence": {
+      "enum": [
+        "medium",
+        "low"
+      ]
+    },
+    "advisorEligibilityStatus": {
+      "enum": [
+        "eligible",
+        "eligible_with_remediation",
+        "unsupported",
+        "excluded_by_preference",
+        "unknown_requires_assessment"
+      ]
+    },
+    "advisorTargetFamily": {
+      "enum": [
+        "sql_vm",
+        "avs",
+        "sql_mi",
+        "sql_db",
+        "fabric_sql_db",
+        "arc_sql_mi",
+        "container",
+        "arc_in_place"
+      ]
+    },
+    "advisorTargetAvailability": {
+      "enum": [
+        "read-write",
+        "read-only",
+        "unavailable",
+        "not-present",
+        "unknown_requires_assessment"
+      ]
+    },
+    "advisorCutoverDowntime": {
+      "enum": [
+        "<1min",
+        "near-zero",
+        "minutes",
+        "minimal",
+        "hours",
+        "full-restore-time",
+        "full-load-time",
+        "total-migration-time",
+        "unknown_requires_assessment"
+      ]
+    },
+    "advisorMethodGateStatus": {
+      "enum": [
+        "passed",
+        "unknown_requires_assessment",
+        "refused"
+      ]
+    },
+    "advisorStatements": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "advisorMethodCandidate": {
+      "type": "object",
+      "required": [
+        "method",
+        "role",
+        "status",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "enum": [
+            "primary",
+            "secondary"
+          ],
+          "description": "From advisor-coverage.json. A primary method may be the recommendation on its own; a secondary one is a legitimate alternative that belongs in a shortlist. Methods classified documentary are supported but never recommended, so they do not appear here."
+        },
+        "status": {
+          "enum": [
+            "available",
+            "unavailable",
+            "unknown_requires_assessment"
+          ],
+          "description": "Whether the candidate passes its own gate for this profile. Three states, not two: an unverified prerequisite is not a satisfied one."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the candidate is available, or why it lost. A candidate list without reasons tells the reader what was considered but not what to do about it."
+        },
+        "prerequisitePaths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^P(0[1-9]|1[0-9]|2[0-8])$",
+            "description": "A path in the bundled catalog, which runs P01 to P28. The previous pattern accepted P00 and P29 to P99, so a plan could cite a path nobody ships."
+          },
+          "description": "Prerequisite catalog paths that apply, so the reader can hand this candidate to the prerequisite-plan skill instead of the recommendation."
+        },
+        "selected": {
+          "type": "boolean",
+          "description": "True for the recommended method. Invariant 15 requires exactly one selected candidate, and requires it to be available."
+        }
+      }
+    },
+    "advisorTargetLabel": {
+      "enum": [
+        "SQL Server on Azure VM",
+        "Azure VMware Solution",
+        "Azure SQL Managed Instance",
+        "Azure SQL Database",
+        "SQL database in Fabric",
+        "Arc-enabled SQL Managed Instance",
+        "SQL Server in a container",
+        "SQL Server enabled by Azure Arc"
+      ],
+      "description": "The eight target families, in the long form the handoff carries. Mirrored from the producer: the Advisor closed this field and a consumer still taking any string would have accepted exactly what the producer had just stopped emitting."
+    },
+    "advisorShortlistEntry": {
+      "type": "object",
+      "required": [
+        "target",
+        "whyItStands",
+        "whatWouldSeparateIt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/advisorTargetLabel"
+        },
+        "whyItStands": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why this family is still standing after Phase A."
+        },
+        "whatWouldSeparateIt": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The fact that would settle it against the others. A shortlist with no route out of it is a refusal without a next step, which is the failure this field exists to prevent."
+        }
+      }
+    }
+  }
+}
