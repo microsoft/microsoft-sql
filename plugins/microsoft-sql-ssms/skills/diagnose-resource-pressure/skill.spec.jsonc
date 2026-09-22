@@ -1,0 +1,171 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "diagnose-resource-pressure",
+  "domain": "performance-and-diagnostics",
+  "value": [
+    "corrects-a-wrong-assumption",
+    "not-in-training-data"
+  ],
+  "correction": "Agents troubleshooting a slow or throttled Azure SQL Database reach for the readings that make sense against a single unshared engine, where the machine is the thing you measure. Azure SQL Database is a governed platform: every headline number is a percentage of a ceiling set by the service objective, and the view built to report those percentages, sys.dm_db_resource_stats, does not exist on the local Azure SQL Database container at all, raising Msg 208. The purchasing model is not guessable: dtu_limit is NULL on a vCore database and cpu_limit, the vCore count, is NULL on a DTU database, and on a DTU database the headline is not a column but Learn's formula avg_dtu_percent = MAX(avg_cpu_percent, avg_data_io_percent, avg_log_write_percent), with memory excluded because the data cache keeps avg_memory_usage_percent near 100 regardless of load. avg_cpu_percent and avg_instance_cpu_percent are percentages of two different limits and are not comparable with each other. Error 10928's 'request limit' wording names a worker limit rather than a connection count, kept only for backward compatibility, so Resource ID 1 is workers and Resource ID 2 is sessions, and MAXDOP multiplies workers per query far faster than session count does. MAXDOP itself is where a previous revision was wrong: it claimed sys.database_scoped_configurations reports 0 on Azure SQL Database while 8 applies invisibly underneath. Microsoft Learn contradicts that, setting the MAXDOP database-scoped configuration to 8 for each new single or elastic pool database since September 2020 and using that view as the way to determine it, so 8 in the cloud is the default, 0 in the cloud means the database predates the change, and 0 on the container is measured and is just the engine default. And the instance-level fallback is absent rather than restricted: sp_configure returns Msg 2812, could not find the stored procedure, not the option error Msg 15123 that would send a reader after a permission problem.",
+    "value_probe": {
+      "gate": "The answer measures the production database against the ceilings its service objective sets, refuses the laptop reading as evidence about the cloud database, and explains the number in the error message as something other than a count of open connections, before it says anything about changing the tier.",
+      "task": "Our production Azure SQL Database started timing out at peak yesterday and there are two things I cannot make sense of.\n\nFirst, I reproduced the workload against the Azure SQL Database container on my laptop, because I did not want to experiment in production. I tried:\n\n```sql\nSELECT TOP (20) * FROM sys.dm_db_resource_stats ORDER BY end_time DESC;\n```\n\nand it comes back as an invalid object name there, so I fell back to sys.dm_os_performance_counters, where the buffer cache hit ratio dips to about 94 percent under my load. Does that tell me production is short of memory and needs a bigger tier?\n\nSecond, the application log from the incident is full of 'The request limit for the database is 200 and has been reached'. Our connection pool is capped at forty connections and we run three application instances, so I cannot see how we would be anywhere near 200. This is a DTU based Standard database.\n\nWhat should I actually be measuring, and is scaling up the answer here?",
+      "states": [
+        "Every headline number on this platform is a percentage of a ceiling set by the service objective rather than an absolute measurement of a machine.",
+        "The limit named in that error counts the workers a query consumes rather than the connections the application opens, so a small pool can still reach it.",
+        "A query running in parallel consumes several workers at once, which is how the count grows far faster than the connection count does.",
+        "The view that reports those percentages is a cloud only surface, so its absence on the local container is expected rather than a permission or context problem.",
+        "The DTU headline is derived from the largest of the processor, data input output and log write percentages, and the memory percentage is not part of it."
+      ],
+      "refutes": [
+        "The 200 in that message is a limit on concurrent connections or sessions, so the pool must be opening more connections than the application thinks it is.",
+        "A buffer cache hit ratio measured against the local container is evidence about whether the production database is short of memory.",
+        "sys.dm_db_resource_stats is available on any Azure SQL Database engine including the local container, so its absence means a missing permission or the wrong database context.",
+        "A memory usage percentage near 100 on an Azure SQL Database means the database is out of memory and needs a larger tier.",
+        "sp_configure can be used on Azure SQL Database to inspect or change the instance level settings behind this."
+      ]
+    },
+  "posture": [
+    "read",
+    "inspect"
+  ],
+  "maturity": "preview",
+  "applies_to": [
+    "azure-sql-db",
+    "azure-sql-db-container"
+  ],
+  "related": [
+    "diagnose-connection-errors",
+    "diagnose-blocking-and-deadlocks",
+    "diagnose-slow-query",
+    "read-execution-plan",
+    "capture-with-extended-events",
+    "provision-azure-sql-db"
+  ],
+  "validation": {
+    "target": "container",
+    "setup": [
+      "a live engine reachable over sqlcmd reporting SERVERPROPERTY('EngineEdition') = 5 and SERVERPROPERTY('Edition') = 'SQL Azure' (the local Azure SQL Database container)",
+      "a database created for the check, separate from other work on the same engine",
+      "target is container on purpose: every probe here was measured on the container, none has ever run against a real Azure SQL Database, and a probe carries no substrate of its own, so even the two Learn documents for both places are asserted only where they were measured"
+    ],
+    "assert": [
+      "the purchasing model is read from dtu_limit and cpu_limit rather than assumed, and a DTU answer uses MAX(avg_cpu_percent, avg_data_io_percent, avg_log_write_percent) rather than looking for an avg_dtu_percent column",
+      "avg_cpu_percent and avg_instance_cpu_percent are not compared with each other as if they shared a scale, and avg_memory_usage_percent near 100 is not reported as a fault",
+      "a MAXDOP answer reads sys.database_scoped_configurations as the authority, states that 8 is the cloud default for databases created since September 2020, and does not claim a hidden value is applied beneath the reported one",
+      "a 10928, 10929 or 10936 diagnosis names Resource ID 1 as workers and Resource ID 2 as sessions, and is not reduced to 'lower the connection pool size' when MAXDOP is the actual multiplier",
+      "CPU-bound queries are surfaced by ordering sys.dm_exec_query_stats on total_worker_time directly, never by a worker-time-to-elapsed-time ratio filter that can silently invert"
+    ],
+    "probes": [
+      {
+        "sql": "SELECT TOP 1 dtu_limit, cpu_limit FROM sys.dm_db_resource_stats ORDER BY end_time DESC;",
+        "expect": {
+          "error": 208
+        },
+        "why": "The headline claim, made executable. sys.dm_db_resource_stats is the only place dtu_limit and cpu_limit live, so on the container the question 'DTU or vCore, and how close to the limit' cannot be asked at all. Measured 2026-08-29: Msg 208, Invalid object name 'sys.dm_db_resource_stats'. A future build that answers instead of failing means the container gained the view, not that this probe was wrong."
+      },
+      {
+        "sql": "SELECT TOP 1 * FROM sys.dm_user_db_resource_governance;",
+        "expect": {
+          "error": 208
+        },
+        "why": "Microsoft Learn names sys.dm_user_db_resource_governance as where the actual DTU and vCore resource limits are exposed, and as the view to compare when sizing a move between the two purchasing models. It is absent on the container, so a local run cannot see any governed limit. Measured 2026-08-29: Msg 208."
+      },
+      {
+        "sql": "EXEC sp_configure 'max degree of parallelism';",
+        "expect": {
+          "error": 2812
+        },
+        "why": "The instance-level knob a SQL Server habit reaches for is not restricted here, it is absent. Learn lists sp_configure and RECONFIGURE among the syntax Azure SQL Database does not support, and Learn's sys.sp_configure page names SQL Server, Azure SQL Managed Instance and Analytics Platform System in its Applies to list and not Azure SQL Database. Measured 2026-09-03: Msg 2812, Could not find stored procedure 'sp_configure'. An earlier revision asserted Msg 15123, which would mean the procedure exists and refused the option, and sends a reader after a permission or option problem that is not there. ALTER DATABASE SCOPED CONFIGURATION is the surface."
+      },
+      {
+        "sql": "SELECT [value] FROM sys.database_scoped_configurations WHERE [name] = 'MAXDOP';",
+        "expect": {
+          "rows": [
+            [
+              0
+            ]
+          ]
+        },
+        "why": "The container reports 0, the plain engine default, because no Azure control plane set anything. A new Azure SQL Database reports 8, the service default since September 2020, and Learn treats this view as the authority rather than a value with something applied beneath it. Measured 2026-08-29. It is the half of that pair that can be run locally, and it stops the container's 0 being read as the cloud's answer."
+      },
+      {
+        "sql": "SELECT COUNT(*) AS log_files FROM sys.dm_io_virtual_file_stats(DB_ID(), 2) WHERE io_stall_queued_write_ms >= 0;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "The one IO diagnostic Learn documents for both places, including the io_stall_queued_read_ms and io_stall_queued_write_ms columns that separate delay added by IO governance from delay added by storage. One row for file_id 2, the log file of the scratch database, proves the function and the governance columns are present on the container. A missing column would fail as Msg 207 rather than pass quietly."
+      },
+      {
+        "sql": "SELECT COUNT(*) AS governor_waits FROM sys.dm_os_wait_stats WHERE wait_type IN ('LOG_RATE_GOVERNOR', 'POOL_LOG_RATE_GOVERNOR', 'INSTANCE_LOG_RATE_GOVERNOR') AND waiting_tasks_count > 0;",
+        "expect": {
+          "rows": [
+            [
+              0
+            ]
+          ]
+        },
+        "why": "Zero here is the point, not a null result. The container has no log rate governance to throttle against, so these three wait types never accumulate however hard the log is pushed, and a saturated container log shows as WRITELOG instead. The probe exists so that a clean local reading is never carried across as evidence that a cloud workload is not log-rate limited. Measured 2026-08-29: none present."
+      },
+      {
+        "sql": "SELECT service_objective FROM sys.database_service_objectives WHERE database_id = DB_ID();",
+        "expect": {
+          "rows": [
+            [
+              "GP_Gen5_2"
+            ]
+          ]
+        },
+        "why": "The container answers this view with a fixed service objective for every database, unrelated to the CPU or memory it was actually given, and nothing enforces it. Measured 2026-08-29: GP_Gen5_2. The probe pins the placeholder so that reading a tier, or any headroom, out of this view locally fails loudly rather than reading as a real provisioned size."
+      },
+      {
+        "cmd": "sqlcmd '-?' 2>&1 | grep -q -- '-A,--dedicated-admin-connection'",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The body tells a reader to reach for the diagnostic connection during a worker-limit incident, because ordinary connections are being refused at that moment. This proves the flag exists on the client a developer installs, with no connection and no credentials. Verified 2026-09-03 against the sqlcmd on this machine, which lists '-A,--dedicated-admin-connection' in its backwards-compatible flag help. It runs on the host because sqlcmd is a client tool, not something in the engine image."
+      }
+    ,
+          {
+            "sql": "SELECT * FROM sys.dm_db_resource_stats;",
+            "expect": {
+              "error": 208
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. sys.dm_db_resource_stats is an Azure SQL Database view the container does not carry, so the first thing an answer reaches for is the first thing that fails locally. The skill's rule is not to read this as a broken database. It goes red if the statement succeeds, or fails with any other number."
+          },
+          {
+            "sql": "EXEC sp_configure 'max degree of parallelism';",
+            "expect": {
+              "error": 2812
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. sp_configure is not there at all on the container, which is a different failure from the option error a reader would otherwise go hunting for. This is also the measurement that showed embeddings-and-external-models was attributing the wrong number to the same statement. It goes red if the statement succeeds, or fails with any other number."
+          }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Diagnose resource pressure on my Azure SQL database, is it CPU, IO, memory, or the service tier?",
+      "My Azure SQL Database is hitting error 10928, what resource is actually exhausted?",
+      "Run a resource pressure investigation against this Azure SQL database and tell me what to do about it"
+    ],
+    "implicit": [
+      "Queries that used to finish instantly are timing out under load, what changed on the database side?",
+      "Should I scale up my Azure SQL database or is a bad query the real problem?",
+      "sys.dm_os_performance_counters shows the buffer cache hit ratio dropping on my local container, does that mean I need a bigger service tier in the cloud?",
+      "the request limit for the database is 200 and has been reached, what does that mean"
+    ],
+    "negative": [
+      "Why does my connection attempt fail with error 18456?",
+      "Show me the execution plan for this query and tell me why it chose a scan",
+      "Two sessions are stuck blocking each other, help me find the head blocker",
+      "Rewrite this query to use a better join order",
+      "Set up extended events to capture the text of long-running queries",
+      "Create a firewall rule so my laptop can reach the database"
+    ]
+  }
+}

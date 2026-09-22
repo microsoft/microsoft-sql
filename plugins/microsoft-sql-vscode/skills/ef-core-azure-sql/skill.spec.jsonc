@@ -1,0 +1,143 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "ef-core-azure-sql",
+  "domain": "schema-and-orm",
+  "value": ["not-in-training-data", "corrects-a-wrong-assumption"],
+  "correction": "Every current answer for Entity Framework Core on Azure SQL Database turns retry on, whether by the corpus shape UseSqlServer with EnableRetryOnFailure or by the EF Core 9 call UseAzureSql, and both install SqlServerRetryingExecutionStrategy. The agent then treats the InvalidOperationException that follows, 'does not support user-initiated transactions', as the whole problem, because the exception dictates its own remedy: wrap the transaction in a delegate passed to Database.CreateExecutionStrategy(). That remedy is incomplete and its incompleteness is silent. Measured on 2026-08-27 against a live Azure SQL engine on 9.0.19, a transient fault arriving after the Commit inside that delegate runs the delegate a second time, commits the row twice, and returns success to the caller with no exception, no warning and no log line, identically under UseSqlServer and under UseAzureSql. Turning retry on does not make a transaction resilient, it makes it repeatable, so a retriable unit is correct only once it carries an idempotency key or is handed to ExecuteInTransaction with a verifySucceeded predicate. Two commonly repeated claims are also wrong and were measured wrong: Database.BeginTransaction itself succeeds and the next query or SaveChanges is what throws, and ExecuteSqlRaw inside that transaction is not guarded at all.",
+  "value_probe": {
+    "task": "Our ASP.NET Core service uses Entity Framework Core 9 against a database in Azure. We turned on the built in retrying behaviour for transient faults when we moved to Azure.\n\nA checkout path writes an order and then writes a ledger entry, and we needed both or neither, so we wrapped the two SaveChanges calls in a transaction. That immediately threw at runtime telling us the configured execution strategy does not support user initiated transactions. We followed what the exception told us to do and wrapped the whole thing in a delegate handed to the execution strategy, roughly:\n\n```csharp\nvar strategy = db.Database.CreateExecutionStrategy();\nawait strategy.ExecuteAsync(async () =>\n{\n    await using var tx = await db.Database.BeginTransactionAsync();\n    db.Orders.Add(order);\n    await db.SaveChangesAsync();\n    db.Ledger.Add(entry);\n    await db.SaveChangesAsync();\n    await tx.CommitAsync();\n});\n```\n\nThe exception went away and this has been in production for three months. Roughly once a fortnight, always during a period when the database is visibly having a bad few minutes, a customer is charged twice and we find two identical orders seconds apart. There is no exception in our logs, no warning, and no failed request. The customer's own request returned a success.\n\nIs this code correct, and if not, what do we do about it?",
+    "gate": "The answer identifies that the retried unit can be run a second time after its first run already committed, so the write is repeated and reported as success, and requires the unit to be made safe to repeat, whether by an idempotency key, a uniqueness constraint the second attempt violates, or a check that confirms whether the first attempt succeeded before repeating it.",
+    "states": [
+      "Wrapping the transaction in the execution strategy delegate makes the unit repeatable, and does not by itself make it safe to repeat.",
+      "A transient fault arriving after the commit causes the entire delegate to run again, producing a second committed write.",
+      "The duplicate is reported to the caller as a success, with no exception, warning or log entry, which is why nothing appears in the logs.",
+      "Correctness requires either an identifier that makes a repeat a no operation, or a check that establishes whether the first attempt committed before it is retried."
+    ],
+    "refutes": [
+      "Wrapping the transaction in a delegate passed to the execution strategy makes the transaction safe to retry, so the duplicates must originate somewhere else, such as the client, a load balancer, or a message being delivered twice.",
+      "A retry can only re-run a transaction that failed to commit, so a committed transaction is never repeated by the retrying behaviour.",
+      "Turning retry on is what makes a write resilient against transient faults on this service.",
+      "The fix is to raise the retry count, lengthen the delay between attempts, or turn the retrying behaviour off for this code path."
+    ]
+  },
+  "posture": ["read", "write", "execute"],
+  // Held at draft below a preview ceiling, on purpose. The value measurement of
+  // 2026-09-05, ten runs per arm, returned NEITHER: the gate and two statements at
+  // 10 of 10 in both arms, the others within one run of level, and every falsehood
+  // at 0 or 1 of 10 in both. The model already answers this skill's own task
+  // correctly without it.
+  // This is an author declaring below the ceiling, which the ladder permits, and
+  // it is not the skill failing. Its engine probes still pass and nothing here is
+  // unverified. Do not raise this field to clear the promotion backlog. It moves
+  // when the skill is rewritten to say something the model does not already know
+  // and a fresh measurement shows lift, and not before.
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "related": [
+    "connect-from-dotnet",
+    "connect-to-azure-sql",
+    "entra-id-auth",
+    "design-azure-sql-schema",
+    "schema-migrations-safely",
+    "sql-database-projects",
+    "ef-core-migrations-azure-sql",
+    "dapper-and-ado-net-azure-sql",
+    "build-app-on-azure-sql"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a .NET project referencing Microsoft.EntityFrameworkCore.SqlServer 9.0 or later",
+      "an Azure SQL database reachable from the build host, or the local container"
+    ],
+    "assert": [
+      "every delegate passed to Database.CreateExecutionStrategy carries an idempotency key with a unique index, or uses ExecuteInTransaction with a verifySucceeded predicate, or records why replaying it cannot duplicate anything",
+      "no non idempotent side effect, such as sending mail, enqueuing a message or taking a payment, sits inside a retried delegate",
+      "no code path calls Database.BeginTransaction outside a delegate passed to Database.CreateExecutionStrategy",
+      "the retry budget is smaller than the deadline of whatever calls the application, and a CancellationToken reaches every async database call",
+      "dotnet ef dbcontext info reports Options: EngineType=AzureSql, rather than EngineType=SqlServer with a hand written EnableRetryOnFailure",
+      "indexed string properties state HasMaxLength rather than inheriting the nvarchar(450) narrowing",
+      "the compatibility level is stated explicitly rather than inherited from the provider default",
+      "on EF Core 10, a first migration taken after switching to UseAzureSql is inspected for ALTER COLUMN statements that retype JSON columns",
+      "the application does not apply migrations from its own startup path against a cloud database"
+    ],
+    "probes": [
+      {
+        "cmd": "PATH=\"$PATH:$HOME/.dotnet/tools\" dotnet ef migrations script --help | grep -q '^  -i|--idempotent'",
+        "where": "host",
+        "expect": { "succeeds": true },
+        "why": "The flag SKILL.md tells a reader to run before an EF Core 10 upgrade, so the retype migration is read as SQL before it reaches a database. Read out of the tool's own help on 2026-09-03, dotnet ef 9.0.19. dotnet ef is a client tool a developer installs with dotnet tool install, never something an engine image ships, so this is a host probe."
+      },
+      {
+        "cmd": "PATH=\"$PATH:$HOME/.dotnet/tools\" dotnet ef database update --help | grep -q -- '--connection <CONNECTION>'",
+        "where": "host",
+        "expect": { "succeeds": true },
+        "why": "The whole permissions argument in SKILL.md rests on this flag existing: --connection is how a migration is applied by a deployment identity while the application keeps its own string in AddDbContext or OnConfiguring. Its help text on 9.0.19 reads 'Defaults to the one specified in AddDbContext or OnConfiguring.'"
+      },
+      {
+        "cmd": "PATH=\"$PATH:$HOME/.dotnet/tools\" dotnet ef migrations --help | grep -q '^  has-pending-model-changes'",
+        "where": "host",
+        "expect": { "succeeds": true },
+        "why": "The second of the three checks in the 'Check it worked' section. The command exists from EF Core 8 and is listed by dotnet ef 9.0.19; measured 2026-09-03, it exits 0 with 'No changes have been made to the model since the last migration.' and exits 1 after one property is added, which is what makes it usable in a pipeline."
+      },
+      {
+        "cmd": "PATH=\"$PATH:$HOME/.dotnet/tools\" dotnet ef dbcontext --help | grep -q '^  info'",
+        "where": "host",
+        "expect": { "succeeds": true },
+        "why": "The first check in 'Check it worked'. Measured 2026-09-03 on 9.0.19, dbcontext info prints 'Options: EngineType=AzureSql' under UseAzureSql and 'Options: EngineType=SqlServer' under UseSqlServer with the same connection string and the same provider name, so it is the only command that separates the two configurations."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_ef_indexed_string (Id int NOT NULL IDENTITY PRIMARY KEY, Name nvarchar(450) NOT NULL);\nCREATE INDEX IX_probe_ef_indexed_string_Name ON dbo.probe_ef_indexed_string (Name);\nINSERT INTO dbo.probe_ef_indexed_string (Name) VALUES (REPLICATE(N'a', 500));",
+        "expect": { "error": 2628 },
+        "why": "The nvarchar(450) claim, made executable. An indexed string property with no HasMaxLength is generated as nvarchar(450), confirmed again on 2026-09-03 in a dotnet ef migrations script run, and the engine then refuses a longer value rather than trimming it. Msg 2628 is what makes the narrowing loud instead of silent, which is the correction this section carries."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_ef_idempotency (Id int NOT NULL IDENTITY PRIMARY KEY, IdempotencyKey uniqueidentifier NOT NULL, Amount decimal(10,2) NOT NULL);\nCREATE UNIQUE INDEX IX_probe_ef_idempotency_Key ON dbo.probe_ef_idempotency (IdempotencyKey);\nDECLARE @k uniqueidentifier = '00000000-0000-0000-0000-000000000001';\nINSERT INTO dbo.probe_ef_idempotency (IdempotencyKey, Amount) VALUES (@k, 10.00);\nINSERT INTO dbo.probe_ef_idempotency (IdempotencyKey, Amount) VALUES (@k, 10.00);",
+        "expect": { "error": 2601 },
+        "why": "The first defence in 'Making the unit safe to run twice', at the storage layer where it actually lives. The second insert is the replayed delegate: with a unique index over the idempotency key it collides instead of duplicating. Microsoft Learn documents Msg 2601 as the unique index violation, distinct from 2627 for a UNIQUE constraint, and this probe creates an index."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_ef_nonunique (Id int NOT NULL IDENTITY PRIMARY KEY, IdempotencyKey uniqueidentifier NOT NULL);\nCREATE INDEX IX_probe_ef_nonunique_Key ON dbo.probe_ef_nonunique (IdempotencyKey);\nDECLARE @k uniqueidentifier = '00000000-0000-0000-0000-000000000002';\nINSERT INTO dbo.probe_ef_nonunique (IdempotencyKey) VALUES (@k);\nINSERT INTO dbo.probe_ef_nonunique (IdempotencyKey) VALUES (@k);\nSELECT COUNT(*) AS rows_after_replay FROM dbo.probe_ef_nonunique WHERE IdempotencyKey = @k;",
+        "expect": { "rows": [[2]] },
+        "why": "The negative control for the probe above, and the duplicate write itself reduced to storage. Same key, same two inserts, only the index is no longer unique: both statements succeed with no error and the table holds two rows. Two here is the defect, not the absence of one, and it is why the skill says an idempotency key without a unique index is decorative."
+      },
+      {
+        "sql": "SELECT CASE WHEN CURRENT_TIMEZONE() LIKE '%UTC%' THEN 1 ELSE 0 END AS timezone_is_utc,\n       CASE WHEN ABS(DATEDIFF(second, GETDATE(), SYSUTCDATETIME())) <= 1 THEN 1 ELSE 0 END AS getdate_is_utc;",
+        "expect": { "rows": [[1, 1]] },
+        "why": "The HasDefaultValueSql(\"GETDATE()\") claim. Measured 2026-08-28 the host was six hours behind the engine and GETDATE() still returned UTC, so a GETDATE() default behaves the same locally and in the cloud, and only a model carried over from an engine on local time changes meaning. A one second tolerance keeps this from failing on a clock boundary."
+      }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the ef-core-azure-sql skill",
+      "Set up EF Core against Azure SQL Database",
+      "Should I use UseAzureSql or UseSqlServer for my DbContext",
+      "Configure EnableRetryOnFailure for my Azure SQL DbContext",
+      "Wrap my EF Core transaction in an execution strategy so it can be retried"
+    ],
+    "implicit": [
+      "The configured execution strategy SqlServerRetryingExecutionStrategy does not support user-initiated transactions",
+      "my DbContext worked fine until I wrapped two SaveChanges calls in a transaction",
+      "our EF Core service writes the same order twice whenever Azure SQL has a blip, and nothing is in the logs",
+      "is it safe to put BeginTransaction and Commit inside CreateExecutionStrategy().Execute",
+      "my EF Core app works locally but times out intermittently once it is pointed at Azure",
+      "why did my next EF migration try to ALTER every JSON column",
+      "my Include query returns tens of thousands of rows and is slow against Azure",
+      "does anything in my DbContext have to change when the app moves to a passwordless connection string"
+    ],
+    "routing": [
+      "port my EF Core app from a self hosted database to Azure SQL Database",
+      "make my EF Core writes safe to retry against Azure SQL Database"
+    ],
+    "negative": [
+      "Use Prisma against Azure SQL Database",
+      "Set up SQLAlchemy models for Azure SQL",
+      "Open a SqlConnection and run a query with Microsoft.Data.SqlClient",
+      "Size the connection pool and add transient retry underneath my .NET data access layer",
+      "Write a LINQ GroupBy query",
+      "Create an Entra ID application identity and grant it access to my database",
+      "Deploy my EF Core migrations from a release pipeline"
+    ]
+  }
+}

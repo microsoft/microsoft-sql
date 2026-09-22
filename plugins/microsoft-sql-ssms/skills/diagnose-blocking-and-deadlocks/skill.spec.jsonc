@@ -1,0 +1,193 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "diagnose-blocking-and-deadlocks",
+  "domain": "performance-and-diagnostics",
+  "value": ["corrects-a-wrong-assumption", "multi-step-with-silent-failures"],
+  "correction": "Asked to diagnose blocking or read a deadlock on Azure SQL Database, an agent treats two different diagnostic failures as the same kind of problem and gets both wrong. The first is a genuine permission artifact: an ordinary login with no VIEW DATABASE STATE grant sees only its own session in sys.dm_exec_requests, sys.dm_os_waiting_tasks and sys.dm_tran_locks and misses a real blocking chain running between two other logins, with no error at all, and granting that one database-scoped permission to the same login, with no other change, made the whole chain visible. The second looks identical from the outside but is not a permission problem at all: sys.dm_xe_sessions, sys.server_event_sessions and sys.dm_xe_session_targets raise Invalid object name (Msg 208) in a user database, and GRANT VIEW SERVER STATE changed nothing, because there is no server-scoped Extended Events surface to grant past. An agent reads that Msg 208 as a context bug and goes looking for a system_health session to read a deadlock out of. Microsoft Learn states there is no built-in system_health session in Azure SQL Database and that event sessions there are always database-scoped, so unless somebody created a session on sqlserver.database_xml_deadlock_report before the deadlock happened, the graph is gone and no grant, no reconnect and no master will recover it. The local container does carry a master with a system_health session, which is exactly how this skill shipped the wrong answer between 2026-08-29 and 2026-09-03: the run was correct and the substrate was never named. A second correction rides along: on Basic, S0, S1 and elastic pool databases, VIEW DATABASE STATE is not the grant that makes the chain visible either, and ##MS_ServerStateReader## is.",
+    "value_probe": {
+      "gate": "The answer separates the two failures instead of treating them as one problem: the empty blocking result is what the connected login is permitted to see and is fixed by granting the right database scoped permission to it, while the missing graph from yesterday is neither a permission nor a connection context problem and cannot be recovered, so the remedy is a capture created before the next one happens.",
+      "task": "Our checkout runs against an Azure SQL Database in the cloud, a General Purpose database and not the local container. It hangs for about thirty seconds under load and then some requests fail. I connected with the application's own login and ran:\n\n```sql\nSELECT session_id, blocking_session_id, wait_type, wait_time\nFROM sys.dm_exec_requests\nWHERE blocking_session_id <> 0;\n```\n\nIt returns nothing at all, every time, while the application is visibly stuck. sys.dm_tran_locks only ever shows my own session and sys.dm_os_waiting_tasks comes back empty too.\n\nWe also had two deadlock errors in the application log yesterday at 14:05 and I want to see what they were fighting over. A colleague told me to read the graph out of the built in diagnostic session, but sys.dm_xe_sessions comes back as an invalid object name, so I assumed I was connected to the wrong database and I have not got any further.\n\nWhat do I do, for both of these?",
+      "states": [
+        "A login without the relevant database scoped state permission sees only its own sessions in those views, and is told nothing about the rows it cannot see.",
+        "The empty result is therefore not evidence that no blocking is happening.",
+        "The invalid object name is not a connection context problem and is not fixed by connecting somewhere else or by granting a server scoped permission.",
+        "A deadlock graph for something that has already happened is gone unless a capture was already running when it happened.",
+        "Catching the next occurrence means creating a database scoped capture in advance of it."
+      ],
+      "refutes": [
+        "The invalid object name for the Extended Events views means the query was run against the wrong database, and running it from master will return the sessions.",
+        "Azure SQL Database has a built in, always running diagnostic session that retains recent deadlock graphs, so yesterday's graph can still be read out of it.",
+        "Granting VIEW SERVER STATE is what makes the Extended Events views resolve on this database.",
+        "Seeing only your own session in the request and lock views means nothing is blocking, so the delay must be in the application or the network.",
+        "The deadlock graph can be recovered after the fact from an error log, a default trace or the database's own history."
+      ]
+    },
+  "posture": ["inspect"],
+  // Demoted from preview to draft on 2026-09-20, and this one is a trade rather
+  // than a clean loss, which is why the numbers are written out here. The value
+  // measurement of 2026-09-05, ten runs per arm, returned UNCLEAR. The skill helps
+  // in three places: the gate reads 10 of 10 against 6 of 10, the statement that
+  // catching the next occurrence means creating the capture in advance 10 of 10
+  // against 5 of 10, and it removes the falsehood that a deadlock graph can be
+  // recovered after the fact, 0 of 10 against 6 of 10. Against that, the statement
+  // that a login without the database scoped state permission sees only its own
+  // sessions falls to 5 of 10 with the skill from 10 of 10 without, and that is the
+  // fact a reader most needs when the blocking view comes back empty. Carlos took
+  // the trade on 2026-09-20: losing that one costs more than the three gains earn.
+  // The three gains are real, so this skill is a rewrite candidate rather than a
+  // deletion candidate.
+  // This is an author declaring below the ceiling, which the ladder permits, and
+  // it is not the skill failing. Its engine probes still pass and nothing here is
+  // unverified. Do not raise this field to clear the promotion backlog. It moves
+  // when the skill is rewritten to say something the model does not already know
+  // and a fresh measurement shows lift, and not before.
+  "maturity": "draft",
+  "applies_to": ["azure-sql-db", "azure-sql-db-container"],
+  "related": [
+    "diagnose-slow-query",
+    "diagnose-resource-pressure",
+    "capture-with-extended-events",
+    "read-execution-plan",
+    "t-sql-upserts-merge"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a live engine reachable over sqlcmd reporting SERVERPROPERTY('EngineEdition') = 5 and SERVERPROPERTY('Edition') = 'SQL Azure'",
+      "a database created for the check, separate from other work on the same engine",
+      "the ability to open at least three concurrent client sessions against that database",
+      "one ordinary login with only db_datareader and db_datawriter, connected once to the master database and once to a user database"
+    ],
+    "assert": [
+      "a genuine blocking chain (a writer blocked behind another writer holding an open transaction) is invisible in sys.dm_exec_requests to a third-party login with no VIEW DATABASE STATE grant, and becomes visible after that single grant, except on Basic, S0, S1 and elastic pool databases where ##MS_ServerStateReader## is required instead",
+      "an idle session holding an open transaction (no active request) is correctly named as the blocking_session_id of the session it blocks, even though it has no row of its own in sys.dm_exec_requests",
+      "sys.dm_xe_sessions and sys.dm_xe_session_targets raise Invalid object name (Msg 208) in a user database and are not made to resolve by any VIEW SERVER STATE grant, while sys.dm_xe_database_sessions resolves in the same database",
+      "an induced deadlock produces Msg 1205 to the victim's caller, and, with a database-scoped session on sqlserver.database_xml_deadlock_report already running, a matching event readable from the user database with a single XML query over sys.dm_xe_database_session_targets",
+      "the deadlock graph's process-list contains both the victim and the blocking process, not the victim alone",
+      "a lock or wait reported under optimized locking uses an _XACT_ wait type and an XACT: resource description rather than the classic KEY: lock resource format"
+    ],
+    "probes": [
+      {
+        "sql": "SELECT name FROM sys.dm_xe_sessions;",
+        "expect": {
+          "error": 208
+        },
+        "why": "The server-scoped Extended Events DMV does not resolve in a user database, measured 2026-08-29, and GRANT VIEW SERVER STATE (confirmed present in sys.server_permissions) changed nothing, because there is no permission boundary here to grant past. Msg 208 is the correct answer rather than a context bug: Microsoft Learn states event sessions on Azure SQL Database are always database-scoped. The next probe pairs with this one, showing what does resolve. Reconnecting to master returned rows on the container, and that is a container property, not this skill's advice."
+      },
+      {
+        "sql": "SELECT name FROM sys.server_event_sessions;",
+        "expect": {
+          "error": 208
+        },
+        "why": "The catalog view fails the same way as the DMV, which matters because an agent that hits one tries the other next. Measured 2026-08-29. The conclusion the two Msg 208s support is the correct one: Microsoft Learn's Use the system_health session page states there is no built-in system_health session in Azure SQL Database, and its applies-to line covers SQL Server and Azure SQL Managed Instance only. What they do not support is reconnecting to master, which works on the container and has nothing to reach on the cloud service."
+      },
+      {
+        "sql": "SELECT COUNT(*) AS started_sessions FROM sys.dm_xe_database_sessions;",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The success the skill teaches, which the previous two probes only ever encoded as a failure. Section 5 sends the reader to the database-scoped views in the user database, so this one has to resolve where sys.dm_xe_sessions raised Msg 208 two probes ago. The count itself is deliberately unasserted: it is zero on a database nobody has built a session on, and the skill's whole point is that zero is an answer rather than an error. Microsoft Learn's Extended Events in Azure SQL page names this DMV as the database-scoped replacement."
+      },
+      {
+        "sql": "SELECT DATABASEPROPERTYEX(DB_NAME(), 'ServiceObjective') AS slo;",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Section 1 now tells the reader to read the service objective before choosing a grant, because Microsoft Learn requires ##MS_ServerStateReader## rather than VIEW DATABASE STATE on Basic, S0, S1 and elastic pool databases, and that branch is unusable if the call does not resolve where the reader is diagnosing. This probe asserts only that it resolves. It deliberately asserts no value: Learn documents ServiceObjective as nvarchar(32) returning Basic, S0 through S3, P1 through P3, ElasticPool, System, or NULL when the database is not started, and what the container returns for it has not been measured here, so asserting one would be inventing a measurement. The tier rule itself cannot be probed on the container at all, which has no service objectives to differ between; it is cited from Learn in SKILL.md and in the reference, and named here so nobody mistakes a green run for evidence of it."
+      },
+      {
+        "sql": "SELECT (SELECT COUNT(*) FROM sys.dm_os_waiting_tasks WHERE 1 = 0) AS waiting_tasks,\n       (SELECT COUNT(*) FROM sys.dm_tran_locks WHERE 1 = 0) AS tran_locks;",
+        "expect": {
+          "rows": [
+            [
+              0,
+              0
+            ]
+          ]
+        },
+        "why": "The negative control for the two probes above. These database-scoped views resolve perfectly well in a user database, so an empty blocking picture here is a permission artifact that VIEW DATABASE STATE fixes, not the object-scoping artifact that only a connection to master fixes. The skill's entire correction is telling those two apart."
+      },
+      {
+        "sql": "SELECT is_optimized_locking_on, is_read_committed_snapshot_on, is_accelerated_database_recovery_on\n  FROM sys.databases WHERE database_id = DB_ID();",
+        "expect": {
+          "rows": [
+            [
+              1,
+              1,
+              1
+            ]
+          ]
+        },
+        "why": "Measured 2026-08-29: all three were already on with no opt-in step taken. This is the precondition behind the two behaviours advice written for the classic lock manager gets wrong, an _XACT_ wait type against an XACT resource instead of KEY, and a plain SELECT that versions rather than blocks. If a future default flips, the skill's lock shapes stop matching before anything else does."
+      },
+      {
+        "sql": "SELECT\n    r.session_id AS blocked_session,\n    r.blocking_session_id AS blocker_session,\n    r.wait_type,\n    r.wait_time,\n    CASE WHEN EXISTS (\n            SELECT 1 FROM sys.dm_exec_requests AS r2 WHERE r2.session_id = r.blocking_session_id\n         )\n         THEN 'blocker has an active request'\n         ELSE 'blocker is idle: open transaction, no active request'\n    END AS blocker_state\n  FROM sys.dm_exec_requests AS r\n  WHERE r.blocking_session_id > 0;",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The corrected chain query is published in the reference file for a reader to paste, and a snippet that no longer compiles against the engine is worse than no snippet. This probe asserts nothing about a blocking chain, which needs concurrent sessions, only that every column and view the published query names still resolves on the target substrate."
+      },
+      {
+        "sql": "SELECT HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'VIEW DATABASE STATE') AS can_see_others;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "Step 1 of the skill tells a reader to paste this exact call before trusting any empty blocking result, so the call itself has to be valid on this substrate. Microsoft Learn restricts securable_class on Azure SQL Database to DATABASE, OBJECT, ROLE, SCHEMA or USER, and HAS_PERMS_BY_NAME returns NULL rather than an error when the class or permission name is wrong. A NULL here would mean the skill's headline check silently answers nothing. 1 is the answer on the administrative connection a probe runs on, because VIEW DATABASE STATE is implied by CONTROL on the database."
+      },
+      {
+        "sql": "CREATE TABLE dbo.probe_optlock_t0 (a int NOT NULL PRIMARY KEY, b int NULL);\nINSERT INTO dbo.probe_optlock_t0 VALUES (1, 10), (2, 20), (3, 30);\nBEGIN TRANSACTION;\nUPDATE dbo.probe_optlock_t0 SET b = b + 10;\nSELECT resource_type, request_mode, request_status\n  FROM sys.dm_tran_locks\n WHERE request_session_id = @@SPID\n   AND resource_type IN ('PAGE', 'RID', 'KEY', 'XACT');\nCOMMIT TRANSACTION;",
+        "expect": {
+          "rows": [
+            [
+              "XACT",
+              "X",
+              "GRANT"
+            ]
+          ]
+        },
+        "why": "The lock shape the skill exists to correct, made executable in one session rather than asserted from the 1/1/1 flags. This is Microsoft Learn's own transaction ID locking example on the optimized locking page, which states that with optimized locking on, a three-row update holds a single X lock on the XACT resource and no KEY or PAGE locks, and four locks including three X KEY locks when it is off. Measured here 2026-08-29 as XACT / X / GRANT during a live block. A KEY row instead is the one result that invalidates every wait name on the skill page at once."
+      },
+      {
+        "cmd": "sqlcmd '-?' | tr -s '[:space:]' ' ' | grep -q 'Quoted identifiers are always enabled'",
+        "where": "host",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The deadlock query needs QUOTED_IDENTIFIER ON, and the skill claims the client decides whether you ever notice. Checked against local help output on 2026-09-03: sqlcmd 1.10.0 (go-sqlcmd) documents -I as provided for backward compatibility because quoted identifiers are always enabled, while the older mssql-tools sqlcmd does not set it. host, not container: this is the client a developer installs, and the wording being asserted is that build's. The tr is load-bearing, not decoration. This probe exited 1 on every run before 2026-09-03 because sqlcmd wraps its help text and the asserted phrase spans two lines, so a line-oriented grep could never match it. The claim was right and the matcher was wrong, so the matcher was fixed; flattening whitespace first makes the assertion test the sentence rather than the column width. If a future sqlcmd drops the line, the skill's portability note needs rewriting rather than quietly rotting."
+      }
+    ,
+          {
+            "sql": "CREATE TABLE dbo.probe_b_qi (id int NOT NULL PRIMARY KEY, c AS (id * 2));\nCREATE UNIQUE INDEX probe_b_qi_ix ON dbo.probe_b_qi (c);\nGO\nSET QUOTED_IDENTIFIER OFF;\nINSERT INTO dbo.probe_b_qi (id) VALUES (1);",
+            "expect": {
+              "error": 1934
+            },
+            "why": "Measured 2026-09-06 on the container at 18.0.226_4_147, EngineEdition 5. A write against a table carrying an indexed computed column needs QUOTED_IDENTIFIER ON, and the message names indexed views and filtered indexes rather than the setting. A session that lacks it fails on write and looks like a blocking problem to whoever is reading the symptom. It goes red if the statement succeeds, or fails with any other number."
+          }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Why is this transaction blocking everything on our Azure SQL database",
+      "Read this deadlock graph and tell me which session to fix",
+      "Find out who is blocking session 78 right now",
+      "We keep getting Msg 1205 was deadlocked on lock resources with another process, help me capture the deadlock"
+    ],
+    "implicit": [
+      "our checkout page is hanging under load and I ran a blocking query but nothing shows blocked",
+      "blocking_session_id is always 0 in sys.dm_exec_requests but the app is clearly stuck waiting",
+      "who is the head blocker and what is it running right now",
+      "a session has been idle for ten minutes but still shows an open transaction and I cannot find what it is running"
+    ],
+    "negative": [
+      "Why is this single query slow even though nothing else is running against the database",
+      "The database is throttled and CPU is pegged at 100 percent, should we scale up",
+      "Build me an Extended Events session to capture query text over the next hour",
+      "Read this execution plan and tell me why it chose a table scan",
+      "Write an upsert that is safe when two sessions run it at the same time"
+    ]
+  }
+}

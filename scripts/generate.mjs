@@ -299,7 +299,7 @@ emit('.claude-plugin/plugin.json', j({ displayName: STORE_NAME, ...base }));
 // Nothing else changes between the two, so the clients can be measured against
 // the same manifests.
 // ---------------------------------------------------------------------------
-const SUBSET_SHARING = 'symlink';
+const SUBSET_SHARING = 'copy';
 
 // Data API builder is excluded from the Visual Studio Code plugin because it
 // clashes with Data API builder tooling GitHub Copilot already carries there.

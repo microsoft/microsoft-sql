@@ -1,0 +1,204 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "deploy-app-to-azure",
+  "domain": "azure-patterns-and-deploy",
+  "value": [
+    "corrects-a-wrong-assumption",
+    "changes-too-fast-to-memorize",
+    "multi-step-with-silent-failures"
+  ],
+  "correction": "Agents treat a first-party Azure sample's infrastructure as a reviewed baseline and spend their attention on the application code, so asked to reach Azure SQL Database without a password using the Azure Developer CLI they recommend the first-party template as the way to get there. `Azure-Samples/todo-csharp-sql`, the Microsoft-published blueprint pairing a web application with Azure SQL Database, was archived and dropped from the gallery in September 2026 yet still initializes with `azd init`, and it does not use an identity for the database at all: it provisions the logical server with an administrator login and a password, creates the application's database user with `create user ... with password` from a deployment script, and adds that user to `db_owner`, with `FROM EXTERNAL PROVIDER` appearing nowhere under its infrastructure directory. The template does create a managed identity, which is what lets the misreading survive a glance, but that identity authenticates to a vault and what the vault holds is a connection string with a password in it. The second half is worse, because it survives choosing correctly: all four Microsoft-published templates that build the logical server from the Azure Verified Module, including the three serverless quickstarts that are otherwise exemplary about identity, ship a firewall rule named `Azure Services` spanning `0.0.0.1` to `255.255.255.254`, which is every address a client can present, while the documented Allow Azure services rule uses `0.0.0.0` as both its start and its end address. So the identity defect is fixed by choosing a different template and the firewall defect is not fixed by choosing anything.",
+  "value_probe": {
+    "gate": "The answer reads the infrastructure the template generates rather than trusting it because it is first-party, and reaches both how the application actually authenticates to the database and which addresses the generated firewall rule really admits.",
+    "task": "My team lead wants our new web application and its database deployed to Azure with no password anywhere, and asked me to start from a Microsoft published template rather than writing the infrastructure myself. I have found a first-party sample that pairs a web application with a SQL database, and on the face of it that is what we want. Before I commit the team to it, review the choice: does starting there actually get us where he is asking to be, and is there anything in the infrastructure it generates that I should not merge as it stands?",
+    "states": [
+      "A managed identity can be present in a template while the database connection still uses a password held in a vault.",
+      "The start and end addresses of a generated firewall rule have to be read, because a wide range admits every address a client can present.",
+      "The documented allowance for Azure services uses one specific address as both its start and its end."
+    ],
+    "refutes": [
+      "The first-party sample pairing a web application with a SQL database authenticates to that database with an identity.",
+      "The presence of a managed identity in the template means the database connection is passwordless.",
+      "Choosing a better published template removes the need to review the firewall rule it generates.",
+      "A firewall rule named for allowing Azure services admits only Azure and needs no further check."
+    ]
+  },
+  "posture": [
+    "provision",
+    "execute",
+    "admin"
+  ],
+  "maturity": "draft",
+  "applies_to": [
+    "azure-sql-db"
+  ],
+  "related": [
+    "azure-sql",
+    "build-app-on-azure-sql",
+    "provision-azure-sql-db",
+    "entra-id-auth",
+    "connect-to-azure-sql",
+    "diagnose-connection-errors",
+    "github-actions-for-sql",
+    "schema-migrations-safely",
+    "least-privilege-database-roles",
+    "azure-functions-sql-bindings",
+    "cutover-and-connection-string-swap"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a subscription in which a resource group, a logical server and a database can be created",
+      "a signed-in Microsoft Entra identity that can be made administrator of the logical server",
+      "an application project with source code and no infrastructure directory yet",
+      "the template gallery reachable, so candidate templates can be listed and their infrastructure read before one is chosen"
+    ],
+    "assert": [
+      "the source of the infrastructure is named, and where it is a template, what that template does about database authentication was read rather than assumed",
+      "no template is called passwordless on the strength of a managed identity appearing in it, without establishing what that identity authenticates to",
+      "every firewall rule is judged by its address range rather than by its name, and a rule spanning the public address space is narrowed, with a rule added for whatever runs the post-provision hook",
+      "the role held by the application's database user is named, and db_owner is not carried over from a sample unexamined",
+      "the plan distinguishes what provisioning does from what deploying does, and places the database-side grant between them rather than after both",
+      "the grant runs from a post-provision hook that cannot be skipped silently, authenticated with Microsoft Entra ID as administrator of the logical server",
+      "the connection string reaches the deployed application as an application setting written by the infrastructure, carries no password, names the user database rather than master, and keeps encryption on with certificate trust off",
+      "the plan states which identity is administrator of the logical server after provisioning, and whether that identity is the developer or a pipeline",
+      "the teardown step names what survives it: the local environment values, and any database or logical server the project did not create"
+    ],
+    "probes": [
+      {
+        "where": "host",
+        "cmd": "azd version",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "Every command in this skill is an Azure Developer CLI command, so the tool being installed and able to print its build number with nothing provisioned is the precondition for all of them. Measured 2026-09-03, exit 0, version 1.32.0."
+      },
+      {
+        "where": "host",
+        "cmd": "azd provision --help 2>&1 | grep -q -- '--preview'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The skill tells a reader to run azd provision --preview before anything is created, which is only safe advice while the flag exists. Sourced from the command's own help on 1.32.0, measured 2026-09-03. If it is renamed, the skill's one safe rehearsal step goes with it and this probe goes red first."
+      },
+      {
+        "where": "host",
+        "cmd": "azd deploy --help 2>&1 | grep -q -- '--from-package'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The skill shows dotnet publish handing an artifact to azd deploy --from-package, which is how the provision and deploy halves are kept apart while debugging. Sourced from azd deploy --help on 1.32.0, measured 2026-09-03."
+      },
+      {
+        "where": "host",
+        "cmd": "azd down --help 2>&1 | grep -q -- '--purge'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The teardown section states that --purge also removes resources that are soft-deleted by default. Sourced from azd down --help on 1.32.0, measured 2026-09-03."
+      },
+      {
+        "where": "host",
+        "cmd": "azd up --help 2>&1 | grep -q 'AZD_NON_INTERACTIVE=false'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The agent-behaviour claim made checkable: azd's own help says --no-prompt is automatically enabled when it detects a CI/CD or AI-agent environment, and names AZD_NON_INTERACTIVE=false as the opt-out. Measured 2026-09-03 on 1.32.0. An earlier revision quoted an error message nobody had reproduced; this is the tool's own text instead."
+      },
+      {
+        "where": "host",
+        "cmd": "sqlcmd '-?' 2>&1 | grep -q 'ActiveDirectoryAzureDeveloperCli'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The post-provision hook authenticates with ActiveDirectoryAzureDeveloperCli so it reuses the credential the deployment is already running under, where -G alone falls back to ActiveDirectoryDefault and can pick a different signed-in identity. Sourced from sqlcmd's own flag list, measured 2026-09-03 on go-sqlcmd 1.10.0."
+      },
+      {
+        "where": "host",
+        "cmd": "az sql server firewall-rule create --help 2>&1 | grep -q \"Use value '0.0.0.0' to represent all Azure-internal IP\"",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "A second source for the address the Allow Azure services rule actually uses, independent of Microsoft Learn: the Azure CLI's help for --start-ip-address says 0.0.0.0 represents all Azure-internal IP addresses. That is what makes 0.0.0.1 to 255.255.255.254 a different rule rather than a narrower one. Measured 2026-09-03 on Azure CLI 2.90.0. Help output only, nothing is created."
+      },
+      {
+        "where": "host",
+        "cmd": "g=\"$(azd template list --output json 2>/dev/null)\" && test \"$(printf '%s\\n' \"$g\" | grep -c '\\\"repositoryPath\\\"')\" -gt 100 && test \"$(printf '%s\\n' \"$g\" | grep -c '\\\"Azure-Samples/todo-')\" = 0",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The gallery claim made executable: the gallery answers with more than 100 templates, so an unreachable gallery cannot pass as an empty one, and none of them is an Azure-Samples todo- template. Measured 2026-09-18 on 1.32.0: 303 templates, zero todo- entries, after Azure/awesome-azd pull request 1006 removed the family on 2026-09-08. Until that date this probe asserted exactly two todo-*-sql entries and went red when they left. If any todo- template returns, the skill's statement that the family left the gallery is stale."
+      },
+      {
+        "where": "host",
+        "cmd": "curl -sf https://raw.githubusercontent.com/Azure-Samples/todo-csharp-sql/main/README.md | grep -q 'This repository is archived' && test \"$(curl -s -o /dev/null -w '%{http_code}' https://github.com/Azure-Samples/todo-nodejs-sql)\" = 404",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The other half, read from GitHub rather than the gallery. todo-csharp-sql is archived but still published, which is why the skill still reads its Bicep: its README opens with the archive warning, added 2026-09-04. todo-nodejs-sql, the name an agent extrapolates from the family, returns 404; measured 2026-09-18. The gallery test alone cannot say this any more, because every todo- name is now absent from it. If the archive warning goes, or todo-nodejs-sql appears, the skill needs rereading."
+      },
+      {
+        "where": "host",
+        "cmd": "test \"$(for r in todo-csharp-sql:app/db-avm.bicep functions-quickstart-dotnet-azd-sql:app/db.bicep functions-quickstart-python-azd-sql:app/db.bicep functions-quickstart-typescript-azd-sql:app/db.bicep; do curl -sf \"https://raw.githubusercontent.com/Azure-Samples/${r%%:*}/main/infra/${r##*:}\"; done | grep -c \"startIpAddress: '0.0.0.1'\")\" = 4",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The headline claim made executable: four of four Microsoft-published templates that build the logical server from the Azure Verified Module ship a firewall rule starting at 0.0.0.1, including the three that are otherwise exemplary about identity. Measured 2026-09-03 by fetching each file from main. A count below 4 means a sample was fixed and the skill should say so."
+      },
+      {
+        "where": "host",
+        "cmd": "curl -sf https://raw.githubusercontent.com/Azure-Samples/todo-csharp-sql/main/infra/app/db-avm.bicep | grep -q 'alter role db_owner add member'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The blueprint sample's deployment script adds the application's database user to db_owner. Measured 2026-09-03 in infra/app/db-avm.bicep. This is what makes recommending the template a correction rather than a preference."
+      },
+      {
+        "where": "host",
+        "cmd": "curl -sf https://raw.githubusercontent.com/Azure-Samples/todo-csharp-sql/main/infra/app/db-avm.bicep | grep -qi 'external provider' && exit 1 || exit 0",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The other half of the same reading, deliberately the negative: FROM EXTERNAL PROVIDER appears nowhere in the file, so the database user is password-based whatever the managed identity in the template is doing. Measured 2026-09-03, zero hits. The day this fails, the template was converted and the correction is stale."
+      }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the deploy-app-to-azure skill",
+      "Deploy my app and its Azure SQL database to Azure with azd",
+      "Which azd template should I start from for a web app with Azure SQL Database, and is it passwordless",
+      "Set up azd for this project so I can run azd up",
+      "Add an azure.yaml and infra folder to this app so it deploys to Azure SQL Database"
+    ],
+    "implicit": [
+      "which azd template should I start from for a web app with a SQL database",
+      "I started from the Microsoft azd sample for Azure SQL and it created a SQL admin password, I thought it was passwordless",
+      "is the firewall rule that this azd template put in my infra folder safe to leave as it is",
+      "get this working local app into Azure without putting a database password anywhere",
+      "azd up finished successfully but my app returns a 500 as soon as it touches the database",
+      "my deployment is green but the app cannot log in to the database",
+      "how do I take my app and its database to Azure from my laptop"
+    ],
+    "routing": [
+      "what is the difference between azd provision, azd deploy and azd up",
+      "is there a todo-nodejs-sql template",
+      "where does the connection string for my deployed app come from if there is no password",
+      "how do I add a SQL database to my azd project",
+      "azd down deleted my resources, what is left behind",
+      "how do I get from a working local project to Azure without putting a password in the repo"
+    ],
+    "negative": [
+      "create an Azure SQL database and open the firewall for my address",
+      "narrow the firewall rule on my Azure SQL server to just my office IP range",
+      "set up Microsoft Entra authentication for my Azure SQL database and create the database user",
+      "build a GitHub Actions workflow that deploys schema changes to Azure SQL",
+      "run my EF Core migrations against Azure SQL Database",
+      "what does error 40615 mean",
+      "add retry logic to my Azure SQL data access layer",
+      "scaffold an app against the local Azure SQL Database container",
+      "expose my Orders table as a REST endpoint",
+      "grant my application identity the least privilege it needs on the database"
+    ]
+  }
+}

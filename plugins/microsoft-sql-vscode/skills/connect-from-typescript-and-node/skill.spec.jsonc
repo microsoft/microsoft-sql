@@ -1,0 +1,153 @@
+{
+  "$schema": "../../catalog/skill.spec.schema.json",
+  "id": "connect-from-typescript-and-node",
+  "domain": "drivers-and-connectivity",
+  "value": [
+    "corrects-a-wrong-assumption",
+    "changes-too-fast-to-memorize"
+  ],
+  "correction": "Agents give every request or serverless invocation its own mssql connection pool, and close it when the handler returns, because they read sql.connect() as opening one connection; it actually creates a process-wide pool whose default ceiling is ten connections, so the per-invocation version pays a full TLS and login handshake on every call and the paired sql.close() tears the pool out from under every other in-flight request.",
+  "value_probe": {
+    "task": "Our Express API on Node.js 20 talks to a database in Azure through the mssql package, pinned at a current version. Every route calls this helper:\n\n```ts\nexport async function query<T>(text: string): Promise<T[]> {\n  const pool = await sql.connect(config);\n  const result = await pool.request().query<T>(text);\n  await sql.close();\n  return result.recordset;\n}\n```\n\nUnder light load it is fine. Under real traffic two things happen. Response times climb well past what the queries themselves take, and we get intermittent failures on requests that were already in flight, complaining that the connection is closed. The failures are not tied to any one route, and the same queries are fast when run from a command line client.\n\nOne engineer wants to raise the pool maximum, another wants to raise the connection timeout. Neither has helped in staging. Show me the corrected helper and explain what was actually wrong.",
+    "gate": "The answer removes the per request creation and teardown, leaving one shared pool that is created once for the life of the process and reused by every request, so no request can destroy the connections another request is using.",
+    "states": [
+      "The connect call does not open a single dedicated connection; it creates or returns a process wide pool shared by every caller.",
+      "The close call in this helper destroys that shared pool, which is why requests already in flight fail with a closed connection.",
+      "The latency growth comes from paying a full encryption and login handshake on requests that should have reused an already open connection.",
+      "The corrected shape creates the pool once at module level and exports it, with no close call in the request path."
+    ],
+    "refutes": [
+      "The connect call opens one connection belonging to this request, so closing it when the handler finishes affects only that request and is correct practice.",
+      "The problem is that the pool maximum or the connection timeout is set too low, and raising either of them is the fix.",
+      "The closed connection errors come from the server dropping idle connections, so a keep alive setting or a retry wrapper around the query is what is needed.",
+      "Leaving connections open across requests is a leak, so a connection must be released or closed at the end of every handler."
+    ]
+  },
+  "posture": [
+    "read",
+    "write",
+    "execute"
+  ],
+  "maturity": "ga",
+  "applies_to": [
+    "azure-sql-db",
+    "azure-sql-db-container"
+  ],
+  "related": [
+    "connect-to-azure-sql",
+    "diagnose-connection-errors",
+    "connect-from-edge-runtimes",
+    "typeorm-and-sequelize-azure-sql",
+    "prisma-azure-sql"
+  ],
+  "validation": {
+    "target": "both",
+    "setup": [
+      "a Node.js 22 or later project with mssql installed",
+      "a reachable Azure SQL database, or the local container"
+    ],
+    "assert": [
+      "exactly one ConnectionPool is constructed per process, at module scope",
+      "the resolved tedious options report encrypt true and trustServerCertificate false",
+      "pool.max is set deliberately rather than left at the default of 10",
+      "no request handler calls sql.close()",
+      "@types/mssql is a devDependency when the project is TypeScript"
+    ],
+    "probes": [
+      {
+        "where": "host",
+        "cmd": "npm view mssql@12.7.0 dependencies.tedious | grep -qxF '^19.2.2 || ^20.0.0'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The body states the exact tedious range mssql 12.7.0 accepts, and the whole Node version split rests on it. Read from the published manifest rather than recalled. Measured 2026-09-03 on this host: the command prints '^19.2.2 || ^20.0.0' and exits 0. Host, because this is a registry read by a developer's own npm and opens no database connection."
+      },
+      {
+        "where": "host",
+        "cmd": "npm view mssql@12.7.0 engines.node | grep -qx '>=18.19.0'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "One half of the version split the body tells a reader to pin against. If mssql raised its floor to 22 the advice would be stale rather than wrong, and this is what would say so. Measured 2026-09-03: prints '>=18.19.0'. Host, a registry read with no engine involved."
+      },
+      {
+        "where": "host",
+        "cmd": "npm view tedious@20.0.0 engines.node | grep -qx '>=22'",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The other half. tedious 20 demanding Node 22 is why an install on Node 18 silently stays on tedious 19, which is the only reason the body tells anyone to pin the Node version in package.json and CI. Measured 2026-09-03: prints '>=22'. Host, a registry read."
+      },
+      {
+        "where": "host",
+        "cmd": "test \"$(npm view mssql@12.7.0 name)\" = 'mssql' && test -z \"$(npm view mssql@12.7.0 types)\"",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The body claims mssql publishes no types field of its own, which is the entire reason @types/mssql is a separate devDependency. Asserting an absence, so the first test proves npm answered at all before the second reads an empty value; without it a network failure would look like a pass. Measured 2026-09-03: name is mssql, types is empty, and the full manifest carries neither types nor typings."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && npm install --prefix \"$d\" --no-audit --no-fund --silent mssql@12.7.0 >/dev/null 2>&1 && node -e 'const sql=require(process.argv[1]+\"/node_modules/mssql\");const o=new sql.ConnectionPool({server:\"h\",database:\"d\"})._config().options;process.exit(o.encrypt===true&&o.trustServerCertificate===false?0:1)' \"$d\"; e=$?; rm -rf \"$d\"; exit $e",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The encryption default, resolved in a running process rather than read off a page. A pool built with no options at all must come out encrypt true and trustServerCertificate false, which is what lets the body say a wrong value at these versions is something a person typed. Earlier majors of both packages did not agree, so the version is pinned into the command. Measured 2026-09-03 on mssql 12.7.0 with tedious 20.0.0: resolved true and false, exit 0. Host, because this is a client library on a developer's machine and no database is contacted."
+      },
+      {
+        "where": "host",
+        "cmd": "d=$(mktemp -d) && npm install --prefix \"$d\" --no-audit --no-fund --silent mssql@12.7.0 >/dev/null 2>&1 && node -e 'const sql=require(process.argv[1]+\"/node_modules/mssql\");try{new sql.ConnectionPool({server:\"h\",database:\"d\"}).size;process.exit(1)}catch(e){process.exit(e instanceof TypeError && /numFree/.test(e.message)?0:1)}' \"$d\"; e=$?; rm -rf \"$d\"; exit $e",
+        "expect": {
+          "succeeds": true
+        },
+        "why": "The trap in the body's own check script. @types/mssql declares size as readonly size: number, so TypeScript permits reading it, and reading it before the pool is awaited throws TypeError: Cannot read properties of undefined (reading 'numFree'). The probe passes when it throws that exact TypeError, so a future release that makes size safe before connect turns this red and the body's warning can be dropped. Measured 2026-09-03 on mssql 12.7.0."
+      },
+      {
+        "sql": "SELECT COUNT(*) AS rows_for_my_own_session FROM sys.dm_exec_connections WHERE session_id = @@SPID;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "The check script's query has to return a row or the whole Check it worked section is theatre. This asserts existence rather than encrypt_option on purpose: encrypt_option describes whichever client opened the session, so a value read here would describe the lane's own sqlcmd connection and not the pool the reader's process opened, which is the exact confusion the section is written to prevent."
+      },
+      {
+        "sql": "SELECT CASE WHEN CONNECTIONPROPERTY('encrypt_option') IS NULL THEN 1 ELSE 0 END AS connectionproperty_has_no_encrypt_option;",
+        "expect": {
+          "rows": [
+            [
+              1
+            ]
+          ]
+        },
+        "why": "The body tells a reader that CONNECTIONPROPERTY is no substitute for sys.dm_exec_connections because its documented property list carries no encrypt_option, and Microsoft Learn states any other string returns NULL. That is sourced from Learn and NOT yet measured against this engine, which is why it is a probe: if it comes back non-null the body's advice needs rewriting rather than defending."
+      }
+    ]
+  },
+  "triggering": {
+    "explicit": [
+      "Use the connect-from-typescript-and-node skill",
+      "Connect my Node.js app to Azure SQL Database",
+      "Which npm package do I use to talk to Azure SQL from TypeScript"
+    ],
+    "implicit": [
+      "my Express API opens a new database connection on every request and gets slower under load",
+      "connect to Azure SQL from an Azure Function in TypeScript without a password",
+      "how do I type the rows coming back from a SQL query in TypeScript",
+      "set pool size for the mssql package"
+    ],
+    "routing": [
+      "add a database layer to my Node backend",
+      "passwordless SQL connection for a Node app on App Service",
+      "add a database layer to my TypeScript app on Azure SQL"
+    ],
+    "negative": [
+      "connect to Azure SQL from Python with pyodbc",
+      "set up Microsoft.Data.SqlClient managed identity in my .NET API",
+      "my first connection to a paused serverless database fails with error 40613",
+      "run a query from the command line against my database"
+    ]
+  }
+}
