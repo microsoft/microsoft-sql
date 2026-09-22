@@ -19,7 +19,7 @@ GitHub issue forms prefill from URL query parameters: the parameter name is the 
 the template, the value is URL-encoded. Base URL:
 
 ```
-https://github.com/microsoft/azure-sql-skills/issues/new?template=skill_feedback.yml
+https://github.com/microsoft/microsoft-sql/issues/new?template=skill_feedback.yml
 ```
 
 Append one `&<id>=<url-encoded value>` per field. **Always use this full `github.com` URL.** The
@@ -28,16 +28,17 @@ form and drops every query parameter, so it can never carry a prefilled report.
 
 ## Field ids, the contract
 
-These nine ids are load-bearing: `scripts/check-prefill-contract.mjs` in `microsoft/azure-sql-skills`
-asserts the template still exposes exactly this set, so a report built against any other name
-lands with that field silently empty.
+These eleven ids are load-bearing. A report built against any other name lands with that field
+silently empty.
 
 | id | type | required | what goes in it |
 |---|---|---|---|
+| `plugin` | dropdown | yes | the installed plugin id, verbatim from the list below |
 | `skill` | dropdown | yes | the catalog id, verbatim from the list below |
 | `problem-type` | dropdown | yes | verbatim from the list below |
 | `agent` | dropdown | yes | which harness is running, verbatim |
 | `install-method` | dropdown | yes | how the skills were installed, verbatim |
+| `version` | input | no | plugin and host versions, when known |
 | `what-happened` | textarea | yes | what the user asked, and what the agent did |
 | `skill-said` | textarea | no | the wrong or missing instruction, quoted, and what actually worked |
 | `repro` | textarea | no | the prompt and the commands, redacted |
@@ -48,29 +49,33 @@ Title parameter is `title`, prefix `[Skill]: ` (keep the prefix, add a short sum
 
 ## Dropdown values, verbatim
 
-Snapshot taken 2026-08-29 directly from `.github/ISSUE_TEMPLATE/skill_feedback.yml` in
-`microsoft/azure-sql-skills`. This list grows as the catalog does and this snapshot will drift; see
+Snapshot taken 2026-09-22 directly from `.github/ISSUE_TEMPLATE/skill_feedback.yml` in
+`microsoft/microsoft-sql`. The skill list grows as the marketplace does and this snapshot can
+drift; see
 [If a field or a value does not exist any more](#if-a-field-or-a-value-does-not-exist-any-more).
+
+### `plugin`
+
+```
+microsoft-sql
+microsoft-sql-vscode
+microsoft-sql-ssms
+microsoft-sql-migration
+microsoft-sql-fdh
+Marketplace or installation as a whole
+Not sure
+```
 
 ### `skill`
 
+The live form contains all seventy unique published skill ids plus:
+
 ```
-azure-functions-sql-bindings, azure-sql, azuresql-db-auth, azuresql-db-ci,
-azuresql-db-connections, azuresql-db-container, azuresql-db-dab, azuresql-db-faq,
-azuresql-db-feedback, azuresql-db-from-sql-server, azuresql-db-functions, azuresql-db-import,
-azuresql-db-local-to-cloud, azuresql-db-rag, azuresql-db-scaffold, azuresql-db-schema-migration,
-azuresql-db-seed, azuresql-db-sidecar, azuresql-db-testing, build-app-on-azure-sql,
-connect-from-dotnet, connect-from-python, connect-from-typescript-and-node, connect-to-azure-sql,
-dab-rest-and-graphql, deploy-app-to-azure, design-azure-sql-schema, diagnose-connection-errors,
-ef-core-azure-sql, entra-id-auth, prisma-azure-sql, provision-azure-sql-db, provision-hyperscale,
-rag-on-azure-sql, sqlalchemy-azure-sql, t-sql-correctness, vector-search-azure-sql,
-The collection as a whole (install, discovery, or the wrong skill loaded), Not sure
+The plugin as a whole (install, discovery, or wrong skill loaded)
+Not sure
 ```
 
-**This list will not contain every catalog id, and that gap is expected rather than a mistake to
-paper over.** If the exact id the report is about is not one of these, do not pick the
-nearest-sounding entry: use `Not sure`, or `The collection as a whole` when the problem is about
-install or discovery rather than one skill's content.
+Use the exact `name` from the skill's frontmatter. Never pick the nearest-sounding id.
 
 ### `problem-type`
 
@@ -91,6 +96,8 @@ GitHub Copilot (VS Code)
 GitHub Copilot (CLI)
 Codex
 Cursor
+Grok Build
+SQL Server Management Studio
 Other (describe below)
 ```
 
@@ -98,7 +105,17 @@ Other (describe below)
 
 ```
 npx skills add
+GitHub CLI (gh skill install)
+Claude Code plugin marketplace
+Committed to .github/skills in my own repository
 Copied the directories in by hand
+GitHub Copilot plugin marketplace
+Codex plugin marketplace
+Visual Studio Code Agent Plugins marketplace
+Cursor plugin marketplace
+Grok local plugin install
+Copied a plugin or skill directory from a local checkout
+Preinstalled by the host
 Not sure
 ```
 
@@ -140,14 +157,16 @@ The `connect-from-typescript-and-node` skill told the agent to open a connection
 port that does not match the sample project, and the agent had to work out the right one itself.
 
 ```
-https://github.com/microsoft/azure-sql-skills/issues/new
+https://github.com/microsoft/microsoft-sql/issues/new
 ?template=skill_feedback.yml
 &labels=skills,needs-triage,via-skill
 &title=%5BSkill%5D%3A%20connect-from-typescript-and-node%20hardcodes%20the%20wrong%20port
+&plugin=microsoft-sql
 &skill=connect-from-typescript-and-node
 &problem-type=The%20skill%20told%20the%20agent%20to%20do%20something%20wrong
 &agent=Claude%20Code
-&install-method=npx%20skills%20add
+&install-method=Claude%20Code%20plugin%20marketplace
+&version=microsoft-sql%201.0.0%3B%20Claude%20Code%20%3Cversion%3E
 &what-happened=I%20asked%20for%20a%20Node%20connection%20helper%20for%20Azure%20SQL%20Database.%20The%20agent%20followed%20the%20skill%20and%20the%20first%20connection%20attempt%20failed.
 &skill-said=The%20skill%20said%3A%20port%3A%201433%20hardcoded%20in%20the%20sample.%0AWhat%20actually%20worked%3A%20reading%20the%20port%20from%20the%20connection%20string%20instead%20of%20hardcoding%20it.%0AThe%20skill%20never%20mentioned%20a%20non-default%20port%20case.
 &repro=1.%20Ask%3A%20%22connect%20my%20Node%20app%20to%20Azure%20SQL%20Database%22%0A2.%20Agent%20writes%20the%20sample%20exactly%20as%20shown%2C%20port%201433%20hardcoded%0A3.%20Connection%20fails%20because%20the%20server%20uses%20a%20non-default%20port
@@ -171,7 +190,7 @@ If a GitHub command-line session is already authenticated, write the body to a f
 and quoting survive) and offer this instead of a link, still only after the user confirms:
 
 ```
-gh issue create --repo microsoft/azure-sql-skills \
+gh issue create --repo microsoft/microsoft-sql \
   --title "[Skill]: <one-line summary>" \
   --label skills --label needs-triage --label via-skill \
   --body-file <path-to-body>
@@ -185,9 +204,7 @@ moment they take ownership of what is being reported.
 
 ## If a field or a value does not exist any more
 
-The nine field ids in the contract above are checked by CI on every change to the template, so a
-rename there is caught immediately. The dropdown option lists are not: they are a snapshot, not a
-live read, because a shipped skill never makes a network call to refresh itself. If a prefilled
-field renders empty, or a value this file lists no longer appears in the form, that is the contract
-drifting rather than a mistake in the URL: stop, tell the user the field would not prefill reliably,
-and point them at the plain form instead of guessing a new shape.
+The eleven field ids and dropdown lists above are a snapshot, not a live read. If a prefilled field
+renders empty, or a value this file lists no longer appears in the form, the contract drifted:
+stop, tell the user the field would not prefill reliably, and point them at the plain form instead
+of guessing a new shape.

@@ -1,24 +1,18 @@
-<!--
-Decision first, branch second. Replace the line below.
-
-  Implements D18.        the decision this change carries out
-  No decision: <reason>  for a change that genuinely carries none, a typo or a
-                         dependency bump. State the reason; it is read, not skipped.
-
-Decisions live in section 6 of the implementation PRD. If the work you are about
-to describe has no decision there, stop and write one. Deciding after the code
-exists is how the answer comes to feel obvious and the alternatives stop being
-named. That is D26, and it is checked.
--->
-
-Implements D
-
 ## What changed
+
+<!-- Describe the user-visible or operational change. -->
 
 ## Why
 
+<!-- Link the issue or explain the problem this solves. -->
+
 ## How it was verified
 
-<!--
-Planted failures belong here. A gate nobody has watched go red is not evidence.
--->
+<!-- Include the commands, clients, or scenarios you tested. -->
+
+## Publication impact
+
+- [ ] No generated plugin content changed.
+- [ ] Generated plugin content changed and its canonical source was updated.
+- [ ] Marketplace indexes and compatibility descriptors remain consistent.
+- [ ] Documentation and install examples reflect the published plugin IDs.

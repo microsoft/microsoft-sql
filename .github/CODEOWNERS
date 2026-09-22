@@ -1,0 +1,16 @@
+*                                       @croblesm
+
+# Marketplace indexes and compatibility metadata.
+/.agents/plugins/                       @croblesm
+/.claude-plugin/                        @croblesm
+/.cursor-plugin/                        @croblesm
+/.github/plugin/                        @croblesm
+
+# Published plugin bundles.
+/plugins/                               @croblesm
+
+# Repository operations and user-facing project content.
+/.github/                               @croblesm
+/scripts/                               @croblesm
+/assets/                                @croblesm
+/README.md                              @croblesm

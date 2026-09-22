@@ -2,7 +2,7 @@
   "name": "microsoft-sql",
   "owner": {
     "name": "Microsoft Database Systems",
-    "url": "https://github.com/microsoft/azure-sql-skills"
+    "url": "https://github.com/microsoft/microsoft-sql"
   },
   "description": "Microsoft SQL agent skill plugins for direct use, Visual Studio Code, SQL Server Management Studio, SQL Server to Azure migration, and Fabric Database Hub estate observability.",
   "version": "2.0.0",
@@ -19,7 +19,7 @@
       "author": {
         "name": "Microsoft"
       },
-      "repository": "https://github.com/microsoft/azure-sql-skills",
+      "repository": "https://github.com/microsoft/microsoft-sql",
       "keywords": [
         "microsoft-sql",
         "azure-sql",
@@ -42,7 +42,7 @@
       "author": {
         "name": "Microsoft"
       },
-      "repository": "https://github.com/microsoft/azure-sql-skills",
+      "repository": "https://github.com/microsoft/microsoft-sql",
       "keywords": [
         "microsoft-sql",
         "fabric",
@@ -66,7 +66,7 @@
       "author": {
         "name": "Microsoft"
       },
-      "repository": "https://github.com/microsoft/azure-sql-skills",
+      "repository": "https://github.com/microsoft/microsoft-sql",
       "keywords": [
         "microsoft-sql",
         "sql-server",
@@ -92,7 +92,7 @@
       "author": {
         "name": "Microsoft"
       },
-      "repository": "https://github.com/microsoft/azure-sql-skills",
+      "repository": "https://github.com/microsoft/microsoft-sql",
       "keywords": [
         "microsoft-sql",
         "azure-sql",
@@ -114,7 +114,7 @@
       "author": {
         "name": "Microsoft"
       },
-      "repository": "https://github.com/microsoft/azure-sql-skills",
+      "repository": "https://github.com/microsoft/microsoft-sql",
       "keywords": [
         "microsoft-sql",
         "azure-sql",

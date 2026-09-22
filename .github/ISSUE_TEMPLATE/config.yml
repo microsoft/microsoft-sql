@@ -1,1 +1,8 @@
 blank_issues_enabled: false
+contact_links:
+  - name: Questions and community discussion
+    url: https://github.com/microsoft/microsoft-sql/discussions
+    about: Ask for help using the plugins or share what you built.
+  - name: Azure SQL Database documentation and support
+    url: https://learn.microsoft.com/azure/azure-sql/database/
+    about: Use product documentation and your Azure support plan for service issues.

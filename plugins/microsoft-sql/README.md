@@ -3,7 +3,9 @@
 The complete collection of fifty-seven skills for agents working directly with Azure SQL Database and the Azure SQL Database container: provisioning, application development, connecting from .NET, Python and TypeScript, schema design and migrations, bulk load, RAG and vector search, Data API Builder, Azure Functions, CI, security, diagnostics, and T-SQL correctness.
 
 Portable [Agent Plugins 1.0](https://agent-plugins.org/specification) package with Claude Code,
-Codex and Cursor descriptors. Built from `https://github.com/microsoft/azure-sql-skills`; edit the skills there, not here.
+Codex and Cursor descriptors. Published by
+[`microsoft/microsoft-sql`](https://github.com/microsoft/microsoft-sql); bundled skill files are
+generated artifacts.
 
 ## Skills (57)
 
