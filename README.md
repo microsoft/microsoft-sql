@@ -143,7 +143,7 @@ the table above when you want a curated or workflow-specific bundle.
 ### GitHub Copilot CLI
 
 ```bash
-copilot plugin marketplace add https://github.com/microsoft/microsoft-sql.git
+copilot plugin marketplace add microsoft/microsoft-sql
 copilot plugin marketplace browse microsoft-sql
 copilot plugin install microsoft-sql@microsoft-sql
 ```
@@ -161,15 +161,15 @@ available skills.
 From a shell, the equivalent commands are:
 
 ```bash
-claude plugin marketplace add https://github.com/microsoft/microsoft-sql.git
+claude plugin marketplace add microsoft/microsoft-sql
 claude plugin install microsoft-sql@microsoft-sql
 ```
 
 ### OpenAI Codex CLI
 
 ```bash
-codex plugin marketplace add https://github.com/microsoft/microsoft-sql.git
-codex plugin list --marketplace microsoft-sql --available
+codex plugin marketplace add microsoft/microsoft-sql --ref main
+codex plugin list --marketplace microsoft-sql --available --json
 codex plugin add microsoft-sql@microsoft-sql
 ```
 
@@ -182,7 +182,7 @@ from the Extensions view by searching for `@agentPlugins`:
 {
   "chat.plugins.enabled": true,
   "chat.plugins.marketplaces": [
-    "https://github.com/microsoft/microsoft-sql"
+    "microsoft/microsoft-sql"
   ]
 }
 ```
@@ -191,15 +191,8 @@ For the MSSQL extension, start with `microsoft-sql-vscode`.
 
 ### Cursor
 
-Cursor reads `.cursor-plugin/marketplace.json`. Use **Customize > Plugins > Add from GitHub**
-with:
-
-```text
-https://github.com/microsoft/microsoft-sql
-```
-
-For local development, clone the repository and copy the selected plugin into Cursor's local
-plugin directory:
+For an individual local installation, clone the repository and copy one selected plugin into
+Cursor's documented local plugin directory:
 
 ```bash
 git clone https://github.com/microsoft/microsoft-sql.git
@@ -208,18 +201,35 @@ cp -R microsoft-sql/plugins/microsoft-sql-vscode \
   "$HOME/.cursor/plugins/local/microsoft-sql-vscode"
 ```
 
+Restart Cursor or run **Developer: Reload Window**, then confirm the plugin under **Customize**.
+On Teams and Enterprise, an administrator can instead use
+**Dashboard > Plugins & MCPs > Add Marketplace > Import from Repo** with this repository URL.
+Enterprise administrators must enable **Allow Local Plugin Imports** for the local path.
+
 ### Grok Build
 
-Grok reads the Claude-compatible descriptors. A local installation keeps review and trust
-explicit:
+Grok reads Claude-compatible plugins and supports a direct plugin directory for an isolated
+session:
 
 ```bash
 git clone https://github.com/microsoft/microsoft-sql.git
-grok plugin validate microsoft-sql/plugins/microsoft-sql
-grok plugin install microsoft-sql/plugins/microsoft-sql --trust
+grok --plugin-dir microsoft-sql/plugins/microsoft-sql
 ```
 
-Omit `--trust` to review and approve the plugin interactively.
+Inside Grok, use `/plugins` and `/skills` to inspect what loaded. For a persistent installation,
+copy the selected plugin to `~/.grok/plugins/<plugin-name>`.
+
+### GitHub Copilot in SQL Server Management Studio
+
+SSMS 22.7 or later discovers Agent Skills rather than installing the marketplace directly. Install
+the **AI Assistance** workload, enable Agent mode, and copy the contents of
+`plugins/microsoft-sql-ssms/skills/` to one documented skill root:
+
+- workspace: `.github/skills/`, `.claude/skills/`, or `.agents/skills/`;
+- personal: `~/.copilot/skills/`, `~/.claude/skills/`, or `~/.agents/skills/`.
+
+Use only one location to avoid duplicates. Open **Tools > Skills** in Copilot Chat and confirm all
+15 curated skills are visible.
 
 ### Local checkout for any supported client
 
