@@ -18,10 +18,10 @@ numberOfIteration >= 2
 duration >= perfQueryInterval * numberOfIteration
 ```
 
-The collector writes `PerformanceAggregated_Counters.csv` only after a complete
-persistence cycle. For example, use 10 iterations with a 30-second interval for
-a 300-second collection; using 20 iterations would require at least 600
-seconds.
+The collector writes an instance-prefixed file whose name ends in
+`_PerformanceAggregated_Counters.csv` only after a complete persistence cycle.
+For example, use 10 iterations with a 30-second interval for a 300-second
+collection; using 20 iterations would require at least 600 seconds.
 
 ## Step 1: Find Existing Results
 
@@ -122,7 +122,7 @@ $run = if (Test-Path $runFile) { Get-Content $runFile -Raw | ConvertFrom-Json }
 $runStartedUtc = if ($run) { [DateTime]::Parse($run.startedUtc).ToUniversalTime() }
 $worker = if ($run) { Get-Process -Id ([int]$run.workerPid) -ErrorAction SilentlyContinue }
 $counterFile = if ($run) {
-  Get-ChildItem "$($run.outputFolder)\PerformanceAggregated_Counters.csv" -ErrorAction SilentlyContinue |
+  Get-ChildItem -LiteralPath $run.outputFolder -Filter '*_PerformanceAggregated_Counters.csv' -ErrorAction SilentlyContinue |
     Where-Object LastWriteTimeUtc -ge $runStartedUtc
 }
 $skuReport = if ($run) {

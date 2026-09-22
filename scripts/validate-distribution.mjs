@@ -128,7 +128,7 @@ const expectedPlugins = Object.keys(expectedSkills).sort();
 const expectedVersions = {
   "microsoft-sql": "1.0.0",
   "microsoft-sql-fdh": "0.1.0",
-  "microsoft-sql-migration": "1.1.0",
+  "microsoft-sql-migration": "1.1.1",
   "microsoft-sql-ssms": "0.1.0",
   "microsoft-sql-vscode": "0.1.0",
 };

@@ -62,7 +62,7 @@
       "displayName": "Microsoft SQL migration",
       "source": "./plugins/microsoft-sql-migration",
       "description": "Twelve skills curated for assessing, planning, executing and validating SQL Server to Azure migrations: recommend a migration path, generate a prerequisite plan, run or retrieve Azure Arc migration assessments, evaluate offline readiness, size an Azure SQL SKU from performance data, analyze readiness across an estate, migrate with backup/restore to SQL Server on Azure VM, BACPAC to Azure SQL Database, or Log Replay Service to Azure SQL Managed Instance, and validate data after migration.",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "author": {
         "name": "Microsoft"
       },
