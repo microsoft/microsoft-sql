@@ -166,7 +166,7 @@ body:
     attributes:
       label: Plugin and host versions
       description: Include the plugin version and agent or host version when available.
-      placeholder: "microsoft-sql-vscode 0.1.0; VS Code 1.x; GitHub Copilot Chat 0.x"
+      placeholder: "microsoft-sql-vscode 0.2.0; VS Code 1.x; GitHub Copilot Chat 0.x"
 
   - type: textarea
     id: what-happened
