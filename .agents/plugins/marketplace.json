@@ -5,6 +5,18 @@
   },
   "plugins": [
     {
+      "name": "microsoft-azuresqldb-container",
+      "source": {
+        "source": "local",
+        "path": "./plugins/microsoft-azuresqldb-container"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Databases"
+    },
+    {
       "name": "microsoft-sql",
       "source": {
         "source": "local",

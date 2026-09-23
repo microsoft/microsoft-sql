@@ -4,18 +4,42 @@
     "name": "Microsoft Database Systems",
     "url": "https://github.com/microsoft/microsoft-sql"
   },
-  "description": "Microsoft SQL agent skill plugins for direct use, Visual Studio Code, SQL Server Management Studio, SQL Server to Azure migration, and Fabric Database Hub estate observability.",
-  "version": "2.0.0",
+  "description": "Microsoft SQL agent skill plugins for direct use, the Azure SQL Database container, Visual Studio Code, SQL Server Management Studio, SQL Server to Azure migration, and Fabric Database Hub estate observability.",
+  "version": "2.1.0",
   "metadata": {
     "pluginRoot": "./plugins"
   },
   "plugins": [
     {
+      "name": "microsoft-azuresqldb-container",
+      "displayName": "Microsoft Azure SQL Database container",
+      "source": "./plugins/microsoft-azuresqldb-container",
+      "description": "Seventeen skills for developing with the Azure SQL Database container: run and troubleshoot the local engine, connect securely, migrate from the SQL Server image, move local workloads to Azure, manage schema and data, build RAG and APIs, scaffold applications, and run integration tests in CI.",
+      "version": "1.1.0",
+      "author": {
+        "name": "Microsoft"
+      },
+      "repository": "https://github.com/microsoft/microsoft-sql",
+      "keywords": [
+        "microsoft-sql",
+        "azure-sql",
+        "database",
+        "container",
+        "docker",
+        "podman",
+        "local-development",
+        "ci",
+        "rag",
+        "vector-search"
+      ],
+      "category": "Databases"
+    },
+    {
       "name": "microsoft-sql",
       "displayName": "Microsoft SQL",
       "source": "./plugins/microsoft-sql",
       "description": "The complete collection of fifty-seven skills for agents working directly with Azure SQL Database and the Azure SQL Database container: provisioning, application development, connecting from .NET, Python and TypeScript, schema design and migrations, bulk load, RAG and vector search, Data API Builder, Azure Functions, CI, security, diagnostics, and T-SQL correctness.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "author": {
         "name": "Microsoft"
       },

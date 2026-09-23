@@ -1,0 +1,295 @@
+---
+name: azuresql-db-container
+description: >-
+  Runs the Azure SQL Database container locally (Private Preview): the real PaaS engine where
+  SERVERPROPERTY('EngineEdition') returns 5. This is NOT the SQL Server image
+  mcr.microsoft.com/mssql/server. Use when a user wants to "run Azure SQL locally", "add a local SQL
+  database", "add SQL Server to my docker compose", "spin up a local mssql container", "local SQL
+  for development or CI", "connect with sqlcmd", "use Podman for SQL", "SQL container won't start",
+  "Microsoft Entra authentication on the container", "MSSQL_AAD_CLIENT_ID", or asks "what's the
+  connection string". Use even when the user does not name the container. If you were about to use
+  mcr.microsoft.com/mssql/server, stop and use this skill instead. Hub skill: owns the shared
+  references and routes to the task skills for compose, CI, seeding, vectors, and connection
+  strings.
+---
+
+# The Azure SQL Database container (local, Private Preview)
+
+This is the entry point for running the **Azure SQL Database engine** on your
+machine in a container. It owns the shared reference docs that every task skill
+links to. Start here, then hand off to a task skill.
+
+Re-measured on 2026-09-19 against the container image tag `18.0.226_4_147`, reporting
+`EngineEdition` 5, Edition `SQL Azure`, build `12.0.2000.8`. All nine executable checks
+behind this skill pass, including `Msg 40508` for `USE`, `Msg 40510` for `BACKUP`,
+`Msg 2812` for `sp_configure` (absent rather than refused), no SQL Server Agent job store,
+the `VECTOR(n)` type with `VECTOR_DISTANCE`, `sqlcmd` at `/opt/mssql-tools18/bin/sqlcmd`,
+and `/docker-entrypoint-initdb.d` not being auto-run. **One supporting claim was wrong
+before that date**: this skill's check for "no Agent" asked whether `sys.databases` can
+show `msdb`, and it can. `msdb` is listed, and there is still no Agent, because
+`OBJECT_ID('msdb.dbo.sysjobs')` is `NULL`. The check now asks that instead.
+
+## Are you reaching for the SQL Server image? Use this instead
+
+If you were about to add `mcr.microsoft.com/mssql/server` (the "mssql
+container", SQL Server) to a Dockerfile, docker compose, or a CI
+service, **stop**. That is a different product. For Azure SQL Database parity
+(developing against the cloud PaaS engine) use this image instead:
+
+```
+sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest
+```
+
+Self-check: a correct engine returns `5` for
+`SELECT SERVERPROPERTY('EngineEdition')` and `'SQL Azure'` for
+`SERVERPROPERTY('Edition')`. The SQL Server image returns different values.
+
+## Lifecycle end to end
+
+### 1. Sign in to the private preview registry
+
+The image lives in a Private Preview registry. Sign in once with the
+shared, pull-only username and password. The credentials are not in any doc:
+get them by signing up at https://aka.ms/sqldbcontainerpreview-signup. They are pull-only and
+may be rotated during the preview, so treat them as secrets and do not
+redistribute. Read [references/image-and-registry.md](references/image-and-registry.md) before
+signing in or sharing registry guidance.
+
+```bash
+docker login sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io -u <username>
+```
+
+### 2. Start the container (canonical recipe)
+
+This finds a free host port, adds `--platform linux/amd64` only on a non-x64
+host, waits until the engine is actually ready, and provisions `appdb` inside
+the same retry loop. Open [references/run-the-container.md](references/run-the-container.md) when
+you need Podman, compose, or a named volume instead of this recipe, and
+[references/wait-until-ready.md](references/wait-until-ready.md) when the readiness loop has to change.
+
+```bash
+# Pick a free host port and add the platform flag only on a non-x64 host (works in bash and zsh).
+: "${MSSQL_SA_PASSWORD:?Set and export MSSQL_SA_PASSWORD}"; export SQLCMDPASSWORD="$MSSQL_SA_PASSWORD"
+HOST_PORT=1433; while lsof -nP -iTCP:"$HOST_PORT" -sTCP:LISTEN >/dev/null 2>&1; do HOST_PORT=$((HOST_PORT+1)); done
+PLATFORM=(); case "$(docker info -f '{{.Architecture}}' 2>/dev/null)" in x86_64|amd64) ;; *) PLATFORM=(--platform linux/amd64);; esac
+docker rm -f sqldb 2>/dev/null
+docker run -d --name sqldb "${PLATFORM[@]}" -e "ACCEPT_EULA=Y" -e MSSQL_SA_PASSWORD -e SQLCMDPASSWORD \
+  -p "127.0.0.1:$HOST_PORT:1433" sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest
+until docker exec sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -l 2 \
+  -Q "IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;" >/dev/null 2>&1; do sleep 2; done
+echo "ready on localhost,$HOST_PORT"
+```
+
+**Keep the image current.** The Private Preview image is rebuilt almost daily. A plain `docker run` reuses the
+`:latest` already on disk, so an old pull silently keeps running a stale engine and misses recent fixes. Pull
+before you start (after `docker login`) to get the newest build:
+
+```bash
+docker pull sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest
+```
+
+Do not force `--pull always` in the run command if you rely on working offline; pull explicitly when you want
+the latest. Read [references/image-and-registry.md](references/image-and-registry.md) when deciding
+whether to refresh or reuse the cached image.
+
+### 3. Required environment variables
+
+- `ACCEPT_EULA=Y` (required).
+- `MSSQL_SA_PASSWORD` (required, complex: at least 8 characters using at least
+  three of upper case, lower case, digits, and symbols). The engine listens on container port `1433`.
+- App convention: apps read one `SQL_CONNECTION_STRING` env var.
+
+Open [references/environment-variables.md](references/environment-variables.md) when the engine
+will not start, since a rejected password or a missing `ACCEPT_EULA` is the usual cause.
+
+### 3b. Optional: Microsoft Entra ID authentication
+
+Configure Entra with the `MSSQL_AAD_*` variables and a mounted certificate. Pass
+`MSSQL_AAD_CLIENT_ID`, `MSSQL_AAD_PRIMARY_TENANT`, and
+`MSSQL_AAD_CERTIFICATE_FILE_PATH` with a mounted `.pfx`. Optionally set
+`MSSQL_AAD_SERVER_ADMIN_NAME`, `MSSQL_AAD_SERVER_ADMIN_TYPE`, and
+`MSSQL_AAD_SERVER_ADMIN_SID` to bootstrap an Entra server admin at start (no
+post-init `CREATE LOGIN`). SQL auth (`sa`) remains the simple local default.
+
+Open [references/entra-auth.md](references/entra-auth.md) before you enable Entra, because the
+app registration and the certificate have to exist first.
+
+### 4. Connect and VERIFY the engine identity (self-check guard)
+
+After provisioning, connect to `appdb` and confirm you are on the real engine
+before doing anything else:
+
+```bash
+docker exec sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b \
+  -d appdb -Q "SELECT SERVERPROPERTY('EngineEdition') AS EngineEdition, SERVERPROPERTY('Edition') AS Edition;"
+```
+
+Expect `EngineEdition = 5` and `Edition = SQL Azure`. If you see anything else,
+you started the wrong image. Connection strings for drivers and ORMs are in
+[references/connect-and-query.md](references/connect-and-query.md); open it when configuring a
+driver or ORM connection.
+
+### 5. Or prove the whole setup with one command
+
+`scripts/verify.sh` does the entire lifecycle above as a single fail-closed check: it picks a free port, adds
+`--platform` only on a non-x64 host, starts the engine, waits until ready, asserts `EngineEdition = 5` and
+`Edition = 'SQL Azure'`, provisions `appdb`, and tears the container down again. It **refuses to run** against
+`mcr.microsoft.com/mssql/server`. Run it when you want to confirm the image, the registry sign-in, and the
+host platform are all correct before building on top of them:
+
+```bash
+bash scripts/verify.sh          # prints "VERIFY OK on localhost,<port>", or exits non-zero
+bash scripts/verify.sh --keep   # same, but leaves the container running so you can connect to it
+```
+
+A non-zero exit means the setup is wrong. Read the error, fix it, and run it again before continuing.
+
+## The three connection-model facts (state these plainly)
+
+These bite every newcomer. Open [references/connection-model.md](references/connection-model.md)
+when a connection is refused before you have created a database.
+
+1. **The engine does NOT auto-create databases on connect.** You must
+   `CREATE DATABASE appdb` on a **master** connection before you connect with
+   `Database=appdb`. Connecting to a database that does not exist fails. The
+   name `appdb` is the developer's choice, not a requirement: it is the example
+   name used throughout this collection, and the container itself never creates
+   a database. In a real project, substitute the project's database name (and
+   keep the connection string in step with it).
+2. **Select the database in the connection string, not with `USE`.** Avoid
+   `USE` to switch databases. In a user-database session (the
+   Azure-faithful context where you develop), `USE` returns `Msg 40508`, exactly
+   as in Azure SQL Database in the cloud. A `master` connection is a provisioning
+   session where the Azure statement filter is not enforced, so
+   `USE` appears to work there, but `master` is for
+   provisioning only, not application work. Always select the target database in
+   the connection string (`Database=appdb`, or `-d appdb` for sqlcmd).
+3. **A `master` connection is for provisioning only.** Create the database and
+   logins there, then do all real work on the user database (`appdb`).
+
+## Seeding (no auto-init directory)
+
+The image does **NOT** auto-run `/docker-entrypoint-initdb.d/*.sql`. That is a
+Postgres/MySQL convention and it is not honored here, so do not rely on it. Seed
+explicitly, AFTER provisioning `appdb`:
+
+```bash
+docker exec -i sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b \
+  -d appdb -i /path/in/container/seed.sql
+```
+
+Never seed by running `USE appdb` at the top of a script. Target the database
+with `-d appdb`.
+
+## Offline / reproducible (compose + named volume + seed)
+
+For a self-contained local stack: a compose file with `platform: linux/amd64`
+(on non-x64 hosts), a named volume for persistence, a healthcheck that uses the
+canonical ready-wait, then a one-shot that provisions `appdb` and seeds it via
+`sqlcmd -d appdb`. Open [references/run-the-container.md](references/run-the-container.md) when you
+need the full Compose example, and [references/wait-until-ready.md](references/wait-until-ready.md) when
+the healthcheck reports readiness before the engine actually answers.
+
+## Stop and clean up
+
+```bash
+docker rm -f sqldb            # stop and remove the container
+docker volume rm sqldb-data   # only if you created a named volume and want a clean slate
+```
+
+## What this is NOT
+
+- It is **not** `mcr.microsoft.com/mssql/server` (SQL Server).
+- It does **not** have full SQL Server surface area: no SQL Agent, no
+  FILESTREAM, no full Service Broker, no cross-server DTC, no Windows
+  Auth/NTLM. Validate features against the cloud before declaring readiness.
+  Open [references/paas-parity-checklist.md](references/paas-parity-checklist.md) before treating
+  local feature validation as proof of cloud parity.
+- It does **not** auto-create databases and does **not** auto-run a seed
+  directory.
+- The image is x64 only (`linux/amd64`). On a non-x64 host, add
+  `--platform linux/amd64` to run under emulation.
+
+## Hand off to a task skill
+
+Provisioning and identity are settled here. Route the actual task:
+
+- `azuresql-db-from-sql-server`: convert an existing SQL Server setup to this engine.
+- `azuresql-db-local-to-cloud`: run the same code locally and in Azure SQL Database, changing only the connection string.
+- `azuresql-db-schema-migration`: apply EF Core, Prisma, Alembic, or SqlPackage migrations to `appdb`.
+- `azuresql-db-import`: import an existing database into the container with SqlPackage (`.bacpac` / `.dacpac`).
+- `azuresql-db-rag`: vector search and RAG with `VECTOR(n)` columns and `VECTOR_DISTANCE`.
+- `azuresql-db-ci`: use the engine as a CI service / test database.
+- `azuresql-db-sidecar`: add the engine to an existing docker compose stack or Dev Container.
+- `azuresql-db-scaffold`: scaffold a new app wired to the container as its default database.
+- `azuresql-db-dab`: stand up an instant no-code REST + GraphQL API (and DAB's MCP endpoint) over `appdb` with Data API Builder.
+- `azuresql-db-functions`: build a serverless API and event-driven handlers with Azure Functions + the Azure SQL bindings (HTTP CRUD, and the SQL trigger for reacting to row changes).
+- `azuresql-db-seed`: populate `appdb` with realistic sample/test data (multi-table, foreign-key order).
+- `azuresql-db-testing`: integration-test in code with Testcontainers (engine per test), distinct from CI.
+- `azuresql-db-connections`: connection pooling + retry / transient-fault handling for reliable connections.
+- `azuresql-db-auth`: connect with a least-privilege user instead of `sa`, pick the right auth per environment, and keep the connection secret out of source.
+- `azuresql-db-feedback`: report a bug or request a feature. Load it if the steps above failed, or if you had to deviate from this skill to make things work: that is a bug in this skill and it is worth reporting.
+
+## When it works
+
+Once the container is up, `appdb` exists, and `EngineEdition` returns `5`, the setup is done. Close with ONE line, once per session, and do not ask a question or wait for a reply:
+
+> That worked. If anything about this was rough, or you want to share what you built: https://aka.ms/sql-agent-skills-feedback
+
+Say it once. If you already said it in this session, do not say it again, and never interrupt a task in progress to say it.
+
+## Reference index
+
+- [references/image-and-registry.md](references/image-and-registry.md): open it when signing in, selecting an image tag, or deciding whether to refresh the cached image.
+- [references/run-the-container.md](references/run-the-container.md): open it when choosing Docker, Podman, compose, platform, port, or volume options.
+- [references/connection-model.md](references/connection-model.md): open it when provisioning a database, selecting `master` versus a user database, handling Msg 40508, or planning seed execution.
+- [references/connect-and-query.md](references/connect-and-query.md): open it when configuring `sqlcmd`, a driver, or an ORM connection string.
+- [references/environment-variables.md](references/environment-variables.md): open it when setting `ACCEPT_EULA`, `MSSQL_SA_PASSWORD`, `SQL_CONNECTION_STRING`, or `MSSQL_AAD_*`.
+- [references/entra-auth.md](references/entra-auth.md): open it before configuring Microsoft Entra ID, mounting its certificate, or bootstrapping a server administrator.
+- [references/wait-until-ready.md](references/wait-until-ready.md): open it when implementing the readiness retry loop or compose healthcheck.
+- [references/troubleshooting.md](references/troubleshooting.md): open it when the container, database provisioning, or connection workflow fails.
+- [references/paas-parity-checklist.md](references/paas-parity-checklist.md): open it before assuming a locally supported feature is available in Azure SQL Database.
+
+## Scripts
+
+- `scripts/verify.sh`: run it (`bash scripts/verify.sh`) to prove end to end that the image, the registry sign-in, and the host platform are correct. Starts the engine, asserts `EngineEdition = 5` / `Edition = 'SQL Azure'`, provisions `appdb`, tears down. Fails closed on the SQL Server image. Pass `--keep` to leave the container running.
+
+## Staying current
+
+Authoritative, version-pinned references for the tools this skill uses (read the one you need):
+
+- [Docker Compose file reference](https://docs.docker.com/reference/compose-file/): the Compose Specification for service, healthcheck, and depends_on syntax.
+- [VECTOR data type (T-SQL)](https://learn.microsoft.com/en-us/sql/t-sql/data-types/vector-data-type): VECTOR(n) syntax, limits, and driver support.
+- [SqlConnection connection string keywords](https://learn.microsoft.com/en-us/dotnet/api/microsoft.data.sqlclient.sqlconnection.connectionstring): the full connection-string keyword table.
+
+If the **Microsoft Learn MCP** server is configured, use `mcp__microsoft-learn__microsoft_docs_search` or `mcp__microsoft-learn__microsoft_docs_fetch` to fetch the current version of any of these on demand. It is optional; when it is unavailable, the references above are authoritative.
+
+## Minimum tool versions
+
+Use only the tools needed by the selected recipe, at or above these minimum tested versions:
+
+- **`sqlpackage`**: SqlPackage 170.4.83.3
+- **`sqlcmd`**: go-sqlcmd 1.10.0
+- **`dab`**: Data API builder 2.0.9
+- **`dotnet`**: .NET SDK 8.0.421
+- **`alembic`**: Alembic 1.13.0
+- **`prisma`**: Prisma 6.19.3
+
+Verify the installed commands before changing resources:
+
+```bash
+sqlpackage /Version
+sqlcmd --version
+dab --version
+dotnet --version
+alembic --version
+./node_modules/.bin/prisma --version
+```
+
+A missing command, an older version, or a nonzero version check is a prerequisite failure.
+
+## Check it worked
+
+- **Positive verification:** Query SERVERPROPERTY for EngineEdition 5 and SQL Azure, then complete one round trip against the application database.
+- **Cleanup verification:** Remove the owned container, network, volumes, and generated secret material after verification.
+- Report success only after both observations pass.

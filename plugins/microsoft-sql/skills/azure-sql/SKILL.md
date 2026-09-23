@@ -116,6 +116,7 @@ Every name below is a directory in this catalog. Nothing routes at a name that d
 |---|---|
 | Create a server and database, open the firewall, use the free offer, get a working connection string | `provision-azure-sql-db` |
 | Choose a tier for a real workload, size or convert to Hyperscale, decide about replicas | `provision-hyperscale` |
+| Run or troubleshoot the Azure SQL Database engine locally in a container | `azuresql-db-container` |
 | Start from a ready-made local development environment with a database in it | `dev-container-templates` |
 | Driver choice, connection string, encryption, retry, pool sizing | `connect-to-azure-sql` |
 | The same for one language | `connect-from-dotnet`, `connect-from-python`, `connect-from-typescript-and-node` |
@@ -170,9 +171,8 @@ Every name below is a directory in this catalog. Nothing routes at a name that d
 | Point-in-time restore, geo-restore, long-term retention | `restore-and-recover` |
 | A skill in this catalog was wrong, or the job has no skill | `skill-feedback` |
 
-Two jobs have no skill here yet. **Running the engine locally in a container**, beyond what
-`dev-container-templates` sets up: describe the job rather than naming a skill for it. **Migrating an
-existing SQL Server estate onto this service**: assess compatibility before promising a target tier.
+One job has no skill here yet. **Migrating an existing SQL Server estate onto this service**:
+assess compatibility before promising a target tier.
 
 ## Security, by reference
 

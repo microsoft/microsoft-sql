@@ -6,6 +6,25 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const errors = [];
 
 const expectedSkills = {
+  "microsoft-azuresqldb-container": [
+    "azuresql-db-auth",
+    "azuresql-db-ci",
+    "azuresql-db-connections",
+    "azuresql-db-container",
+    "azuresql-db-dab",
+    "azuresql-db-faq",
+    "azuresql-db-feedback",
+    "azuresql-db-from-sql-server",
+    "azuresql-db-functions",
+    "azuresql-db-import",
+    "azuresql-db-local-to-cloud",
+    "azuresql-db-rag",
+    "azuresql-db-scaffold",
+    "azuresql-db-schema-migration",
+    "azuresql-db-seed",
+    "azuresql-db-sidecar",
+    "azuresql-db-testing",
+  ],
   "microsoft-sql": [
     "azure-functions-sql-bindings",
     "azure-sql",
@@ -139,7 +158,8 @@ const expectedSkills = {
 
 const expectedPlugins = Object.keys(expectedSkills).sort();
 const expectedVersions = {
-  "microsoft-sql": "1.0.1",
+  "microsoft-azuresqldb-container": "1.1.0",
+  "microsoft-sql": "1.0.2",
   "microsoft-sql-fdh": "0.1.0",
   "microsoft-sql-migration": "1.1.2",
   "microsoft-sql-ssms": "0.1.1",

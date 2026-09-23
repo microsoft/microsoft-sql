@@ -1,4 +1,4 @@
-# Microsoft SQL (`microsoft-sql`) 1.0.1
+# Microsoft SQL (`microsoft-sql`) 1.0.2
 
 The complete collection of fifty-seven skills for agents working directly with Azure SQL Database and the Azure SQL Database container: provisioning, application development, connecting from .NET, Python and TypeScript, schema design and migrations, bulk load, RAG and vector search, Data API Builder, Azure Functions, CI, security, diagnostics, and T-SQL correctness.
 
