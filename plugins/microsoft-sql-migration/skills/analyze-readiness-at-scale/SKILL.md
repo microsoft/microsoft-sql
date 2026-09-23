@@ -1,10 +1,13 @@
 ---
 name: analyze-readiness-at-scale
-description: Analyze migration assessment readiness at scale or show an estate-wide migration assessment dashboard for Azure Arc SQL Server instances.
+description: Use when analyzing migration assessment readiness at scale or showing an estate-wide migration assessment dashboard for Azure Arc SQL Server instances.
 allowed-tools: Bash(az:*, curl:*) PowerShell Grep View
 ---
 
 # Analyze Readiness at Scale
+
+These claims were checked on 2026-09-15 against the bundled `skill-contract.yml` and referenced
+Azure Resource Graph query and output contracts.
 
 ## When to Use
 
@@ -17,8 +20,8 @@ This capability is Azure-only and reads existing data through Azure Resource Gra
 ### Step 1: Resolve Dashboard Scope
 
 Use provided subscriptions. Otherwise ask for all accessible subscriptions in
-the current tenant (default) or a selected subset. Follow **Subscription
-Selection** in `references/arg-queries.md`. Do not ask for individual instances.
+the current tenant (default) or a selected subset. Follow **Subscription Selection** in
+`references/arg-queries.md` before presenting choices. Do not ask for individual instances.
 
 When the user explicitly refers to a current Estate view and the host provides
 current-view context, use its subscription scope and applicable filters. If
@@ -44,7 +47,7 @@ fully paginated Query 2 row count for the grid heading and pagination.
 
 ### Step 3: Render the Fixed Output
 
-Render only the fixed output defined in `references/readiness-output.md`, in this exact order:
+Before rendering, read the fixed output in `references/readiness-output.md` and use this exact order:
 
 1. Readiness totals
 2. Instance × SQL DB/SQL MI/SQL VM readiness grid
@@ -74,18 +77,20 @@ Status | SQL DB | SQL MI | SQL VM
 Use Query 4 to offer edition values and Query 5 to offer version values. Apply the selected value to Query 2 and rerender the assessed-instance grid. For one instance's detailed assessment, use `get-migration-assessment`.
 
 When the user asks for remediation for a top blocker, read
-`references/remediation-sources.md` completely. Map the Query 3 `FeatureId` to
+`references/remediation-sources.md` completely before proposing guidance. Map the Query 3 `FeatureId` to
 the rule title in the Microsoft Learn catalog for SQL DB or SQL MI. Return only published description, recommendation, and supporting links. Do not invent steps or imply that remediation is automated or guaranteed.
 
-## Completion Check
+## Check it worked
 
-- Query execution followed `references/arg-queries.md` without modification.
-- Output followed `references/readiness-output.md`.
+- When verifying query execution, confirm the queries were executed exactly as defined in `references/arg-queries.md`.
+- When verifying output, confirm the dashboard matches `references/readiness-output.md`.
 - ARG pagination completed before totals were presented.
 - Top blocker counts use distinct affected SQL Server instances.
 - The totals use Query 1 and the readiness grid count uses Query 2.
 - Every ARG request contained the intended complete KQL in the same terminal
   invocation; no state was reused from a previous invocation.
+- **Cleanup verification:** Clear the in-memory ARM token and confirm no temporary request body or
+  response file remains unless the user asked to retain it.
 
 ## Error Handling
 
@@ -102,6 +107,6 @@ the rule title in the Microsoft Learn catalog for SQL DB or SQL MI. Return only 
 
 ## References
 
-- `references/arg-queries.md`
-- `references/readiness-output.md`
-- `references/remediation-sources.md`
+- Open `references/arg-queries.md` before selecting subscriptions or executing ARG queries.
+- Open `references/readiness-output.md` before rendering the dashboard.
+- Open `references/remediation-sources.md` when the user requests blocker remediation.

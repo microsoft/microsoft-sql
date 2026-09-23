@@ -1,5 +1,13 @@
 # Migration Assessment Response Schema
 
+## Contents
+
+- [Assessment Data Structure](#assessment-data-structure)
+- [Portal-Aligned Cost Calculation](#portal-aligned-cost-calculation)
+- [Portal-Aligned Recommended Target](#portal-aligned-recommended-target)
+- [Reference: Example Assessment Data](#reference-example-assessment-data)
+
+
 ## Assessment Data Structure
 
 The migration assessment data is located at `properties.migration.assessment` in

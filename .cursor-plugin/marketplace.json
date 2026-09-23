@@ -10,7 +10,7 @@
       "name": "microsoft-sql",
       "displayName": "Microsoft SQL",
       "description": "The complete collection of fifty-seven skills for agents working directly with Azure SQL Database and the Azure SQL Database container: provisioning, application development, connecting from .NET, Python and TypeScript, schema design and migrations, bulk load, RAG and vector search, Data API Builder, Azure Functions, CI, security, diagnostics, and T-SQL correctness.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "source": "./plugins/microsoft-sql"
     },
     {
@@ -24,21 +24,21 @@
       "name": "microsoft-sql-migration",
       "displayName": "Microsoft SQL migration",
       "description": "Twelve skills curated for assessing, planning, executing and validating SQL Server to Azure migrations: recommend a migration path, generate a prerequisite plan, run or retrieve Azure Arc migration assessments, evaluate offline readiness, size an Azure SQL SKU from performance data, analyze readiness across an estate, migrate with backup/restore to SQL Server on Azure VM, BACPAC to Azure SQL Database, or Log Replay Service to Azure SQL Managed Instance, and validate data after migration.",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "source": "./plugins/microsoft-sql-migration"
     },
     {
       "name": "microsoft-sql-ssms",
       "displayName": "Microsoft SQL for SQL Server Management Studio",
       "description": "Fifteen skills curated for database administration with SQL Server Management Studio: diagnosing slow queries, blocking and resource pressure, reading execution plans, capturing Extended Events, restoring after data loss, row-level security, passwordless access, provisioning, and bulk data movement. Application frameworks, serverless bindings, Data API Builder, and AI development skills are omitted.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "source": "./plugins/microsoft-sql-ssms"
     },
     {
       "name": "microsoft-sql-vscode",
       "displayName": "Microsoft SQL for Visual Studio Code",
       "description": "Twenty-three skills curated for application work with the MSSQL extension in Visual Studio Code: connections and drivers, schema and ORMs, T-SQL, vector search and RAG, Azure Functions bindings, and database projects. Data API Builder skills are omitted to avoid conflicting with the extension's agent tools.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "source": "./plugins/microsoft-sql-vscode"
     }
   ]

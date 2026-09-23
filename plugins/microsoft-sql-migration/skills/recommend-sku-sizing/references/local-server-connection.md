@@ -1,5 +1,15 @@
 # Local SQL Server Connection
 
+## Contents
+
+- [How to Collect Connection Info](#how-to-collect-connection-info)
+- [Open-Ended Prompt (ask only for what's missing)](#open-ended-prompt-ask-only-for-whats-missing)
+- [⚠️ Security: Warn Before a Password Is Typed - but Never Refuse to Proceed](#-security-warn-before-a-password-is-typed--but-never-refuse-to-proceed)
+- [Build Connection String](#build-connection-string)
+- [Config File Path](#config-file-path)
+- [Error Handling](#error-handling)
+
+
 ## How to Collect Connection Info
 
 Three mutually exclusive paths:

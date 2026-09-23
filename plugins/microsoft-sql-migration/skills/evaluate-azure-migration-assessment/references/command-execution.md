@@ -1,5 +1,16 @@
 # Command-Based Azure Migration Assessment API Execution
 
+## Contents
+
+- [Inputs](#inputs)
+- [Execution Rules](#execution-rules)
+- [Step 1: Trigger and Monitor Assessment](#step-1-trigger-and-monitor-assessment)
+- [Step 2: Retrieve and Poll Telemetry](#step-2-retrieve-and-poll-telemetry)
+- [Step 3: Decode Portal Telemetry Reports](#step-3-decode-portal-telemetry-reports)
+- [Artifacts](#artifacts)
+- [Cleanup](#cleanup)
+
+
 ## Inputs
 
 Initialize these values in each terminal call:

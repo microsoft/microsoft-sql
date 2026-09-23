@@ -1,10 +1,13 @@
 ---
 name: evaluate-azure-migration-assessment
-description: "Run or refresh migration assessment for an Azure SQL Server instance and retrieve readiness and SKU results."
+description: "Use when running or refreshing migration assessment for an Azure SQL Server instance and retrieving readiness and SKU results."
 allowed-tools: Bash(az:*, curl:*) PowerShell Grep View
 ---
 
 # Evaluate Azure Migration Assessment
+
+These claims were checked on 2026-09-15 against the bundled `skill-contract.yml`, ARM API
+contracts, and assessment output contract.
 
 ## When to Use
 
@@ -17,8 +20,7 @@ instances.
 
 Collect subscription, resource group, and instance name using
 [ARM resource identification](references/arm-resource-identification.md) if not in context.
-Initialize the API versions and instance endpoint from
-`references/command-execution.md`.
+Before calling ARM, initialize the API versions and instance endpoint from `references/command-execution.md`.
 
 ### Step 2: Check Existing Assessment
 
@@ -39,7 +41,7 @@ Invoke `get-migration-assessment` with the resolved identifiers.
 ### Step 3: Trigger and Monitor Assessment
 
 Record the trigger request time and run the assessment trigger from
-`references/command-execution.md`. Continue in the same command by polling
+`references/command-execution.md` when starting a fresh assessment. Continue in the same command by polling
 `MigrationJobOnDemand` using the configurable attempt count and interval from
 that reference.
 
@@ -56,7 +58,7 @@ that reference.
 ### Step 4: Retrieve Telemetry
 
 Run `getTelemetry`, capture its `Azure-AsyncOperation` URL, and poll it using
-`references/command-execution.md`. Save the full response to a temporary file.
+`references/command-execution.md` when retrieving a completed report. Save the full response to a temporary file.
 
 - `Succeeded` -> decode the response.
 - `Failed` or `Canceled` -> report the error.
@@ -91,12 +93,21 @@ fields.
 Use the recommended target and available cost from the fresh telemetry selected
 in Step 5.
 
-Use [assessment output](references/assessment-output.md) to render the combined
+Use [assessment output](references/assessment-output.md) when rendering the combined
 readiness and SKU recommendation. Include the portal report link.
+
+## Check it worked
+
+- **Positive verification:** When reusing existing assessment data, confirm it was
+  retrieved and rendered without triggering a refresh. When a fresh assessment was
+  requested, require a successful assessment job, completed report retrieval, and
+  selected report timestamps later than the recorded trigger time.
+- **Cleanup verification:** Clear the ARM token and signed operation URL, then remove the temporary
+  run directory only after any requested report has been saved elsewhere.
 
 ## Notes
 
-- Follow the transport rules in `references/command-execution.md`.
+- Follow the transport rules in `references/command-execution.md` whenever calling ARM.
 - Run its PowerShell sections in order and execute each fenced block as one
   terminal command.
 - The telemetry operation URL comes from `getTelemetry`.
@@ -107,6 +118,6 @@ readiness and SKU recommendation. Include the portal report link.
 
 ## References
 
-- `references/command-execution.md`
+- Open `references/command-execution.md` before triggering, polling, or retrieving an assessment.
 - [ARM resource identification](references/arm-resource-identification.md)
 - [Assessment output](references/assessment-output.md)

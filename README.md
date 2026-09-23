@@ -31,10 +31,10 @@ The marketplace name is `microsoft-sql`. Install coordinates use
 
 | Plugin | Install coordinate | Version | Skills | Use it for |
 | --- | --- | ---: | ---: | --- |
-| [`microsoft-sql`](plugins/microsoft-sql/) | `microsoft-sql@microsoft-sql` | 1.0.0 | 57 | The complete Azure SQL Database collection for users driving an agent directly |
-| [`microsoft-sql-vscode`](plugins/microsoft-sql-vscode/) | `microsoft-sql-vscode@microsoft-sql` | 0.1.0 | 23 | Application development in Visual Studio Code with the MSSQL extension |
-| [`microsoft-sql-ssms`](plugins/microsoft-sql-ssms/) | `microsoft-sql-ssms@microsoft-sql` | 0.1.0 | 15 | Database administration in SQL Server Management Studio |
-| [`microsoft-sql-migration`](plugins/microsoft-sql-migration/) | `microsoft-sql-migration@microsoft-sql` | 1.1.1 | 12 | Assessing, planning, executing, and validating SQL Server to Azure migrations |
+| [`microsoft-sql`](plugins/microsoft-sql/) | `microsoft-sql@microsoft-sql` | 1.0.1 | 57 | The complete Azure SQL Database collection for users driving an agent directly |
+| [`microsoft-sql-vscode`](plugins/microsoft-sql-vscode/) | `microsoft-sql-vscode@microsoft-sql` | 0.1.1 | 23 | Application development in Visual Studio Code with the MSSQL extension |
+| [`microsoft-sql-ssms`](plugins/microsoft-sql-ssms/) | `microsoft-sql-ssms@microsoft-sql` | 0.1.1 | 15 | Database administration in SQL Server Management Studio |
+| [`microsoft-sql-migration`](plugins/microsoft-sql-migration/) | `microsoft-sql-migration@microsoft-sql` | 1.1.2 | 12 | Assessing, planning, executing, and validating SQL Server to Azure migrations |
 | [`microsoft-sql-fdh`](plugins/microsoft-sql-fdh/) | `microsoft-sql-fdh@microsoft-sql` | 0.1.0 | 1 | Read-only Fabric Database Hub inventory, health, and security posture |
 
 `microsoft-sql-vscode` and `microsoft-sql-ssms` are curated subsets of `microsoft-sql`.

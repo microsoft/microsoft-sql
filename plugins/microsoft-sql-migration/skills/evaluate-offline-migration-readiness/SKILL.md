@@ -1,10 +1,13 @@
 ---
 name: evaluate-offline-migration-readiness
-description: "Run migration readiness assessment for a local or on-premises SQL Server using az datamigration. Windows-only."
+description: "Use when running migration readiness assessment for a local or on-premises SQL Server with az datamigration on Windows."
 allowed-tools: Bash(az:*) PowerShell Grep View
 ---
 
 # Evaluate Offline Migration Readiness
+
+These claims were checked on 2026-09-15 against the bundled `skill-contract.yml`, Azure CLI
+`datamigration` command contract, and readiness output contract.
 
 ## When to Use
 
@@ -17,9 +20,9 @@ confirmed Local. Route Azure identifiers and unresolved servers through
 
 ### Step 1: Check the Host and Tools
 
-Apply [OS requirements](references/os-requirements.md), then
-[assessment prerequisites](references/assessment-prerequisites.md), before asking for connection
-details or an output folder. Continue on a supported Windows host.
+Before asking for connection details, apply [OS requirements](references/os-requirements.md), then
+review [assessment prerequisites](references/assessment-prerequisites.md) before continuing.
+Continue on a supported Windows host.
 
 ### Step 2: Confirm Inputs
 
@@ -29,7 +32,7 @@ choices. Wait for the answer and use the selected path.
 
 ### Step 3: Check Existing Results
 
-Use `references/command-execution.md` to find the latest result matching the exact
+When checking for prior results, use `references/command-execution.md` to find the latest result matching the exact
 normalized instance name.
 
 - Existing result -> read and render it before asking anything else. Show its
@@ -41,13 +44,13 @@ normalized instance name.
 Reuse complete connection details already present in conversation context.
 Do not ask how to connect when the server and credentials were already
 provided. Collect only missing connection information using
-[local server connection](references/local-server-connection.md), then run the matching command
-from `references/command-execution.md`.
+[local server connection](references/local-server-connection.md) when details are missing, then run the matching command
+from `references/command-execution.md` when starting the assessment.
 
 ### Step 5: Render
 
 Read the output JSON, then read and render
-`references/readiness-output.md`.
+`references/readiness-output.md` before presenting results.
 
 This is a hard output contract:
 
@@ -76,6 +79,14 @@ Allow a custom duration through the free-form answer. Convert the selected
 duration to seconds and delegate to `recommend-sku-sizing`. If the user declines,
 finish after readiness. Present the duration choices directly after readiness.
 
+## Check it worked
+
+- **Positive verification:** When reusing an existing report, confirm it matches the
+  exact normalized instance name. When running a new assessment, additionally require
+  the assessment command to succeed.
+- **Cleanup verification:** Confirm the generated temporary config was deleted whether the command
+  succeeded or failed; retain the user-selected output folder and reports.
+
 ## Notes
 
 - Confirm the output folder before checking files.
@@ -89,12 +100,12 @@ finish after readiness. Present the duration choices directly after readiness.
 
 - Cannot connect -> check server name, port, firewall, and credentials.
 - Tool or extension unavailable -> follow
-  [assessment prerequisites](references/assessment-prerequisites.md).
+  [assessment prerequisites](references/assessment-prerequisites.md) when restoring prerequisites.
 
 ## References
 
-- `references/command-execution.md`
+- Open `references/command-execution.md` when checking or running an assessment.
 - [Local server connection](references/local-server-connection.md)
 - [OS requirements](references/os-requirements.md)
 - [Assessment prerequisites](references/assessment-prerequisites.md)
-- `references/readiness-output.md`
+- Open `references/readiness-output.md` before rendering assessment results.
