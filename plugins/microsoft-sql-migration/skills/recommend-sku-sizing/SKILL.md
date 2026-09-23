@@ -6,6 +6,9 @@ allowed-tools: PowerShell Grep View
 
 # Recommend SKU Sizing
 
+These claims were checked on 2026-09-15 against the bundled `skill-contract.yml`, Azure CLI
+`datamigration` command contract, and SKU assessment output contract.
+
 ## When to Use
 
 Use directly or from `run-migration-assessment` when a local/on-premises server
@@ -28,15 +31,15 @@ credentials, collection duration, or target platform. Invoke
 
 ### Step 1: Check the Host and Confirm Inputs
 
-Apply [OS requirements](references/os-requirements.md), then
-[assessment prerequisites](references/assessment-prerequisites.md), before collecting local
-inputs. Confirm the output folder with selectable Default
+Before collecting local inputs, apply [OS requirements](references/os-requirements.md), then
+review [assessment prerequisites](references/assessment-prerequisites.md) before continuing.
+Confirm the output folder with selectable Default
 (`%LOCALAPPDATA%\Microsoft\SqlAssessment`) and Custom choices. Wait for the
 answer and use the selected path.
 
 ### Step 2: Check Existing Results
 
-Run the host-specific lookup from `references/command-execution.md`.
+When checking for prior results, run the host-specific lookup from `references/command-execution.md`.
 
 - Existing result -> render it with its generation time and refresh only if
   explicitly requested.
@@ -48,31 +51,38 @@ associate results with the selected server.
 
 ### Step 3: Collect Parameters
 
-Use [local server connection](references/local-server-connection.md) for missing connection
-details. Ask for collection duration with selectable 2-hour and 24-hour
+Use [local server connection](references/local-server-connection.md) when connection
+details are missing. Ask for collection duration with selectable 2-hour and 24-hour
 (Recommended) options, plus "I don't want a SKU recommendation". Allow a custom
 duration. Stop if the user declines. Convert the duration to seconds.
-Use the parameter-alignment rule in `references/command-execution.md`. Do not start
+Before starting collection, use the parameter-alignment rule in `references/command-execution.md`. Do not start
 a collection that cannot complete one persistence cycle.
 
 ### Step 4: Start Collection
 
 Run the exact detached collection and SKU command from
-`references/command-execution.md`. Show the collection-started output from
-[assessment output](references/assessment-output.md).
+`references/command-execution.md` when starting collection. Show the collection-started output from
+[assessment output](references/assessment-output.md) after the worker starts.
 
 ### Step 5: Check and Render Results
 
-When requested, run the completion check from `references/command-execution.md`.
+When results are requested, run the completion check from `references/command-execution.md`.
 
 - Complete -> read the newest SKU JSON report when available. Extract only the
   recommended target's compute and storage configuration and populate those
-  fields in the Skill Response Template in [assessment output](references/assessment-output.md).
+  fields in the Skill Response Template in [assessment output](references/assessment-output.md) when rendering.
   Include readiness if readiness results are already available in the
   current conversation context. Otherwise omit the Migration Readiness section
   and show the SKU data only.
 - Running -> show collection status.
 - Stopped without time-series data -> report failure and show the log path.
+
+## Check it worked
+
+- **Positive verification:** Require the tracked worker to finish successfully, then confirm a
+  fresh instance-prefixed counter file and SKU report exist in the recorded run output folder.
+- **Cleanup verification:** Confirm the temporary performance config was deleted whether collection
+  succeeded or failed; retain the selected output folder and reports.
 
 ## Notes
 
@@ -86,11 +96,11 @@ When requested, run the completion check from `references/command-execution.md`.
 - Collection stops -> check connectivity and restart with the same folder.
 - Output permission denied -> confirm write access or select another folder.
 - Tool or extension unavailable -> follow
-  [assessment prerequisites](references/assessment-prerequisites.md).
+  [assessment prerequisites](references/assessment-prerequisites.md) when restoring prerequisites.
 
 ## References
 
-- `references/command-execution.md`
+- Open `references/command-execution.md` when checking, starting, or completing collection.
 - [Local server connection](references/local-server-connection.md)
 - [OS requirements](references/os-requirements.md)
 - [Assessment prerequisites](references/assessment-prerequisites.md)

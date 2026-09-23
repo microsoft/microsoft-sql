@@ -1,4 +1,4 @@
-# Microsoft SQL migration (`microsoft-sql-migration`) 1.1.1
+# Microsoft SQL migration (`microsoft-sql-migration`) 1.1.2
 
 Twelve skills curated for assessing, planning, executing and validating SQL Server to Azure migrations: recommend a migration path, generate a prerequisite plan, run or retrieve Azure Arc migration assessments, evaluate offline readiness, size an Azure SQL SKU from performance data, analyze readiness across an estate, migrate with backup/restore to SQL Server on Azure VM, BACPAC to Azure SQL Database, or Log Replay Service to Azure SQL Managed Instance, and validate data after migration.
 
@@ -11,11 +11,11 @@ generated artifacts.
 
 | Skill | Description |
 | --- | --- |
-| `analyze-readiness-at-scale` | Analyze migration assessment readiness at scale or show an estate-wide migration assessment dashboard for Azure Arc SQL Server instances. |
-| `evaluate-azure-migration-assessment` | Run or refresh migration assessment for an Azure SQL Server instance and retrieve readiness and SKU results. |
-| `evaluate-offline-migration-readiness` | Run migration readiness assessment for a local or on-premises SQL Server using az datamigration. Windows-only. |
+| `analyze-readiness-at-scale` | Use when analyzing migration assessment readiness at scale or showing an estate-wide migration assessment dashboard for Azure Arc SQL Server instances. |
+| `evaluate-azure-migration-assessment` | Use when running or refreshing migration assessment for an Azure SQL Server instance and retrieving readiness and SKU results. |
+| `evaluate-offline-migration-readiness` | Use when running migration readiness assessment for a local or on-premises SQL Server with az datamigration on Windows. |
 | `generate-migration-prerequisite-plan` | Builds a sourced, scenario-specific prerequisite plan for a SQL Server to Azure migration path. Consumes the structured output of recommend-migration-path or works standalone from a known target and method, asks only unresolved path-specific questions, and returns a readiness summary plus detailed prerequisites as polished Markdown, structured JSON, or both. Trigger when the user asks what must be ready before executing a recommended SQL migration, wants a migration prerequisites checklist, or asks for a partner-ready readiness plan. |
-| `get-migration-assessment` | Retrieve existing SQL Server migration assessment data from Azure Resource Graph using required instance-level and database-level queries. |
+| `get-migration-assessment` | Use when retrieving existing SQL Server migration assessment data from Azure Resource Graph with the required instance-level and database-level queries. |
 | `recommend-migration-path` | Preliminary SQL Server to Azure migration disposition and recommended assessment path. Runs a short guided interview, then applies a source-verified knowledge base to pre-select candidate targets (SQL VM, AVS, SQL MI, SQL DB, Fabric SQL DB, Arc SQL MI, container or Arc in-place), migration methods (MI Link, LRS, backup/restore, DAG/AG, modern DMS, transactional replication, BACPAC, Fabric Migration Assistant), blockers, evidence gaps, cost levers and Microsoft program fit. Trigger when the user wants to migrate or modernize SQL Server to Azure, asks for the best or recommended migration path, target or tool, or says 'migrer SQL Server', 'migrate SQL Server' or 'SQL to Azure'. |
 | `recommend-sku-sizing` | Collect performance data and calculate Azure SQL SKU recommendations only after the source is explicitly confirmed local/on-premises. Never use for a generic SKU request or bare server name; route unresolved requests through run-migration-assessment. |
 | `run-migration-assessment` | Route generic or unresolved SQL Server assessment, readiness, compatibility, cost, and SKU recommendation requests. Use for bare server names or whenever Azure versus local/on-premises is not explicit; ask which source applies, then delegate. |

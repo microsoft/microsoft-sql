@@ -1,5 +1,13 @@
 # Readiness at Scale Fixed Output
 
+## Contents
+
+- [1. Readiness Totals](#1-readiness-totals)
+- [2. Assessed Instance Readiness](#2-assessed-instance-readiness)
+- [3. Top Five Recorded Blockers](#3-top-five-recorded-blockers)
+- [Filter Prompt](#filter-prompt)
+
+
 Render only the sections in this file and keep their order. Do not add an
 estate-summary table, costs, SKU recommendations, target configuration,
 database coverage, warning details, recommended actions, or next steps.

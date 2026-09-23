@@ -1,5 +1,13 @@
 # Output Format: Full Assessment (Recommended Target + SKU + Readiness)
 
+## Contents
+
+- [When to Use](#when-to-use)
+- [Required Inputs](#required-inputs)
+- [Skill Response Template](#skill-response-template)
+- [Async Collection Flow (Local SKU only)](#async-collection-flow-local-sku-only)
+
+
 Use this template when assessment data includes a **recommended target with SKU
 sizing**, from either Azure assessment telemetry or a local SKU report.
 

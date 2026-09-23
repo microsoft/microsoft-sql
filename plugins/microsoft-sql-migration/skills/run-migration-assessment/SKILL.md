@@ -6,6 +6,9 @@ allowed-tools: Grep View
 
 # Run Migration Assessment
 
+These claims were checked on 2026-09-15 against the bundled `skill-contract.yml` and the routing
+contracts for Azure, local readiness, and local SKU sizing.
+
 ## When to Use
 
 Use as the entry point for migration assessment requests when Azure versus Local,
@@ -44,6 +47,13 @@ handling, fresh execution, and output.
 Pass all known context and the user's original intent. The delegated skill owns
 host checks, prerequisites, connection details, output-folder selection,
 existing-result handling, execution, and output.
+
+## Check it worked
+
+- **Positive verification:** Confirm exactly one owning skill was selected from the known source
+  type and intent, and that all existing context was passed to it unchanged.
+- **Cleanup verification:** Confirm this router created no credentials, temporary files, resources,
+  or command executions before delegation.
 
 ## Notes
 

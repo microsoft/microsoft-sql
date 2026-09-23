@@ -1,5 +1,19 @@
 # Readiness at Scale ARG Queries
 
+## Contents
+
+- [Shared API](#shared-api)
+- [Subscription Selection](#subscription-selection)
+- [Scope Filters](#scope-filters)
+- [Query 1: Readiness Totals](#query-1-readiness-totals)
+- [Query 2: Instance Readiness](#query-2-instance-readiness)
+- [Query 3: Top Five Recorded Blockers](#query-3-top-five-recorded-blockers)
+- [Query 4: Optional Edition Values](#query-4-optional-edition-values)
+- [Query 5: Optional Version Values](#query-5-optional-version-values)
+- [ARG Adapter](#arg-adapter)
+- [Execution Rules](#execution-rules)
+
+
 ## Shared API
 
 - **Method:** `POST`

@@ -77,24 +77,32 @@ foreach ($database in @($manifest | Where-Object {
   $database.ExportLastUpdatedUtc = [DateTime]::UtcNow
   Save-SanitizedMigrationCheckpoint `
     -Databases $manifest -Path $manifestCheckpointPath
+  $exportAttemptId = [Guid]::NewGuid().ToString('N')
+  $temporaryBacpacPath = Join-Path -Path $database.FolderPath -ChildPath (
+    '.{0}.{1}.{2}.exporting.bacpac' -f
+      $database.SourceDatabase,
+      $script:MigrationRunId.ToString('N'),
+      $exportAttemptId
+  )
   $exportArguments = @(
     '/Action:Export'
     "/SourceConnectionString:$databaseSourceConnectionString"
-    "/TargetFile:$($database.BacpacPath)"
+    "/TargetFile:$temporaryBacpacPath"
+    '/OverwriteFiles:False'
     '/p:VerifyExtraction=True'
     '/p:CommandTimeout=1800'
   )
   $exportResult = Invoke-SqlPackageWithProgress `
     -DatabaseName $database.SourceDatabase -Operation Export `
     -ArgumentList $exportArguments -EvidenceRootPath $database.FolderPath `
-    -ProgressFilePath $database.BacpacPath `
+    -ProgressFilePath $temporaryBacpacPath `
     -StatusCallback {
       $database.ExportLastUpdatedUtc = [DateTime]::UtcNow
     }
   $database.ExportAttempts = @($database.ExportAttempts) + @($exportResult)
   $database.ExportLastUpdatedUtc = [DateTime]::UtcNow
   $exportFailed = $exportResult.ExitCode -ne 0 -or
-    -not (Test-Path -LiteralPath $database.BacpacPath -PathType Leaf)
+    -not (Test-Path -LiteralPath $temporaryBacpacPath -PathType Leaf)
 
   if ($exportFailed) {
     $database.ExportStatus = 'Failed'
@@ -136,11 +144,36 @@ foreach ($database in @($manifest | Where-Object {
     continue
   }
 
-  Set-BacpacExportCheckpointMetadata `
-    -Database $database `
-    -SourceServerIdentity $script:SourceServerIdentity `
-    -TargetServerIdentity $script:TargetServerIdentity `
-    -RunId $script:MigrationRunId
+  try {
+    Set-BacpacExportCheckpointMetadata `
+      -Database $database `
+      -SourceServerIdentity $script:SourceServerIdentity `
+      -TargetServerIdentity $script:TargetServerIdentity `
+      -RunId $script:MigrationRunId `
+      -ArtifactPath $temporaryBacpacPath
+    Publish-BacpacArtifact `
+      -TemporaryPath $temporaryBacpacPath `
+      -DestinationPath $database.BacpacPath `
+      -ExportRootPath $exportRoot
+  } catch {
+    $database.ExportStatus = 'Failed'
+    $database.ExportFailureReason = $_.Exception.Message
+    $database.ExportLastUpdatedUtc = [DateTime]::UtcNow
+    $database.ResumeState = 'AwaitingManualRemediation'
+    $database.FailureCategory = 'LocalArtifactConflict'
+    $database.ManualNextAction =
+      'Preserve the attempt BACPAC and any existing final BACPAC without modifying either, then restart with a new export root.'
+    Save-SanitizedMigrationCheckpoint `
+      -Databases $manifest -Path $manifestCheckpointPath
+    Write-Warning "Export '$($database.SourceDatabase)' could not publish its verified attempt BACPAC: $($database.ExportFailureReason)"
+
+    if ($databaseSelection -ne 'All') {
+      throw "Export paused for '$($database.SourceDatabase)' because its verified BACPAC could not be published to a new destination."
+    }
+
+    Write-Warning "Pausing export '$($database.SourceDatabase)' and continuing unaffected databases."
+    continue
+  }
   $database.ExportStatus = 'Succeeded'
   $database.ResumeState = 'None'
   $database.FailureCategory = $null
@@ -225,9 +258,9 @@ alternate inline query.
 Serialize the target names as a JSON array, encode it as UTF-16LE Base64, and
 insert only that restricted Base64 alphabet into the temporary SQL script. Never
 concatenate raw names into SQL. Delete the script in a `finally` block. This check
-must not universally require `VIEW ANY DATABASE`: the identity
-that will own a newly created database is not required to hold server-wide
-catalog visibility. Use the two fields in the structured JSON result together to
+must not universally require `VIEW ANY DATABASE`: an identity that can import a
+database is not required to hold server-wide catalog visibility. Use the two
+fields in the structured JSON result together to
 distinguish exactly three states per requested name:
 
 - **Database exists** — the name is present in the second result set. This is
@@ -236,7 +269,8 @@ distinguish exactly three states per requested name:
   ownership) can see its own row even without `VIEW ANY DATABASE`.
 - **Database absent** — the name is not present in the second result set and
   `can_view_all_databases = 1`. Absence is only trustworthy when the identity
-  can see the full catalog; treat this as a confirmed, safe-to-create result.
+  can see the full catalog; treat this only as a point-in-time preflight result.
+  It does not reserve the name or prove which actor creates the target later.
 - **Catalog visibility unavailable** — the name is not present and
   `can_view_all_databases = 0`. Do not treat this as absence. Pause that
   database with `FailureCategory = TargetPreflight` and require the user to
@@ -251,6 +285,14 @@ second call returns a scoped, single-use `FinalImport` receipt. Consume that
 receipt directly when constructing the import candidate list; generated import
 scripts must not call the preflight a third time. This query is the only basis
 for classifying a target as pre-existing and skipped.
+
+Because this workflow permits only `SqlPackage /Action:Import` to mutate the
+target, the final preflight cannot reserve a database name. Another actor can
+create the target after the receipt is issued and before or during import. A
+successful import therefore proves only that SqlPackage completed against the
+named target; it does not prove that this workflow created or owns the Azure
+resource. Record success as `ImportedSuccessfully`, never as a creation or
+ownership assertion.
 
 Every `sqlcmd` preflight is bounded by `SqlcmdTimeoutSeconds`. Use 600 seconds
 by default for interactive Entra browser/MFA authentication and 180 seconds for
@@ -374,6 +416,11 @@ if ($targetAuthenticationMethod -notin @(
     'InteractiveEntra', 'ActiveDirectoryDefault')) {
   throw "Unsupported target authentication method '$targetAuthenticationMethod'."
 }
+$modernSqlcmd = Find-CompatibleGoSqlcmd `
+  -AuthenticationMethod $targetAuthenticationMethod
+if (-not $modernSqlcmd) {
+  throw "No modern Go sqlcmd executable is available for '$targetAuthenticationMethod'."
+}
 $targetUpnVariable = Get-Variable -Name targetEntraUserPrincipalName `
   -ErrorAction SilentlyContinue
 $targetEntraUserPrincipalName = if ($targetUpnVariable) {
@@ -422,7 +469,7 @@ foreach ($database in $preflightCandidates) {
       $database.ResumeState = 'AwaitingManualRemediation'
       $database.FailureCategory = 'PartialTargetStillPresent'
       $database.ImportFailureReason =
-        'The target created by the prior failed import is still present; it is not a pre-existing skip.'
+        'The target observed after the prior failed import is still present; it is not a pre-existing skip.'
       $database.ManualNextAction =
         'Inspect and resolve the partial target outside this workflow, then return with target remediation complete.'
       Write-Warning "Import '$($database.TargetDatabase)' remains failed because its prior partial target is still present."
@@ -492,7 +539,7 @@ foreach ($database in $preflightCandidates) {
       $database.ResumeState = 'AwaitingManualRemediation'
       $database.FailureCategory = 'PartialTargetStillPresent'
       $database.ImportFailureReason =
-        'The target created by the prior failed import is still present; it is not a pre-existing skip.'
+        'The target observed after the prior failed import is still present; it is not a pre-existing skip.'
       $database.ManualNextAction =
         'Inspect and resolve the partial target outside this workflow, then return with target remediation complete.'
       Write-Warning "Import '$($database.TargetDatabase)' remains failed because its prior partial target is still present."
@@ -696,7 +743,7 @@ for ($importIndex = 0; $importIndex -lt $importCandidates.Count; $importIndex++)
           -UserPrincipalName $targetEntraUserPrincipalName `
           -DatabaseNames @($databaseName)
       if ($postFailureResult.AmbiguousNames.Count -gt 0) {
-        throw 'Catalog visibility is insufficient to prove whether the failed import created the target.'
+        throw 'Catalog visibility is insufficient to determine whether the target is present after the failed import.'
       }
       $postFailureTargetNames = @($postFailureResult.ExistingNames)
     } catch {
@@ -742,7 +789,7 @@ for ($importIndex = 0; $importIndex -lt $importCandidates.Count; $importIndex++)
   }
 
   $database.ImportStatus = 'Succeeded'
-  $database.TargetStateAfterImport = 'CreatedBySuccessfulImport'
+  $database.TargetStateAfterImport = 'ImportedSuccessfully'
   $database.ResumeState = 'None'
   $database.FailureCategory = $null
   $database.ManualNextAction = $null

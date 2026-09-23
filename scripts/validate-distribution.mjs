@@ -126,11 +126,11 @@ const expectedSkills = {
 
 const expectedPlugins = Object.keys(expectedSkills).sort();
 const expectedVersions = {
-  "microsoft-sql": "1.0.0",
+  "microsoft-sql": "1.0.1",
   "microsoft-sql-fdh": "0.1.0",
-  "microsoft-sql-migration": "1.1.1",
-  "microsoft-sql-ssms": "0.1.0",
-  "microsoft-sql-vscode": "0.1.0",
+  "microsoft-sql-migration": "1.1.2",
+  "microsoft-sql-ssms": "0.1.1",
+  "microsoft-sql-vscode": "0.1.1",
 };
 const marketplaceFiles = [
   ".agents/plugins/marketplace.json",
@@ -162,7 +162,11 @@ const issueFormIds = [
   "version",
   "what-happened",
 ];
-const forbiddenSidecars = new Set(["skill-contract.yml", "skill.spec.jsonc"]);
+const forbiddenSidecars = new Set([
+  "skill-contract.yml",
+  "skill.spec.jsonc",
+  "suppression.json",
+]);
 const textExtensions = new Set([".json", ".md", ".mjs", ".txt", ".yaml", ".yml"]);
 const obsoleteRepositoryName = ["microsoft", ["azure", "sql", "skills"].join("-")].join("/");
 const obsoleteRepositoryPattern = new RegExp(

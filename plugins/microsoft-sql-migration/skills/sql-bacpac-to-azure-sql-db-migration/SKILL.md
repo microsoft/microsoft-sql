@@ -26,6 +26,30 @@ pass it to the command blocks as `$skillReferenceRoot`. Do not derive that path
 from the current directory or `$PSScriptRoot`; the orchestration runs inline,
 not from a script file.
 
+The `Invoke-SqlPackageWithProgress` implementation in
+[references/bacpac-command-helpers.ps1](references/bacpac-command-helpers.ps1)
+is the only permitted process boundary for `SqlPackage` export and import. Do
+not replace it with `Start-Process`, a shell command string, an alternate script,
+or an executor-built wrapper. It uses
+`ProcessStartInfo.ArgumentList` so every complete `/Name:<value>` element remains
+one operating-system process argument and rejects empty or detached
+connection-string and BACPAC-path fragments before launch.
+Use only the manifest, checkpoint, and per-database folder layout defined by the
+reference blocks; do not introduce aggregate `exports`, `manifest`, `evidence`,
+or `checkpoint` folders.
+
+Validate modern Go `sqlcmd` capabilities from the combined output of every
+successful supported help mode (`--help` and `-?`). A required flag may appear
+in either output. Report the successful help modes and exact missing flags before
+offering installation; do not treat a reduced `--help` view as proof that an
+installed client lacks flags exposed by `-?`. Quote the compatibility argument as
+`'-?'`, and name wrapper parameters `$ArgumentList`, never `$Args`, so PowerShell's
+automatic `$args` variable cannot consume the intended arguments. After an
+approved `winget install sqlcmd`, rerun capability validation regardless of the
+winget exit code; an already-installed/no-upgrade result is successful when the
+refreshed client passes validation.
+
+
 ## Operating contract
 
 - Collect all missing nonsecret migration inputs in one grouped request whenever
@@ -39,7 +63,7 @@ not from a script file.
 - Require the user to select one online user database or all selectable online
   user databases. Never interpret `all` as including system databases.
 - Do not run source migration readiness, compatibility, feature, dependency,
-  performance, or sizing assessments. Consume prior skill outputs when supplied;
+  performance, or sizing assessments. Even if the database is online and in read-write mode, allow the export to continue. However, inform the user that they must ensure there is no DML  and DDL activity on the database during the export.Consume prior skill outputs when supplied;
   otherwise use the source and target decisions provided by the user.
 - For target details, require the existing Azure SQL logical server name and an
   explicit target configuration after export: service type (`GeneralPurpose`,
@@ -69,6 +93,11 @@ not from a script file.
   that live status appears in the terminal. After five minutes without diagnostic
   or BACPAC growth, report `Possibly stalled` while making clear that the process
   is still active. Do not invent a percentage when `SqlPackage` does not provide one.
+- Pass complete `/SourceConnectionString:<value>`,
+  `/TargetConnectionString:<value>`, `/SourceFile:<value>`, and
+  `/TargetFile:<value>` forms as individual string-array elements to the
+  checked-in progress wrapper. Never split a switch name from its value or
+  flatten the argument array into a command string.
 - Do not execute destructive operations against the source database.
 - After all exports and target authentication, run one injection-safe, read-only
   target `sys.databases` preflight through validated Go `sqlcmd` for the selected
@@ -107,16 +136,19 @@ Phase 5: Hand every successfully imported database to post-migration validation
 
 ## Phase 0 — Collect inputs and safety gates
 
-Treat modern Go-based `sqlcmd` as a mandatory prerequisite for the BACPAC
-workflow. Before discovery, folder creation, or export, inspect every `sqlcmd`
-executable on `PATH`; do not assume the first result is modern because ODBC and
-Go-based versions can coexist. Select only a candidate whose `--version` command
-succeeds and whose help exposes `-G`, `-U`, and `--authentication-method`. If no
-candidate passes, ask once for approval to install modern `sqlcmd` with the official
+Treat modern Go-based `gosqlcmd` or `sqlcmd` as a mandatory prerequisite for the
+BACPAC workflow. Before discovery, folder creation, or export, prefer `gosqlcmd`,
+then inspect every `sqlcmd` executable on `PATH`; do not assume the first result
+is modern because ODBC and Go-based versions can coexist. Confirm only the
+default interactive route's `-G` and `-U` flags. If a Go client launches but its
+help does not expose those flags, retain it with unknown capability and use the
+attended Phase 4 preflight as the authoritative check. Never select legacy ODBC
+`sqlcmd`. If no Go candidate launches, ask once for approval to install modern `sqlcmd` with the official
 `winget install sqlcmd` command. Do not install silently. If approved, install it,
-refresh the current process `PATH`, and repeat the checks. If installation is
+refresh the current process `PATH`, and repeat discovery. If installation is
 declined or validation still fails, stop before starting the migration and provide
-the official manual-download link. Cache the resolved full path for Phase 4.
+the official manual-download link. Cache the resolved full path for Phase 4,
+then reselect against the actual Phase 4 authentication route before preflight.
 
 Do not ask for target service type, objective, vCore, or maximum size in Phase 0.
 After Phase 3 has attempted every selected export and at least one succeeds, load
@@ -184,13 +216,28 @@ Produce a concise migration plan before execution:
 | Local root | `<user-provided path or default path>` |
 
 Collect the missing source authentication, existing target logical server, and
-export root in one grouped request. If the user's original request already names
-one exact source database or says `All`, retain that value as the requested
-selection and do not ask for it again before discovery. Otherwise, defer the
-database-selection field until Phase 1 so it can contain the discovered database
-names. Input collection is not execution approval. Do not request approval in
-Phases 0-3, and do not collect a downtime start time, window, maximum duration,
-RPO, or RTO.
+export root in one grouped request. Source authentication is never inferred from
+the host or silently defaulted: require an explicit selection of `Windows
+Integrated` or `Microsoft Entra Interactive MFA`. For the export root, show
+`$env:USERPROFILE\SqlMigration\Bacpac` as the recommended default and require the
+user either to accept it or provide another absolute path; never append a
+timestamp or create a run directory before this choice is resolved. Reuse a value
+only when the user supplied it explicitly in the current request or earlier in
+the conversation.
+
+Before discovery or any filesystem write, create an in-memory input-resolution
+record containing `SourceServer`, `SourceAuthentication`, `TargetServer`, and
+`ExportRoot`. If any field is unresolved, stop and ask the grouped question. Do
+not run discovery, create directories or checkpoints, or invoke `SqlPackage`
+until all four fields are resolved. Echo the resolved nonsecret values to the
+user before proceeding.
+
+If the user's original request already names one exact source database or says
+`All`, retain that value as the requested selection and do not ask for it again
+before discovery. Otherwise, defer the database-selection field until Phase 1 so
+it can contain the discovered database names. Input collection is not execution
+approval. Do not request approval in Phases 0-3, and do not collect a downtime
+start time, window, maximum duration, RPO, or RTO.
 
 ## Phase 1 — Discover databases and build the manifest
 
@@ -220,14 +267,17 @@ If no selectable online user databases are discovered, stop with a clear error
 instead of showing an empty or `All`-only selection form.
 
 
-Default to Windows authentication. If Microsoft Entra authentication is selected,
-use the supported `SqlPackage` authentication options for the installed version.
+Require the source authentication selection made in the Phase 0 grouped request.
+If Microsoft Entra authentication is selected, use the supported `SqlPackage`
+authentication options for the installed version.
 Reject SQL login authentication and do not request or use a password from any
 source, including Key Vault, Credential Manager, masked controls, or `sqlcmd`.
 
-Resolve the export root from the grouped input request. If none was supplied, use
-`$env:USERPROFILE\SqlMigration\Bacpac`. Build the complete in-memory manifest and
-database mappings without creating folders, databases, or BACPAC files.
+Resolve the export root from the grouped input request. The recommended default is
+`$env:USERPROFILE\SqlMigration\Bacpac`, but it is not selected until the user
+accepts it. Use the accepted path exactly as the export root; do not silently add
+a timestamped child folder. Build the complete in-memory manifest and database
+mappings without creating folders, databases, or BACPAC files.
 
 
 ## Phase 2 — Prepare without prompting
@@ -424,6 +474,13 @@ reuse it rather than asking again. If the checkpoint predates target selection,
 run the six steps above. Changing an upstream selection resets all downstream
 tracker values.
 
+Treat unresolved target configuration as a blocking interactive state, not a
+successful stopping point. After the export summary, immediately ask for the
+service type; after each answer, ask for the dependent objective and vCore value
+until `Complete-TargetConfiguration` succeeds. Do not end the run, report the
+migration as complete, or leave imports merely `Pending` while
+`TargetConfiguration` is null unless the user explicitly pauses or cancels.
+
 After the modern `sqlcmd` gate passes, default target import authentication to
 interactive Microsoft Entra ID. Do not ask the user to choose an authentication
 method unless they explicitly request the default credential chain. When choices
@@ -490,9 +547,16 @@ Use a 600-second default for interactive Entra browser/MFA authentication and
 the current console and use its `-o` option for structured result capture; do
 not redirect standard input, output, or error while the attended login runs.
 
+The final preflight is a point-in-time collision check, not a reservation or
+ownership guarantee. With SqlPackage-only target mutation, another actor can
+create the name after preflight and before or during import. On success, report
+`TargetStateAfterImport = ImportedSuccessfully`; do not claim that the workflow
+created or owns the Azure resource.
+
 After the tables, ask one short approval question that states the import is offline
-and authorizes `SqlPackage.exe /Action:Import` to create the listed databases. Do
-not repeat the table contents in prose. After approval, use only
+and authorizes `SqlPackage.exe /Action:Import` against the listed target database
+names with this residual race disclosed. Do not repeat the table contents in
+prose. After approval, use only
 `SqlPackage.exe /Action:Import` for target mutation and do not call an Azure API.
 
 Import only entries whose `ExportStatus` is `Succeeded`; for each, require its

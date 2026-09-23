@@ -40,7 +40,7 @@ region, target SKU, size, or target authentication during initial input collecti
 
 - PowerShell 7.
 - The latest supported `SqlPackage` available on `PATH`.
-- Modern Go-based `sqlcmd` for the attended target-authentication check. Detect
+- Modern Go-based `gosqlcmd` or `sqlcmd` for the attended target-authentication check. Detect
   and validate it before any discovery, folder creation, or export. Request
   installation approval if it is absent, and stop the migration if the
   prerequisite remains unavailable.
@@ -72,6 +72,7 @@ if (-not (Test-Path -LiteralPath $skillReferenceRoot -PathType Container)) {
 }
 $requiredHelperNames = @(
   'bacpac-checkpoint.ps1',
+  'bacpac-command-helpers.ps1',
   'bacpac-target-preflight.ps1',
   'target-sku-validation.ps1'
 )
@@ -111,53 +112,18 @@ reference and retain it only in memory for the current batch.
 not imply that a token or credential is transferred from `sqlcmd`. Never display
 or persist the connection string.
 
-During the initial prerequisite gate, find a modern `sqlcmd` candidate. Older ODBC
-`sqlcmd` executables can appear earlier on `PATH`, so inspect all candidates:
+During the initial prerequisite gate, prefer `gosqlcmd`, then inspect every
+`sqlcmd` candidate because older ODBC executables can appear earlier on `PATH`.
+Require only the default interactive route's `-G` and `-U` flags. Missing flags
+in help output make capability unknown, not unsupported; the attended target
+preflight is authoritative. Legacy ODBC candidates remain unsupported:
+
+The command helpers are loaded from
+[bacpac-command-helpers.ps1](bacpac-command-helpers.ps1).
 
 ```powershell
-function Find-CompatibleGoSqlcmd {
-  param(
-    [string[]]$RequiredFlags = @('-E', '-G', '-U')
-  )
-
-  foreach ($candidate in @(Get-Command sqlcmd -All -ErrorAction SilentlyContinue)) {
-    $versionOutput = & $candidate.Source --version 2>&1 | Out-String
-    if ($LASTEXITCODE -ne 0) {
-      continue
-    }
-
-    $modernHelpOutput = & $candidate.Source --help 2>&1 | Out-String
-    $modernHelpSucceeded = $LASTEXITCODE -eq 0
-    $compatibilityHelpOutput = & $candidate.Source -? 2>&1 | Out-String
-    $compatibilityHelpSucceeded = $LASTEXITCODE -eq 0
-
-    $missingFlags = @($RequiredFlags | Where-Object {
-      $pattern = "(?m)(^|\s)$([regex]::Escape($_))([,\s]|$)"
-      -not (
-        ($modernHelpSucceeded -and $modernHelpOutput -match $pattern) -or
-        ($compatibilityHelpSucceeded -and
-          $compatibilityHelpOutput -match $pattern)
-      )
-    })
-
-    if (($modernHelpSucceeded -or $compatibilityHelpSucceeded) -and
-        $missingFlags.Count -eq 0) {
-      return [pscustomobject]@{
-        Path      = $candidate.Source
-        Version   = $versionOutput.Trim()
-        HelpModes = @(
-          if ($modernHelpSucceeded) { '--help' }
-          if ($compatibilityHelpSucceeded) { '-?' }
-        ) -join ', '
-      }
-    }
-  }
-
-  return $null
-}
-
 $modernSqlcmd = Find-CompatibleGoSqlcmd `
-  -RequiredFlags @('-G', '-U', '--authentication-method')
+  -AuthenticationMethod InteractiveEntra
 ```
 
 If `$modernSqlcmd` is `$null`, stop before discovery or export and ask one explicit
@@ -176,12 +142,19 @@ $refreshedPathSegments = @(
 ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 $env:Path = $refreshedPathSegments -join ';'
 $modernSqlcmd = Find-CompatibleGoSqlcmd `
-  -RequiredFlags @('-G', '-U', '--authentication-method')
+  -AuthenticationMethod InteractiveEntra
 if (-not $modernSqlcmd) {
   $wingetSummary = Protect-SensitiveText -Text ($wingetOutput -join ' ')
   throw "Modern sqlcmd could not be validated after winget exited with code $wingetExitCode. $wingetSummary Open a new terminal and retry."
 }
 ```
+
+The post-install capability check is authoritative. `winget install sqlcmd` can
+return a nonzero exit code when the package is already installed and no upgrade
+is available; if `Find-CompatibleGoSqlcmd` succeeds after `PATH` is refreshed,
+treat that idempotent winget result as success and continue. Only stop when the
+capability check still fails. Never name a wrapper parameter `$Args` because
+PowerShell reserves `$args` as an automatic variable; use `$ArgumentList`.
 
 If approval is declined, provide
 `https://learn.microsoft.com/sql/tools/sqlcmd/sqlcmd-download-install` and stop.
@@ -199,358 +172,6 @@ $sqlPackage = Get-Command SqlPackage -ErrorAction Stop
 & $sqlPackage.Source /Version
 if ($LASTEXITCODE -ne 0) {
   throw 'SqlPackage version validation failed.'
-}
-
-function Invoke-SqlPackageWithProgress {
-  param(
-    [Parameter(Mandatory)] [string] $DatabaseName,
-    [Parameter(Mandatory)] [ValidateSet('Export', 'Import')] [string] $Operation,
-    [Parameter(Mandatory)] [string[]] $ArgumentList,
-    [Parameter(Mandatory)] [string] $EvidenceRootPath,
-    [string] $ProgressFilePath,
-    [scriptblock] $StatusCallback = {},
-    [int] $PollSeconds = 30,
-    [int] $TimeoutSeconds = 7200,
-    [int] $StalledAfterSeconds = 300,
-    [int] $BatchIndex = 1,
-    [int] $BatchCount = 1
-  )
-
-  $operationName = $Operation.ToLowerInvariant()
-  $attemptId = '{0}-{1}' -f [DateTime]::UtcNow.ToString(
-    'yyyyMMddTHHmmss.fffffffZ'
-  ), [Guid]::NewGuid().ToString('N')
-  $attemptDirectory = Join-Path $EvidenceRootPath `
-    (Join-Path 'attempts' (Join-Path $operationName $attemptId))
-  if (Test-Path -LiteralPath $attemptDirectory) {
-    throw "SqlPackage attempt evidence path already exists: '$attemptDirectory'."
-  }
-  [void] [IO.Directory]::CreateDirectory($attemptDirectory)
-  $DiagnosticsPath = Join-Path $attemptDirectory 'diagnostics.log'
-  $consoleOutputPath = Join-Path $attemptDirectory 'console.log'
-  $StatusPath = Join-Path $attemptDirectory 'status.log'
-  $statusStream = [IO.File]::Open(
-    $StatusPath,
-    [IO.FileMode]::CreateNew,
-    [IO.FileAccess]::Write,
-    [IO.FileShare]::Read
-  )
-  $statusStream.Dispose()
-
-  $sqlPackageArguments = @($ArgumentList | Where-Object {
-    $_ -notmatch '(?i)^/DiagnosticsFile:'
-  })
-  $sqlPackageArguments += "/DiagnosticsFile:$DiagnosticsPath"
-
-  $startedUtc = [DateTime]::UtcNow
-
-  function New-SqlPackageAttemptResult {
-    param(
-      [Parameter(Mandatory)] [int] $ExitCode,
-      [Parameter(Mandatory)] [bool] $TimedOut,
-      [AllowNull()] [string] $FailureReason
-    )
-
-    [pscustomobject]@{
-      ExitCode = $ExitCode
-      TimedOut = $TimedOut
-      FailureReason = $FailureReason
-      AttemptId = $attemptId
-      StartedUtc = $startedUtc
-      CompletedUtc = [DateTime]::UtcNow
-      DiagnosticsPath = $DiagnosticsPath
-      ConsoleOutputPath = $consoleOutputPath
-      StatusPath = $StatusPath
-    }
-  }
-
-  function Write-SqlPackageStatus {
-    param([Parameter(Mandatory)] [string] $Message)
-
-    Write-Host $Message
-    try {
-      Add-Content -LiteralPath $StatusPath -Value $Message -Encoding utf8
-    } catch {
-      Write-Warning "Could not update status file '$StatusPath': $($_.Exception.Message)"
-    }
-    [Console]::Out.Flush()
-  }
-
-  $sourceIntegratedSecurityArguments = @($sqlPackageArguments | Where-Object {
-    $_ -match '(?i)^/SourceIntegratedSecurity(?::|$)'
-  })
-  if ($sourceIntegratedSecurityArguments.Count -gt 0) {
-    $sourceConnectionArgument = $sqlPackageArguments | Where-Object {
-      $_ -match '(?i)^/SourceConnectionString:'
-    } | Select-Object -First 1
-    $usesIntegratedConnectionString = $sourceConnectionArgument -match
-      '(?i)(Integrated Security\s*=\s*(True|SSPI)|Trusted_Connection\s*=\s*True)'
-
-    if (-not $usesIntegratedConnectionString) {
-      return New-SqlPackageAttemptResult -ExitCode -2 -TimedOut $false `
-        -FailureReason 'Unsupported /SourceIntegratedSecurity argument. Put Integrated Security=True in /SourceConnectionString.'
-    }
-
-    return New-SqlPackageAttemptResult -ExitCode -2 -TimedOut $false `
-      -FailureReason 'Unsupported /SourceIntegratedSecurity argument. Remove it from the shared template outside this execution; Integrated Security=True is already present in /SourceConnectionString.'
-  }
-
-  $job = Start-Job -ScriptBlock {
-    param(
-      [Parameter(Mandatory)] [string] $SqlPackagePath,
-      [Parameter(Mandatory)] [string[]] $SqlPackageArguments,
-      [Parameter(Mandatory)] [string] $ConsoleOutputPath
-    )
-
-    & $SqlPackagePath @SqlPackageArguments *> $ConsoleOutputPath
-    [pscustomobject]@{ ExitCode = $LASTEXITCODE }
-  } -ArgumentList $sqlPackage.Source, $sqlPackageArguments, $consoleOutputPath
-
-  if (-not $job) {
-    throw "Failed to start SqlPackage for '$DatabaseName'."
-  }
-  $lastActivityUtc = $startedUtc
-  $previousDiagnosticsBytes = 0L
-  $previousProgressBytes = 0L
-  Write-SqlPackageStatus "[$($startedUtc.ToString('u'))] $Operation started: '$DatabaseName' ($BatchIndex of $BatchCount). Next status update in $PollSeconds seconds. Status file: '$StatusPath'."
-
-  while ($job.State -eq 'Running') {
-    $pollMilliseconds = [Math]::Min($PollSeconds * 1000, [int]::MaxValue)
-    Wait-Job -Id $job.Id -Timeout ([Math]::Max(1, [int]($pollMilliseconds / 1000))) | Out-Null
-
-    if ([DateTime]::UtcNow -ge $startedUtc.AddSeconds($TimeoutSeconds)) {
-      Stop-Job -Id $job.Id -ErrorAction SilentlyContinue
-      Wait-Job -Id $job.Id | Out-Null
-      Remove-Job -Id $job.Id -Force
-      Write-SqlPackageStatus "[$([DateTime]::UtcNow.ToString('u'))] $Operation '$DatabaseName' timed out after $TimeoutSeconds seconds."
-      return New-SqlPackageAttemptResult -ExitCode -1 -TimedOut $true `
-        -FailureReason "SqlPackage $Operation timed out after $TimeoutSeconds seconds."
-    }
-
-    $elapsed = [DateTime]::UtcNow - $startedUtc
-    $diagnosticsBytes = if (Test-Path -LiteralPath $DiagnosticsPath -PathType Leaf) {
-      (Get-Item -LiteralPath $DiagnosticsPath).Length
-    } else {
-      0L
-    }
-    $consoleOutputBytes = if (Test-Path -LiteralPath $consoleOutputPath -PathType Leaf) {
-      (Get-Item -LiteralPath $consoleOutputPath).Length
-    } else {
-      0L
-    }
-    $progressBytes = if ($ProgressFilePath -and
-        (Test-Path -LiteralPath $ProgressFilePath -PathType Leaf)) {
-      (Get-Item -LiteralPath $ProgressFilePath).Length
-    } else {
-      0L
-    }
-    $diagnosticsDelta = $diagnosticsBytes - $previousDiagnosticsBytes
-    $progressDelta = ($progressBytes + $consoleOutputBytes) - $previousProgressBytes
-    if ($diagnosticsDelta -gt 0 -or $progressDelta -gt 0) {
-      $lastActivityUtc = [DateTime]::UtcNow
-    }
-    $activity = if ($diagnosticsDelta -gt 0 -or $progressDelta -gt 0) {
-      'Running'
-    } elseif (([DateTime]::UtcNow - $lastActivityUtc).TotalSeconds -ge
-        $StalledAfterSeconds) {
-      'Possibly stalled - process is active but diagnostics have not changed'
-    } else {
-      'Running - no new diagnostics yet'
-    }
-    $latestStatus = if ($diagnosticsBytes -gt 0) {
-      $line = Get-Content -LiteralPath $DiagnosticsPath -Tail 1
-      Protect-SensitiveText -Text $line
-    } elseif ($consoleOutputBytes -gt 0) {
-      $line = Get-Content -LiteralPath $consoleOutputPath -Tail 1
-      Protect-SensitiveText -Text $line
-    } else {
-      'No diagnostic status written yet.'
-    }
-    if ($Operation -eq 'Import' -and
-        (Test-NonTerminalImportDiagnostic -StatusText $latestStatus)) {
-      $activity = 'Running - nonterminal SqlPackage diagnostic observed; continue polling until process exits'
-    }
-    & $StatusCallback ([pscustomobject]@{
-      Status = $activity
-      Elapsed = $elapsed
-      LastActivityUtc = $lastActivityUtc
-      LatestStatus = $latestStatus
-    })
-    Write-Progress -Activity "SqlPackage $Operation" `
-      -Status "${DatabaseName}: $activity; elapsed $($elapsed.ToString('hh\:mm\:ss'))" `
-      -PercentComplete -1
-    Write-SqlPackageStatus "[$([DateTime]::UtcNow.ToString('u'))] $Operation '$DatabaseName' ($BatchIndex of $BatchCount) | $activity | Elapsed $($elapsed.ToString('hh\:mm\:ss')) | Diagnostics $diagnosticsBytes bytes (+$diagnosticsDelta) | $latestStatus"
-    $previousDiagnosticsBytes = $diagnosticsBytes
-    $previousProgressBytes = $progressBytes + $consoleOutputBytes
-  }
-
-  Write-Progress -Activity "SqlPackage $Operation" -Completed
-  $jobResult = Receive-Job -Id $job.Id -ErrorAction SilentlyContinue
-  $jobFailure = $job.ChildJobs[0].JobStateInfo.Reason
-  Remove-Job -Id $job.Id -Force
-  $exitCode = if ($jobResult -and $null -ne $jobResult.ExitCode) {
-    [int] $jobResult.ExitCode
-  } elseif ($jobFailure) {
-    -3
-  } else {
-    -4
-  }
-  $failureReason = if ($exitCode -eq 0) {
-    $null
-  } elseif (Test-Path -LiteralPath $DiagnosticsPath -PathType Leaf) {
-    (Get-Content -LiteralPath $DiagnosticsPath -Tail 20) -join ' '
-  } elseif (Test-Path -LiteralPath $consoleOutputPath -PathType Leaf) {
-    (Get-Content -LiteralPath $consoleOutputPath -Tail 20) -join ' '
-  } elseif ($jobFailure) {
-    $jobFailure.Message
-  } else {
-    "SqlPackage $Operation exited without returning an exit code."
-  }
-  $failureReason = Protect-SensitiveText -Text $failureReason
-
-  $terminalStatus = if ($exitCode -eq 0) { 'Succeeded' } else { 'Failed' }
-  Write-SqlPackageStatus "[$([DateTime]::UtcNow.ToString('u'))] $Operation '$DatabaseName' $terminalStatus with exit code $exitCode."
-
-  New-SqlPackageAttemptResult -ExitCode $exitCode -TimedOut $false `
-    -FailureReason $failureReason
-}
-
-function Protect-SensitiveText {
-  param([AllowNull()] [string] $Text)
-
-  if ($null -eq $Text) { return $null }
-  $sanitized = $Text `
-    -replace '(?i)\b(Authorization\s*:\s*Bearer|Bearer)\s+[A-Za-z0-9._~+/-]+=*', '$1 <redacted>' `
-    -replace '\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b', '<redacted-jwt>' `
-    -replace '(?i)\b(sig|se|sp|sv|srt|ss|spr|skoid|sktid|skv)=[^&;\s"\r\n]+', '$1=<redacted>' `
-    -replace '(?i)\b(AccountKey|SharedAccessKey|SharedAccessSignature|Password|Pwd|AccessToken|ClientSecret)\s*=\s*[^;"\r\n]*', '$1=<redacted>' `
-    -replace '(?i)\b(password|pwd|access[ _-]?token|client[ _-]?secret|api[ _-]?key|account[ _-]?key)\s*[=:]\s*[^;\s"\r\n]+', '$1=<redacted>'
-  return $sanitized
-}
-
-function Test-NonTerminalImportDiagnostic {
-  param([AllowNull()] [string] $StatusText)
-
-  $StatusText -match "(?i)Incorrect syntax near 'EDITION'"
-}
-
-function Test-AuthenticationFailure {
-  param([AllowNull()] [string] $FailureReason)
-
-  $FailureReason -match '(?i)(login failed|authentication (failed|error|denied|required)|token.*(expired|invalid|denied)|principal.*(not found|denied)|unauthorized)'
-}
-
-function Test-UnsupportedSourceFailure {
-  param([AllowNull()] [string] $FailureReason)
-
-  $FailureReason -match '(?i)(object|feature|schema|type|property).{0,160}(not supported|unsupported|incompatible|cannot be exported|not available in the target platform)'
-}
-
-function Test-UnsupportedSqlPackageArgumentFailure {
-  param([AllowNull()] [string] $FailureReason)
-
-  $FailureReason -match '(?i)(unsupported|unrecognized|unknown|invalid).{0,80}(argument|parameter|switch)|/SourceIntegratedSecurity'
-}
-
-function Save-SanitizedMigrationCheckpoint {
-  param(
-    [Parameter(Mandatory)] [object[]] $Databases,
-    [Parameter(Mandatory)] [string] $Path,
-    [AllowNull()] [object] $ApprovedTargetSku,
-    [ValidateSet('All', 'Explicit')]
-    [string] $SelectionMode = $script:SelectionMode
-  )
-
-  if ($SelectionMode -notin @('All', 'Explicit')) {
-    throw 'SelectionMode must be All or Explicit before saving a migration checkpoint.'
-  }
-  if ([string]::IsNullOrWhiteSpace($script:SourceServerIdentity) -or
-      [string]::IsNullOrWhiteSpace($script:TargetServerIdentity) -or
-      $script:MigrationRunId -eq [Guid]::Empty) {
-    throw 'Canonical source, target, and migration run identities must be established before saving a checkpoint.'
-  }
-  if (-not $PSBoundParameters.ContainsKey('ApprovedTargetSku')) {
-    $approvedSkuVariable = Get-Variable -Name ApprovedTargetSku `
-      -Scope Script -ErrorAction SilentlyContinue
-    $ApprovedTargetSku = if ($approvedSkuVariable) {
-      $approvedSkuVariable.Value
-    } else { $null }
-  }
-  $targetConfiguration = if ($ApprovedTargetSku) {
-    [pscustomobject]@{
-      ServiceType = [string]$ApprovedTargetSku.ServiceType
-      ServiceObjective = [string]$ApprovedTargetSku.ServiceObjective
-      VCore = [int]$ApprovedTargetSku.VCore
-      MaximumSizeGB = [int]$ApprovedTargetSku.MaximumSizeGB
-      DatabaseEdition = [string]$ApprovedTargetSku.DatabaseEdition
-      DatabaseServiceObjective =
-        [string]$ApprovedTargetSku.DatabaseServiceObjective
-    }
-  } else { $null }
-
-  $sanitizedDatabases = @($Databases | ForEach-Object {
-    $sanitizeAttempts = {
-      param([object[]] $Attempts)
-
-      @($Attempts | ForEach-Object {
-        [pscustomobject]@{
-          AttemptId = $_.AttemptId
-          StartedUtc = $_.StartedUtc
-          CompletedUtc = $_.CompletedUtc
-          ExitCode = $_.ExitCode
-          TimedOut = $_.TimedOut
-          FailureReason = Protect-SensitiveText -Text $_.FailureReason
-          DiagnosticsPath = $_.DiagnosticsPath
-          ConsoleOutputPath = $_.ConsoleOutputPath
-          StatusPath = $_.StatusPath
-        }
-      })
-    }
-    [pscustomobject]@{
-      CheckpointSchemaVersion = $_.CheckpointSchemaVersion
-      SourceServerIdentity = $_.SourceServerIdentity
-      SourceDatabase = $_.SourceDatabase
-      TargetServerIdentity = $_.TargetServerIdentity
-      RunId = $_.RunId
-      FolderPath = $_.FolderPath
-      BacpacPath = $_.BacpacPath
-      BacpacLengthBytes = $_.BacpacLengthBytes
-      BacpacSha256 = $_.BacpacSha256
-      ExportCompletedAtUtc = $_.ExportCompletedAtUtc
-      TargetDatabase = $_.TargetDatabase
-      ExportStatus = $_.ExportStatus
-      ExportFailureReason = Protect-SensitiveText -Text $_.ExportFailureReason
-      ExportLastUpdatedUtc = $_.ExportLastUpdatedUtc
-      ExportAttempts = & $sanitizeAttempts -Attempts @($_.ExportAttempts)
-      ImportStatus = $_.ImportStatus
-      ImportFailureReason = Protect-SensitiveText -Text $_.ImportFailureReason
-      ImportLastUpdatedUtc = $_.ImportLastUpdatedUtc
-      ImportStartedUtc = $_.ImportStartedUtc
-      ImportCompletedUtc = $_.ImportCompletedUtc
-      ImportDuration = $_.ImportDuration
-      ImportLastActivityUtc = $_.ImportLastActivityUtc
-      ImportAttempts = & $sanitizeAttempts -Attempts @($_.ImportAttempts)
-      TargetStateAfterImport = $_.TargetStateAfterImport
-      ResumeState = $_.ResumeState
-      FailureCategory = $_.FailureCategory
-      ManualNextAction = Protect-SensitiveText -Text $_.ManualNextAction
-      ValidationReportStatus = $_.ValidationReportStatus
-    }
-  })
-  $checkpoint = [pscustomobject]@{
-    SchemaVersion = $script:BacpacCheckpointSchemaVersion
-    SourceServerIdentity = $script:SourceServerIdentity
-    TargetServerIdentity = $script:TargetServerIdentity
-    RunId = $script:MigrationRunId.ToString('D')
-    LastUpdatedUtc = [DateTime]::UtcNow
-    SelectionMode = $SelectionMode
-    TargetConfiguration = $targetConfiguration
-    Databases = $sanitizedDatabases
-  }
-  $json = $checkpoint | ConvertTo-Json -Depth 10
-  $temporaryPath = "$Path.tmp"
-  Set-Content -LiteralPath $temporaryPath -Value $json -Encoding utf8
-  Move-Item -LiteralPath $temporaryPath -Destination $Path -Force
 }
 ```
 
@@ -572,10 +193,35 @@ $sourceIdentityVariable = Get-Variable -Name sourceServerName `
   -ErrorAction SilentlyContinue
 $targetIdentityVariable = Get-Variable -Name targetServerName `
   -ErrorAction SilentlyContinue
+$sourceAuthenticationVariable = Get-Variable -Name sourceAuthentication `
+  -ErrorAction SilentlyContinue
+$exportRootVariable = Get-Variable -Name userProvidedExportRoot `
+  -ErrorAction SilentlyContinue
 if (-not $sourceIdentityVariable -or -not $sourceIdentityVariable.Value -or
     -not $targetIdentityVariable -or -not $targetIdentityVariable.Value) {
   throw 'Source and target server identities must be resolved before creating or resuming a manifest.'
 }
+$allowedSourceAuthentication = @(
+  'Windows Integrated'
+  'Microsoft Entra Interactive MFA'
+)
+if (-not $sourceAuthenticationVariable -or
+    $sourceAuthenticationVariable.Value -notin $allowedSourceAuthentication) {
+  throw 'Source authentication must be explicitly selected as Windows Integrated or Microsoft Entra Interactive MFA before discovery or filesystem writes.'
+}
+if (-not $exportRootVariable -or
+    [string]::IsNullOrWhiteSpace([string] $exportRootVariable.Value)) {
+  throw 'The BACPAC export root must be explicitly accepted or supplied before discovery or filesystem writes. Present the recommended default instead of selecting it silently.'
+}
+$resolvedInitialInputs = [pscustomobject]@{
+  SourceServer = [string] $sourceIdentityVariable.Value
+  SourceAuthentication = [string] $sourceAuthenticationVariable.Value
+  TargetServer = [string] $targetIdentityVariable.Value
+  ExportRoot = [IO.Path]::GetFullPath(
+    [string] $exportRootVariable.Value
+  )
+}
+$resolvedInitialInputs | Format-List
 $script:SourceServerIdentity = Get-CanonicalSqlServerIdentity `
   -ServerName ([string] $sourceIdentityVariable.Value)
 $script:TargetServerIdentity = Get-CanonicalSqlServerIdentity `
@@ -600,22 +246,20 @@ the selection options; never present an `All`-only picker when the discovered
 list is nonempty or require a discovered name as free text. Set
 `$databaseSelection` to the exact selected database name or `All`. Persist the
 resulting `$selectionMode` as `All` or `Explicit`; never infer it from the number
-of selected databases. Set `$userProvidedExportRoot` to the collected path or
-`$null` to use `$env:USERPROFILE\SqlMigration\Bacpac`.
+of selected databases. Set `$userProvidedExportRoot` to the path explicitly
+accepted or supplied in the grouped request. To use the recommended default, the
+user must explicitly accept `$env:USERPROFILE\SqlMigration\Bacpac`; never encode
+acceptance as `$null` and never append a timestamped child directory silently.
 
 ```powershell
-$requestedExportRoot = if ($userProvidedExportRoot) {
-  $userProvidedExportRoot
-} else {
-  Join-Path $env:USERPROFILE 'SqlMigration\Bacpac'
-}
+$requestedExportRoot = [string] $userProvidedExportRoot
 $exportRoot = [IO.Path]::GetFullPath($requestedExportRoot)
 
-$selectedDatabases = if ($databaseSelection -eq 'All') {
+$selectedDatabases = @(if ($databaseSelection -eq 'All') {
   @($sourceDatabases)
 } else {
   @($sourceDatabases | Where-Object { $_ -ceq $databaseSelection })
-}
+})
 $selectionMode = if ($databaseSelection -ceq 'All') { 'All' } else { 'Explicit' }
 $script:SelectionMode = $selectionMode
 

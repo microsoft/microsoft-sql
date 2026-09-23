@@ -1,5 +1,13 @@
 # SKU Recommendation Command Execution
 
+## Contents
+
+- [Inputs](#inputs)
+- [Step 1: Find Existing Results](#step-1-find-existing-results)
+- [Step 2: Collect Performance Data and Generate SKU](#step-2-collect-performance-data-and-generate-sku)
+- [Step 3: Check Completion](#step-3-check-completion)
+
+
 ## Inputs
 
 - One of:
@@ -29,6 +37,7 @@ collection; using 20 iterations would require at least 600 seconds.
 
 ```powershell
 Get-ChildItem "$OUTPUT_FOLDER\*SKU*.json", "$OUTPUT_FOLDER\*SKU*.html" -Recurse -ErrorAction SilentlyContinue |
+  Where-Object Name -ne 'perf-sku-run.json' |
   Sort-Object LastWriteTime -Descending |
   Select-Object Name, LastWriteTime, FullName
 ```
@@ -127,6 +136,7 @@ $counterFile = if ($run) {
 }
 $skuReport = if ($run) {
   Get-ChildItem "$($run.outputFolder)\*SKU*.json", "$($run.outputFolder)\*SKU*.html" -ErrorAction SilentlyContinue |
+    Where-Object FullName -ne $runFile |
     Where-Object LastWriteTimeUtc -ge $runStartedUtc |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1

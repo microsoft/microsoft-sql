@@ -18,12 +18,13 @@ function Set-BacpacExportCheckpointMetadata {
     [Parameter(Mandatory)] [object] $Database,
     [Parameter(Mandatory)] [string] $SourceServerIdentity,
     [Parameter(Mandatory)] [string] $TargetServerIdentity,
-    [Parameter(Mandatory)] [Guid] $RunId
+    [Parameter(Mandatory)] [Guid] $RunId,
+    [string] $ArtifactPath = $Database.BacpacPath
   )
 
-  $artifact = Get-Item -LiteralPath $Database.BacpacPath -ErrorAction Stop
+  $artifact = Get-Item -LiteralPath $ArtifactPath -ErrorAction Stop
   if ($artifact.PSIsContainer -or $artifact.Length -le 0) {
-    throw "Exported BACPAC is missing or empty: '$($Database.BacpacPath)'."
+    throw "Exported BACPAC is missing or empty: '$ArtifactPath'."
   }
 
   $Database.CheckpointSchemaVersion = $script:BacpacCheckpointSchemaVersion
@@ -36,6 +37,40 @@ function Set-BacpacExportCheckpointMetadata {
   $Database.BacpacSha256 =
     (Get-FileHash -LiteralPath $artifact.FullName -Algorithm SHA256).Hash
   $Database.ExportCompletedAtUtc = [DateTime]::UtcNow
+}
+
+function Publish-BacpacArtifact {
+  param(
+    [Parameter(Mandatory)] [string] $TemporaryPath,
+    [Parameter(Mandatory)] [string] $DestinationPath,
+    [Parameter(Mandatory)] [string] $ExportRootPath,
+    [int] $LockTimeoutSeconds = 30
+  )
+
+  $lockPath = Join-Path -Path $ExportRootPath -ChildPath '.bacpac-export.lock'
+  $lockDeadline = [DateTime]::UtcNow.AddSeconds($LockTimeoutSeconds)
+  $lockStream = $null
+  while ($null -eq $lockStream) {
+    try {
+      $lockStream = [IO.File]::Open(
+        $lockPath,
+        [IO.FileMode]::OpenOrCreate,
+        [IO.FileAccess]::ReadWrite,
+        [IO.FileShare]::None
+      )
+    } catch [IO.IOException] {
+      if ([DateTime]::UtcNow -ge $lockDeadline) {
+        throw "Timed out waiting for the BACPAC export-root lock '$lockPath'."
+      }
+      Start-Sleep -Milliseconds 200
+    }
+  }
+
+  try {
+    [IO.File]::Move($TemporaryPath, $DestinationPath, $false)
+  } finally {
+    $lockStream.Dispose()
+  }
 }
 
 function Get-BacpacExportResumeValidation {
