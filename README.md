@@ -32,7 +32,7 @@ The marketplace name is `microsoft-sql`. Install coordinates use
 | Plugin | Install coordinate | Version | Skills | Use it for |
 | --- | --- | ---: | ---: | --- |
 | [`microsoft-sql`](plugins/microsoft-sql/) | `microsoft-sql@microsoft-sql` | 1.0.1 | 57 | The complete Azure SQL Database collection for users driving an agent directly |
-| [`microsoft-sql-vscode`](plugins/microsoft-sql-vscode/) | `microsoft-sql-vscode@microsoft-sql` | 0.1.1 | 23 | Application development in Visual Studio Code with the MSSQL extension |
+| [`microsoft-sql-vscode`](plugins/microsoft-sql-vscode/) | `microsoft-sql-vscode@microsoft-sql` | 0.2.0 | 36 | Application development and database lifecycle work in Visual Studio Code with the MSSQL extension |
 | [`microsoft-sql-ssms`](plugins/microsoft-sql-ssms/) | `microsoft-sql-ssms@microsoft-sql` | 0.1.1 | 15 | Database administration in SQL Server Management Studio |
 | [`microsoft-sql-migration`](plugins/microsoft-sql-migration/) | `microsoft-sql-migration@microsoft-sql` | 1.1.2 | 12 | Assessing, planning, executing, and validating SQL Server to Azure migrations |
 | [`microsoft-sql-fdh`](plugins/microsoft-sql-fdh/) | `microsoft-sql-fdh@microsoft-sql` | 0.1.0 | 1 | Read-only Fabric Database Hub inventory, health, and security posture |
@@ -68,12 +68,15 @@ The complete 57-skill bundle covers:
 
 ### `microsoft-sql-vscode`: MSSQL extension curation
 
-The 23-skill VS Code bundle focuses on application development:
+The 36-skill VS Code bundle covers application development and database lifecycle work:
 
 - connections and drivers for .NET, Python, TypeScript, and Node.js;
 - EF Core, Prisma, SQLAlchemy, schema design, and database projects;
 - T-SQL correctness, JSON, upserts, and injection prevention;
-- Microsoft Entra authentication;
+- Microsoft Entra authentication and row-level security;
+- Query Store, execution plans, blocking, deadlocks, resource pressure, and Extended Events;
+- Azure SQL Database and Hyperscale provisioning, bulk loading, SqlPackage, restore, and recovery;
+- application deployment and GitHub Actions;
 - vectors, embeddings, RAG, LangChain, and LlamaIndex;
 - Azure Functions SQL bindings;
 - dev-container templates and safe schema migrations; and
@@ -83,7 +86,7 @@ It deliberately excludes `dab-rest-and-graphql`, `azuresql-db-dab`, and the broa
 `build-app-on-azure-sql` router so the plugin does not compete with tools already supplied by
 the MSSQL extension.
 
-[View the exact 23-skill list](plugins/microsoft-sql-vscode/README.md).
+[View the exact 36-skill list](plugins/microsoft-sql-vscode/README.md).
 
 ### `microsoft-sql-ssms`: database administrator curation
 
