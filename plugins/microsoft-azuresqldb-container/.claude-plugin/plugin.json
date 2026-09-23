@@ -1,0 +1,24 @@
+{
+  "name": "microsoft-azuresqldb-container",
+  "displayName": "Microsoft Azure SQL Database container",
+  "version": "1.1.0",
+  "description": "Seventeen skills for developing with the Azure SQL Database container: run and troubleshoot the local engine, connect securely, migrate from the SQL Server image, move local workloads to Azure, manage schema and data, build RAG and APIs, scaffold applications, and run integration tests in CI.",
+  "author": {
+    "name": "Microsoft"
+  },
+  "homepage": "https://microsoft.github.io/azure-sql-database-container/",
+  "repository": "https://github.com/microsoft/microsoft-sql",
+  "license": "MIT",
+  "keywords": [
+    "microsoft-sql",
+    "azure-sql",
+    "database",
+    "container",
+    "docker",
+    "podman",
+    "local-development",
+    "ci",
+    "rag",
+    "vector-search"
+  ]
+}

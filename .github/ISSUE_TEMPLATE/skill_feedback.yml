@@ -19,6 +19,7 @@ body:
       description: Choose the installed bundle. Pick marketplace or installation if no plugin loaded.
       options:
         - microsoft-sql
+        - microsoft-azuresqldb-container
         - microsoft-sql-vscode
         - microsoft-sql-ssms
         - microsoft-sql-migration

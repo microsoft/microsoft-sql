@@ -1,0 +1,131 @@
+---
+name: azuresql-db-faq
+description: >-
+  Answers questions about what the Azure SQL Database container (Private Preview)
+  can and cannot do, and WHY it differs from Azure SQL Database in the Microsoft
+  Azure cloud. Use when a user asks "can I take a backup", "why does USE fail",
+  "is X supported", "why can't I create a vector index", "why does SSMS error",
+  "why isn't the image on Docker Hub", "what's different from the cloud", or hits
+  behavior that does not match their Azure SQL Database expectations. Do NOT guess
+  from general SQL Server / Azure knowledge: the container is a Private Preview
+  product with specific gaps and a specific connection model. Read this skill,
+  and link the user to the live Known limitations page for the current full list.
+---
+
+# The Azure SQL Database container: capabilities, limits, and why
+
+Use this skill to answer "can I / why can't I / is X supported / what's different
+from the cloud" questions accurately, instead of guessing from general SQL Server
+or Azure SQL Database knowledge. A base model does not know this preview product's
+specifics, and the honest answers are often nuanced.
+
+Re-measured on 2026-09-19 against the container image tag `18.0.226_4_147`, reporting
+`EngineEdition` 5, Edition `SQL Azure`, build `12.0.2000.8`. All seven executable checks
+behind this skill pass: the engine identity, `Msg 40510` for `BACKUP` and for `RESTORE`,
+`Msg 40508` for `USE`, `Msg 33233` for a contained user, `Msg 12824` for `SET CONTAINMENT =
+PARTIAL`, and `Msg 12713` for `BULK INSERT` from a local file. **Two of those numbers were
+wrong before that date**: this skill printed `Msg 15007` and `Msg 12844`. Both statements
+are still refused, so the answers are unchanged and only the numbers are. The gap list this skill summarises tracks the
+published Known limitations page, which moves independently of that run, so read the live page
+before repeating a gap claim.
+
+## The mental model: engine vs. managed service vs. SQL Server
+
+The container is the **Azure SQL Database engine, running locally**. It is not the
+managed cloud service, and it is not SQL Server. Sort almost any
+"is X supported" question into one of four buckets and the answer follows:
+
+1. **Engine features -> present.** T-SQL dialect, system views, `VECTOR` type and
+   `VECTOR_DISTANCE`, Always Encrypted (basic).
+   `SERVERPROPERTY('EngineEdition')` returns `5`, `Edition` is `'SQL Azure'`.
+2. **Managed-service features -> NOT present.** Automated backups, point-in-time
+   restore, geo-replication, elastic pools, hyperscale, serverless auto-pause,
+   per-database DTU/vCore caps, audit-to-cloud, and Azure portal / CLI / ARM
+   management. These wrap the engine in the cloud; the container is only the engine.
+3. **SQL Server-only features -> intentionally absent** (they are not in Azure
+   SQL Database either): SQL Agent jobs, FILESTREAM / FileTable, full cross-instance
+   Service Broker, linked servers, cross-server distributed transactions, Windows
+   Authentication / NTLM.
+4. **In-progress in this preview -> works with a caveat:** the VS Code MSSQL
+   extension UI and SSMS, and full PaaS restriction enforcement, are still being
+   completed. `CREATE VECTOR INDEX` used to belong here and no longer does: it
+   works, and the Known limitations page says so. See below.
+
+## Most-asked questions (quick answers)
+
+- **"Can I run this container in Azure / in production?"** No. It is your local inner loop (development, testing, CI, demos), not a production database. For production, deploy the same code to Azure SQL Database in the Microsoft Azure cloud (the outer loop), usually by changing only the connection string. You do not run this container in Azure.
+- **"Can I take a backup?"** No: `BACKUP DATABASE` and `RESTORE DATABASE` return **Msg 40510 ("not supported in this version")** on the container, in every session. Azure SQL Database in the cloud likewise does not support them, because backups there are managed by the platform (not run with the `BACKUP` statement). For local data persistence, use a Docker named volume (`-v sqldb-data:/var/opt/mssql`); for managed backups, point-in-time restore, or geo-replication, use Azure SQL Database in the cloud.
+- **"Why does `USE otherdb` fail with Msg 40508?"** Because a connection to a user database is an Azure-faithful session that enforces the same restriction as Azure SQL Database in the cloud. Select the database in the connection string (`Database=appdb`), do not switch with `USE`. (`USE` "works" only on a `master` connection, which is a provisioning session.)
+- **"Why does connecting fail until I create the database?"** The engine does **not** auto-create databases on connect. Provision once on a `master` connection (`CREATE DATABASE appdb`), then connect with `Database=appdb`.
+- **"Is a non-x64 host supported? / Is there an ARM64 build?"** The image is x64 only; there is no native ARM64 build. On an ARM64 host it runs under emulation: add `--platform linux/amd64` (Docker) or `platform: linux/amd64` (compose). Say "runs under emulation", never "ARM64 is supported", and do not promise a native build or a date. If the user wants one, point them at https://aka.ms/azuresqldb-container-feature-request.
+- **"Why can't I `CREATE VECTOR INDEX`?"** You probably can, and this is a place where the documentation and the engine disagree. The Known limitations page still lists vector index DDL as an active issue; measured on this image, the DiskANN index builds and `VECTOR_SEARCH` returns ranked results against it. Two things stop the statement: `SET QUOTED_IDENTIFIER ON` is required and is off by default in `sqlcmd` (without it, **Msg 1934**, whose text never names the setting), and the table needs at least **100 rows with non-null vectors** (below that, **Msg 42266**). Once the index exists, `TRUNCATE TABLE` on that table is refused (**Msg 42232**) and `DROP VECTOR INDEX` is not a statement (use `DROP INDEX name ON dbo.table`). Full-scan top-k stays exact and stays the right choice for a small table. Full detail: the `azuresql-db-rag` skill.
+- **"Is Microsoft Entra ID (Azure AD) authentication supported?"** Yes. Configure it with `MSSQL_AAD_CLIENT_ID`, `MSSQL_AAD_PRIMARY_TENANT`, and `MSSQL_AAD_CERTIFICATE_FILE_PATH` plus a mounted `.pfx` (empty export password). Optionally set `MSSQL_AAD_SERVER_ADMIN_NAME`, `MSSQL_AAD_SERVER_ADMIN_TYPE` (`0` = user, `1` = group), and `MSSQL_AAD_SERVER_ADMIN_SID` to bootstrap an Entra server admin at start. SQL auth (`sa`) remains the simple local default. Open `references/entra-auth.md` in the `azuresql-db-container` skill before configuring any of this. Also see [Getting started: Microsoft Entra ID authentication](https://microsoft.github.io/azure-sql-database-container/getting-started.html#microsoft-entra-id-authentication).
+- **"Why does SSMS / the MSSQL extension throw errors?"** Graphical tooling is not yet 100% compatible; it is being fixed. Use `sqlcmd` or a driver, which work today; the **azuresql-db-container** skill has the command line. The MSSQL extension's GitHub Copilot integration also works (https://aka.ms/vscode-mssql-copilot-docs).
+- **"Why isn't the image on Docker Hub / MCR?"** This is a container-only Private Preview; the image is in a private registry with shared pull-only credentials provided when you sign up for the Private Preview at https://aka.ms/sqldbcontainerpreview-signup (they may rotate).
+- **"My engine is missing a recent fix, or behaves like an older build."** `:latest` is a moving tag and the image is rebuilt almost daily, but `docker run` reuses the copy already on disk (Docker's default pull policy is `missing`), so you can silently stay on a stale build. Refresh with `docker pull sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, then recreate the container. See the `azuresql-db-container` skill's image reference.
+- **"My query works locally but fails in the cloud."** Some PaaS restrictions are not yet enforced by the container, so something invalid in the cloud can succeed locally. Validate against a real Azure SQL Database once before declaring readiness (the `azuresql-db-local-to-cloud` skill can provision a target for a one-shot check).
+- **"Why does `CREATE USER ... WITH PASSWORD` fail when I make an app user?"** On the container a SQL contained user fails with **Msg 33233**, and you cannot turn containment on: `ALTER DATABASE ... SET CONTAINMENT = PARTIAL` fails with **Msg 12824**, which asks for an `sp_configure` setting that this engine does not have. Create a server login plus a mapped user instead: `CREATE LOGIN applogin WITH PASSWORD='...'` on `master`, then `CREATE USER appuser FOR LOGIN applogin` + role grants on `appdb`. This is inverted from the cloud (where contained users are preferred). Entra `CREATE USER ... FROM EXTERNAL PROVIDER` does work, but only on a container started with Entra configured (`MSSQL_AAD_*`). Against a container started without it the same statement is refused with **Msg 33134**, "Principal '...' could not be resolved. Error message: 'Unable to query Azure AD certificate from local cert store.'" Full recipe: the `azuresql-db-auth` skill.
+
+Open [references/faq.md](references/faq.md) when the quick answers above do not cover the
+question, and [references/limitations.md](references/limitations.md) when the user needs the
+current gap list with a workaround.
+
+## Always do
+
+- Answer from this skill, not from general SQL Server / Azure knowledge.
+- When the question is about a current gap, give the workaround and point to the
+  live, always-current list: https://microsoft.github.io/azure-sql-database-container/known-limitations.html
+- Distinguish "the engine does not do this" (a real gap) from "the managed cloud
+  service does this, the engine does not" (by design) from "SQL Server does
+  this, Azure SQL Database does not" (intentionally absent).
+- If this skill's answer was wrong, outdated, or missing, that is a bug in this skill: load the **azuresql-db-feedback** skill and offer to file a report.
+
+## Never do
+
+- Never claim a managed-service feature (automated backup, PITR, geo-replication,
+  elastic pools, portal management) exists on the container.
+- Never tell a user a non-x64 host is "supported"; it runs under emulation.
+- Never claim `BACKUP DATABASE` / `RESTORE DATABASE` work on the container; they return Msg 40510. (Azure SQL Database in the cloud likewise does not support them.) Use a Docker named volume for local persistence.
+
+## Validation rules
+
+- The answer came from this skill, not from general SQL Server or Azure knowledge.
+- The answer names which of the three it is talking about: the container, Azure SQL Database in the cloud, or SQL Server. A claim that does not say which one is not an answer.
+- Any error number quoted appears in this skill, or in the full question list, which you open when the quick answers do not cover it. An invented message number is worse than saying you do not know.
+- A gap claim was checked against the live limitations page before it was stated, since that list moves and this skill carries a snapshot.
+- The answer says "runs under emulation" for a non-x64 host, and never "supported".
+- If the question needed a command line rather than an answer, the user was handed to the skill that owns it rather than given a recipe from here.
+
+## Minimum tool versions
+
+Use only the tools needed by the selected recipe, at or above these minimum tested versions:
+
+- **`sqlcmd`**: go-sqlcmd 1.10.0
+
+Verify the installed commands before changing resources:
+
+```bash
+sqlcmd --version
+```
+
+A missing command, an older version, or a nonzero version check is a prerequisite failure.
+
+## Check it worked
+
+- **Positive verification:** Run the command or query named in the selected answer and compare its output with the answer’s stated result.
+- **Cleanup verification:** Remove any temporary database, container, files, or identities created only to verify the answer.
+- Report success only after both observations pass.
+
+## References
+
+- [references/faq.md](references/faq.md): the full question-and-answer list with the "why" behind each capability and gap, grouped by bucket; read it when the quick answers above do not cover the question.
+- [references/limitations.md](references/limitations.md): an offline snapshot of the known limitations (active issues, behavior gaps, out-of-scope items); read it when the user needs the current gap list and a workaround.
+
+## Staying current
+
+Authoritative, version-pinned references for the tools this skill uses (read the one you need):
+
+- [Connect and query Azure SQL Database](https://learn.microsoft.com/en-us/azure/azure-sql/database/connect-query-content-reference-guide): per-language quickstarts, connection info, TLS, and drivers for the cloud service.
+- [VECTOR data type (T-SQL)](https://learn.microsoft.com/en-us/sql/t-sql/data-types/vector-data-type): VECTOR(n) syntax, limits, and driver support.
+
+If the **Microsoft Learn MCP** server is configured, use `mcp__microsoft-learn__microsoft_docs_search` or `mcp__microsoft-learn__microsoft_docs_fetch` to fetch the current version of any of these on demand. It is optional; when it is unavailable, the references above are authoritative.

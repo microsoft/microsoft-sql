@@ -12,7 +12,7 @@ migration, and Fabric Database Hub estate observability.
 [![Documentation](https://img.shields.io/badge/Documentation-blue?logo=microsoft)](https://learn.microsoft.com/sql/)
 [![Agent Plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-8A2BE2?logo=github)](https://agent-plugins.org/specification)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-spec-brightgreen?logo=github)](https://agentskills.io/)
-[![Plugins](https://img.shields.io/badge/Plugins-5-0078D4)](#choose-a-plugin)
+[![Plugins](https://img.shields.io/badge/Plugins-6-0078D4)](#choose-a-plugin)
 [![Unique skills](https://img.shields.io/badge/Unique%20skills-70-107C10)](#choose-a-plugin)
 [![Discussions](https://img.shields.io/badge/Discussions-blueviolet?logo=github)](../../discussions)
 
@@ -20,7 +20,7 @@ Agent skills are folders of instructions and references that an agent discovers 
 the task calls for them. Install a plugin once, then ask for what you need in your own words.
 There is no special prompt syntax to remember.
 
-This repository is the installable `microsoft-sql` marketplace. It contains five portable
+This repository is the installable `microsoft-sql` marketplace. It contains six portable
 [Agent Plugins 1.0](https://agent-plugins.org/specification) packages with compatibility
 descriptors for GitHub Copilot, Claude Code, Codex, Cursor, and Grok Build.
 
@@ -31,7 +31,8 @@ The marketplace name is `microsoft-sql`. Install coordinates use
 
 | Plugin | Install coordinate | Version | Skills | Use it for |
 | --- | --- | ---: | ---: | --- |
-| [`microsoft-sql`](plugins/microsoft-sql/) | `microsoft-sql@microsoft-sql` | 1.0.1 | 57 | The complete Azure SQL Database collection for users driving an agent directly |
+| [`microsoft-sql`](plugins/microsoft-sql/) | `microsoft-sql@microsoft-sql` | 1.0.2 | 57 | The complete Azure SQL Database collection for users driving an agent directly |
+| [`microsoft-azuresqldb-container`](plugins/microsoft-azuresqldb-container/) | `microsoft-azuresqldb-container@microsoft-sql` | 1.1.0 | 17 | Local development and CI with the Azure SQL Database container |
 | [`microsoft-sql-vscode`](plugins/microsoft-sql-vscode/) | `microsoft-sql-vscode@microsoft-sql` | 0.2.0 | 36 | Application development and database lifecycle work in Visual Studio Code with the MSSQL extension |
 | [`microsoft-sql-ssms`](plugins/microsoft-sql-ssms/) | `microsoft-sql-ssms@microsoft-sql` | 0.1.1 | 15 | Database administration in SQL Server Management Studio |
 | [`microsoft-sql-migration`](plugins/microsoft-sql-migration/) | `microsoft-sql-migration@microsoft-sql` | 1.1.2 | 12 | Assessing, planning, executing, and validating SQL Server to Azure migrations |
@@ -46,8 +47,12 @@ Normally install **one** of those three:
 - Choose `microsoft-sql-ssms` for database administration. It omits application frameworks,
   serverless bindings, Data API Builder, RAG, and app-scaffolding skills.
 
+`microsoft-azuresqldb-container` is the focused local-container subset. Its 17 skills are already
+included in `microsoft-sql`, so do not install those two together when testing routing. It can be
+installed alongside the VS Code or SSMS curation when that host also needs container workflows.
+
 `microsoft-sql-migration` and `microsoft-sql-fdh` are separate workflow plugins and can be
-installed alongside any of the three Azure SQL bundles.
+installed alongside any Azure SQL bundle.
 
 ### `microsoft-sql`: complete collection
 
@@ -65,6 +70,24 @@ The complete 57-skill bundle covers:
 - the full Azure SQL Database container workflow.
 
 [View all 57 skills and descriptions](plugins/microsoft-sql/README.md).
+
+### `microsoft-azuresqldb-container`: local Azure SQL Database
+
+The 17-skill container bundle covers:
+
+- starting, provisioning, refreshing, and troubleshooting the local engine;
+- Docker, Podman, Compose, Dev Container, sidecar, and CI workflows;
+- secure application connections, authentication, schema migration, seeding, and testing;
+- migrating from the SQL Server image and moving a local workload to Azure SQL Database;
+- importing databases and managing local-to-cloud parity;
+- Data API Builder and Azure Functions development; and
+- local vector search and retrieval-augmented generation.
+
+The container is for local development and CI, not production hosting. It is the Azure SQL
+Database engine and reports `SERVERPROPERTY('EngineEdition') = 5`; it is not the SQL Server
+container image.
+
+[View all 17 container skills](plugins/microsoft-azuresqldb-container/README.md).
 
 ### `microsoft-sql-vscode`: MSSQL extension curation
 
@@ -280,9 +303,11 @@ silently treat Azure SQL Managed Instance, Fabric SQL, or self-managed SQL Serve
 product. Local development guidance targets the Azure SQL Database container, where
 `SERVERPROPERTY('EngineEdition')` returns `5`.
 
-SQL Server appears as a migration source in `microsoft-sql-migration`. Fabric Database Hub is
-owned by `microsoft-sql-fdh`. When a request crosses a product boundary, the skills route to the
-owning capability or state that it is not installed rather than inventing support.
+The local Azure SQL Database container is owned by `microsoft-azuresqldb-container` and is also
+included in the complete `microsoft-sql` bundle. SQL Server appears as a migration source in
+`microsoft-sql-migration`. Fabric Database Hub is owned by `microsoft-sql-fdh`. When a request
+crosses a product boundary, the skills route to the owning capability or state that it is not
+installed rather than inventing support.
 
 This boundary matters. SQL features, limits, and management operations vary across products, and
 confidently transferring guidance from one engine to another is exactly the kind of error these
@@ -297,6 +322,7 @@ skills are designed to prevent.
 .github/plugin/marketplace.json        GitHub Copilot marketplace
 plugins/
   microsoft-sql/
+  microsoft-azuresqldb-container/
   microsoft-sql-vscode/
   microsoft-sql-ssms/
   microsoft-sql-migration/

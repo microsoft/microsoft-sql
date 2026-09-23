@@ -1,0 +1,321 @@
+---
+name: azuresql-db-local-to-cloud
+description: >-
+  Proves that code built and tested against the local Azure SQL Database
+  container runs unchanged against Azure SQL Database in the cloud, with only
+  the connection string changing. Use when a user wants to develop locally then
+  deploy to the cloud, asks "will this work in Azure", "same code local and
+  cloud", "promote to Azure SQL", "swap the connection string", "dev/prod
+  parity", "local to cloud", or is wiring SQL_CONNECTION_STRING for an app that
+  must target both the container and a cloud server. Use this when an app uses
+  local SA auth but needs Microsoft Entra auth in the cloud. Covers Node (mssql),
+  .NET (Microsoft.Data.SqlClient), and Python (pyodbc). Reach for this skill
+  before hand-editing app code to "make it work in Azure"; the rule is the code
+  does not change, only the connection string does.
+---
+
+# From the Azure SQL Database container to Azure SQL Database: same code, local to cloud
+
+Build and test against the local container, then deploy the
+**same application code** to Azure SQL Database in the cloud. Only the
+connection string changes. Nothing else.
+
+This works because the local container is the **Azure SQL Database engine**, not
+the SQL Server image. `SELECT SERVERPROPERTY('EngineEdition')` returns `5`
+and `SERVERPROPERTY('Edition')` returns `'SQL Azure'`, the same as the cloud. So
+the SQL surface your code depends on is the same in both places.
+
+Verified on 2026-09-05 against the container image
+`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
+5, Edition `SQL Azure`, build `12.0.2000.8`. All six executable checks behind this skill
+passed on the container: the engine identity, `Msg 40508` for `USE`, `Msg 40510` for `BACKUP`
+and `RESTORE`, a parameterised insert with `OUTPUT inserted.id`, the single-database model,
+and `sqlcmd` at `/opt/mssql-tools18/bin/sqlcmd`. That run measured the container only. The
+cloud half of the parity claim, and the Microsoft Entra ID and managed identity setup for it,
+was not exercised there, so validate against a real Azure SQL Database once before declaring
+readiness.
+
+## The one rule
+
+**Do not change application code between local and cloud.** The application reads
+its connection string from a single environment variable, `SQL_CONNECTION_STRING`.
+Local development sets it to the container; cloud deployment sets it to the Azure
+SQL server. Same binaries, same queries, same schema.
+
+If you find yourself editing queries, drivers, or schema to "make it work in
+Azure", stop: that is a bug. The only thing that legitimately differs is the
+connection string (and, with it, the auth method).
+
+## The single env var, two values
+
+Standardize on `SQL_CONNECTION_STRING`. House style spells the keywords
+`User Id=` / `Password=` / `Database=` so every example matches. `Uid=` and
+`Pwd=` are documented SqlClient synonyms and work too. ODBC strings are a
+separate grammar and use `Uid=` / `Pwd=` as their own keywords.
+
+Local (container, SA auth):
+
+```
+Server=localhost,1433;Database=appdb;User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=true
+```
+
+Cloud (Azure SQL Database, Microsoft Entra auth):
+
+```
+Server=your-server.database.windows.net,1433;Database=appdb;Authentication=Active Directory Default;Encrypt=true
+```
+
+Note what stays identical: `Database=appdb`, the table names, the parameterized
+SQL. Only `Server`, the auth fields, and TLS posture move.
+
+## Local SA auth vs cloud Entra auth (why, not just how)
+
+Local: the container is provisioned with one bootstrap login, `sa`, set via the
+`MSSQL_SA_PASSWORD` environment variable. There is no identity provider required
+in front of a container on your laptop, so password auth over a trusted
+self-signed cert (`TrustServerCertificate=true`) is the pragmatic local default.
+
+Microsoft Entra ID authentication **does** work on the container (configure with
+the `MSSQL_AAD_*` variables and a certificate mount; see the
+`azuresql-db-container` skill, `references/entra-auth.md`). Use it when you
+want closer local-to-cloud parity. Most local-to-cloud flows still start with SQL
+auth locally and switch only the connection string for Entra in the cloud.
+
+Cloud: Azure SQL Database sits behind Microsoft Entra ID. Instead of shipping a
+password, the app presents a token from its Entra identity (a managed identity
+in production, your developer sign-in locally against the cloud). The driver
+acquires the token; you never put a secret in the connection string. TLS is
+real and enforced, so use `Encrypt=true` and drop `TrustServerCertificate`.
+
+The application code does not branch on this. The driver reads the
+`Authentication=` keyword (or its absence) from the connection string and does
+the right thing. That is the whole point: auth is configuration, not code.
+
+Open [references/auth-local-vs-cloud.md](references/auth-local-vs-cloud.md) when you are setting
+up the cloud side, since it carries the token flow and the per-stack auth setup.
+
+## Minimal load-bearing facts about the local container
+
+Just enough to run the examples on a fresh container. For full detail see the
+**azuresql-db-container** skill.
+
+- Image: `sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`
+  (x64, `linux/amd64`). Private preview registry: run
+  `docker login sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io` first using the shared
+  pull-only credentials provided to the Private Preview cohort (get them by signing up at https://aka.ms/sqldbcontainerpreview-signup; they may rotate). Registry and tag are
+  provisional during Private Preview.
+- On a non-x64 host, add `--platform linux/amd64`.
+- Required env: `ACCEPT_EULA=Y` and a complex `MSSQL_SA_PASSWORD`
+  (8+ chars, upper/lower/digit/symbol). Engine listens on 1433.
+- **The engine does not auto-create databases.** You must
+  `CREATE DATABASE appdb` on a **master** connection before connecting with
+  `Database=appdb`. The `master` connection is for provisioning only; do real
+  work on `appdb`.
+- `BACKUP` and `RESTORE` are refused in every session with `Msg 40510`, locally
+  exactly as in the cloud. Backing the container up and restoring the file into
+  Azure SQL Database is not a promotion path; move schema and data with
+  SqlPackage (see the **azuresql-db-import** skill).
+- Cross-database queries are refused locally as they are in the cloud, so an
+  application that keeps every object in one user database passes locally for the
+  same reason it will pass against the service.
+- `IDENTITY` columns behave here as they do in the cloud. The examples below use
+  `INT IDENTITY PRIMARY KEY` unchanged against both, which is one of the places a
+  rewrite is usually and needlessly proposed.
+- Avoid `USE` to switch databases. In a user-database session (the
+  Azure-faithful context where you develop), `USE` returns `Msg 40508`, exactly
+  as in Azure SQL Database in the cloud. A `master` connection is a provisioning
+  session where the Azure statement filter is not enforced, so `USE` appears to work there, but `master` is for provisioning
+  only, not application work. Always select the target database in the connection
+  string (`Database=appdb`, or `-d appdb` for sqlcmd).
+
+## Start the container and provision appdb (canonical recipe)
+
+Run this once. It picks a free host port, adds `--platform` only when needed,
+waits for real readiness, and provisions `appdb` inside the retry loop. The
+`-b -l 2` makes a transient startup error (for example `Msg 913`) set the exit
+code so the loop retries instead of masking it.
+
+```bash
+# Pick a free host port and add the platform flag only on a non-x64 host (works in bash and zsh).
+HOST_PORT=1433; while lsof -nP -iTCP:"$HOST_PORT" -sTCP:LISTEN >/dev/null 2>&1; do HOST_PORT=$((HOST_PORT+1)); done
+PLATFORM=(); case "$(docker info -f '{{.Architecture}}' 2>/dev/null)" in x86_64|amd64) ;; *) PLATFORM=(--platform linux/amd64);; esac
+: "${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD before running this recipe}"; export MSSQL_SA_PASSWORD
+docker rm -f sqldb 2>/dev/null
+docker run -d --name sqldb "${PLATFORM[@]}" -e "ACCEPT_EULA=Y" -e MSSQL_SA_PASSWORD \
+  -p "127.0.0.1:$HOST_PORT:1433" sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest
+until SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" docker exec -e SQLCMDPASSWORD sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -l 2 \
+  -Q "IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;" >/dev/null 2>&1; do sleep 2; done
+echo "ready on localhost,$HOST_PORT"
+```
+
+Then point the app at it, using the `HOST_PORT` the loop settled on:
+
+```bash
+export SQL_CONNECTION_STRING="Server=localhost,$HOST_PORT;Database=appdb;User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=true"
+```
+
+To run against the cloud later, change only this variable; do not touch the app.
+
+## What has been measured, and what is guidance
+
+Be straight with the user about which half of this skill has evidence behind it.
+
+The **local half is measured.** Every probe this skill carries runs against the
+container, and they cover the sentences the parity claim rests on: the engine
+reports EngineEdition 5 and Edition `SQL Azure`, `USE` returns `Msg 40508`,
+`BACKUP` returns `Msg 40510`, a cross-database query is refused, and the exact
+CRUD batch the examples below run returns the identity the examples read.
+
+The **cloud half is guidance.** Nothing in this repository has ever run a probe
+against a logical server, so the cloud connection string, the Microsoft Entra
+token flow and the deployment checklist are written from the product's
+documentation and not from a run. That is deliberate rather than a gap waiting
+to be filled: the whole point of the container is that local development does
+not need a cloud database, so requiring one to validate this skill would
+contradict the skill. Say "this is the documented shape" rather than "this is
+verified" when the cloud side comes up.
+
+## Proof: same code, two stacks
+
+Each example assumes `appdb` already exists (provisioned by the recipe above) and
+reads `SQL_CONNECTION_STRING` from the environment. It creates a table if needed
+and runs a **parameterized** CRUD transaction. Run it once with the local string,
+then again with the cloud string: identical code, identical result. The local run
+is the one this skill has evidence for; the cloud run is the one you are being
+told to expect.
+
+### Node (mssql)
+
+```js
+// app.mjs  ->  node app.mjs  (ESM: use the .mjs extension, or set "type":"module" in package.json)
+import sql from 'mssql';
+
+const pool = await sql.connect(process.env.SQL_CONNECTION_STRING);
+const tx = new sql.Transaction(pool);
+await tx.begin();
+try {
+  const r = new sql.Request(tx);
+  await r.query(`IF OBJECT_ID('dbo.todo') IS NULL
+    CREATE TABLE dbo.todo (id INT IDENTITY PRIMARY KEY, title NVARCHAR(200), done BIT);`);
+  // CREATE
+  const ins = await new sql.Request(tx)
+    .input('title', sql.NVarChar, 'ship local-to-cloud')
+    .query('INSERT INTO dbo.todo(title, done) OUTPUT inserted.id VALUES (@title, 0);');
+  const id = ins.recordset[0].id;
+  // UPDATE
+  await new sql.Request(tx)
+    .input('id', sql.Int, id)
+    .query('UPDATE dbo.todo SET done = 1 WHERE id = @id;');
+  // READ
+  const read = await new sql.Request(tx)
+    .input('id', sql.Int, id)
+    .query('SELECT id, title, done FROM dbo.todo WHERE id = @id;');
+  console.log(read.recordset[0]);
+  await tx.commit();
+} catch (e) { await tx.rollback(); throw e; }
+await pool.close();
+```
+
+### .NET (Microsoft.Data.SqlClient)
+
+```csharp
+// Program.cs  ->  dotnet run   (uses Microsoft.Data.SqlClient)
+using Microsoft.Data.SqlClient;
+
+var cs = Environment.GetEnvironmentVariable("SQL_CONNECTION_STRING");
+using var conn = new SqlConnection(cs);
+conn.Open();
+using var tx = conn.BeginTransaction();
+try {
+    new SqlCommand(@"IF OBJECT_ID('dbo.todo') IS NULL
+        CREATE TABLE dbo.todo (id INT IDENTITY PRIMARY KEY, title NVARCHAR(200), done BIT);",
+        conn, tx).ExecuteNonQuery();
+    // CREATE
+    var ins = new SqlCommand(
+        "INSERT INTO dbo.todo(title, done) OUTPUT inserted.id VALUES (@title, 0);", conn, tx);
+    ins.Parameters.AddWithValue("@title", "ship local-to-cloud");
+    int id = (int)ins.ExecuteScalar();
+    // UPDATE
+    var upd = new SqlCommand("UPDATE dbo.todo SET done = 1 WHERE id = @id;", conn, tx);
+    upd.Parameters.AddWithValue("@id", id);
+    upd.ExecuteNonQuery();
+    // READ
+    var sel = new SqlCommand("SELECT id, title, done FROM dbo.todo WHERE id = @id;", conn, tx);
+    sel.Parameters.AddWithValue("@id", id);
+    using var r = sel.ExecuteReader();
+    while (r.Read()) Console.WriteLine($"{r["id"]} {r["title"]} {r["done"]}");
+    tx.Commit();
+} catch { tx.Rollback(); throw; }
+```
+
+### Python (pyodbc) reference
+
+Open [references/auth-local-vs-cloud.md](references/auth-local-vs-cloud.md) when your stack is
+Python, or when you are ready to deploy, because a third stack and the deployment checklist live
+there rather than here.
+
+## Validation rules
+
+- `appdb` must exist before the app connects. Provision it on `master` first
+  (the recipe does this). The engine never auto-creates it.
+- The app reads exactly one connection variable, `SQL_CONNECTION_STRING`.
+- Local string uses SA auth + `TrustServerCertificate=true`; cloud string uses
+  `Authentication=Active Directory Default` + `Encrypt=true`.
+- The .NET-style string spells the keywords `User Id=` / `Password=` / `Database=` as house style. `Uid=` / `Pwd=` are valid synonyms, so they are not a failure. An ODBC string keeps ODBC's own `Uid=` / `Pwd=`.
+- Switching environments changes the connection string only. The diff to app
+  code between local and cloud is zero lines.
+- The cloud half of every rule above is guidance rather than something this
+  skill has run. Do not report it to the user as verified.
+- If a validation rule above fails, or you had to deviate from this skill to make the task work, that is a bug in this skill: load the **azuresql-db-feedback** skill and offer to file a report.
+- When every rule above passes and the task is done, close with ONE line, once per session, and do not ask a question or wait for a reply: "That worked. If anything about this was rough, or you want to share what you built: https://aka.ms/sql-agent-skills-feedback"
+
+## Minimum tool versions
+
+Use only the tools needed by the selected recipe, at or above these minimum tested versions:
+
+- **`sqlpackage`**: SqlPackage 170.4.83.3
+- **`sqlcmd`**: go-sqlcmd 1.10.0
+- **`dotnet`**: .NET SDK 8.0.421
+
+Verify the installed commands before changing resources:
+
+```bash
+sqlpackage /Version
+sqlcmd --version
+dotnet --version
+```
+
+A missing command, an older version, or a nonzero version check is a prerequisite failure.
+
+## Check it worked
+
+- **Positive verification:** Require deployment to complete, then verify cloud schema and selected row counts against the captured stable source snapshot.
+- **Cleanup verification:** Remove temporary export artifacts, staging resources, and test-only cloud resources after comparison.
+- Report success only after both observations pass.
+
+## Do not
+
+- Do not use the SQL Server image `mcr.microsoft.com/mssql/server`. If you
+  were about to, stop and use the image above; this is the Azure SQL engine.
+- Do not connect to `Database=appdb` before creating it on `master`.
+- Do not use `USE appdb` to switch databases; a user-database session returns
+  `Msg 40508`, exactly as in Azure SQL Database in the cloud. Select the target
+  database in the connection string (`Database=appdb`, or `-d appdb` for sqlcmd).
+- Do not put a password or secret in the cloud connection string; use Entra
+  auth and let the driver fetch a token.
+- Do not branch app logic on environment; keep auth in configuration.
+- Do not call a non-x64 host "supported"; on a non-x64 host just add
+  `--platform linux/amd64`.
+
+## References
+
+- [references/auth-local-vs-cloud.md](references/auth-local-vs-cloud.md): why local SA auth and cloud Microsoft Entra auth differ, the token flow, per-stack auth setup, the Python (pyodbc) example, and the deployment checklist. Read it when wiring the cloud connection string or promoting an app to Azure.
+
+## Staying current
+
+Authoritative, version-pinned references for the tools this skill uses (read the one you need):
+
+- [Connect and query Azure SQL Database](https://learn.microsoft.com/en-us/azure/azure-sql/database/connect-query-content-reference-guide): per-language quickstarts, connection info, TLS, and drivers for the cloud service.
+- [SqlConnection connection string keywords](https://learn.microsoft.com/en-us/dotnet/api/microsoft.data.sqlclient.sqlconnection.connectionstring): the full connection-string keyword table.
+
+If the **Microsoft Learn MCP** server is configured, use `mcp__microsoft-learn__microsoft_docs_search` or `mcp__microsoft-learn__microsoft_docs_fetch` to fetch the current version of any of these on demand. It is optional; when it is unavailable, the references above are authoritative.
