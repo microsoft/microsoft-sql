@@ -5,8 +5,8 @@
     "url": "https://github.com/microsoft/microsoft-sql"
   },
   "metadata": {
-    "description": "Microsoft SQL agent skill plugins for direct use, the Azure SQL Database container, Visual Studio Code, SQL Server Management Studio, SQL Server to Azure migration, and Fabric Database Hub estate observability.",
-    "version": "2.1.0"
+    "description": "Microsoft SQL agent skill plugins for direct use, the Azure SQL Database container, Visual Studio Code, SQL Server to Azure migration, and Fabric Database Hub estate observability.",
+    "version": "3.0.0"
   },
   "plugins": [
     {
@@ -35,13 +35,6 @@
       "description": "Twelve skills curated for assessing, planning, executing and validating SQL Server to Azure migrations: recommend a migration path, generate a prerequisite plan, run or retrieve Azure Arc migration assessments, evaluate offline readiness, size an Azure SQL SKU from performance data, analyze readiness across an estate, migrate with backup/restore to SQL Server on Azure VM, BACPAC to Azure SQL Database, or Log Replay Service to Azure SQL Managed Instance, and validate data after migration.",
       "version": "1.1.2",
       "source": "./plugins/microsoft-sql-migration",
-      "category": "Databases"
-    },
-    {
-      "name": "microsoft-sql-ssms",
-      "description": "Fifteen skills curated for database administration with SQL Server Management Studio: diagnosing slow queries, blocking and resource pressure, reading execution plans, capturing Extended Events, restoring after data loss, row-level security, passwordless access, provisioning, and bulk data movement. Application frameworks, serverless bindings, Data API Builder, and AI development skills are omitted.",
-      "version": "0.1.1",
-      "source": "./plugins/microsoft-sql-ssms",
       "category": "Databases"
     },
     {

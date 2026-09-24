@@ -4,8 +4,8 @@
     "name": "Microsoft Database Systems",
     "url": "https://github.com/microsoft/microsoft-sql"
   },
-  "description": "Microsoft SQL agent skill plugins for direct use, the Azure SQL Database container, Visual Studio Code, SQL Server Management Studio, SQL Server to Azure migration, and Fabric Database Hub estate observability.",
-  "version": "2.1.0",
+  "description": "Microsoft SQL agent skill plugins for direct use, the Azure SQL Database container, Visual Studio Code, SQL Server to Azure migration, and Fabric Database Hub estate observability.",
+  "version": "3.0.0",
   "metadata": {
     "pluginRoot": "./plugins"
   },
@@ -104,28 +104,6 @@
         "bacpac",
         "backup-restore",
         "data-validation"
-      ],
-      "category": "Databases"
-    },
-    {
-      "name": "microsoft-sql-ssms",
-      "displayName": "Microsoft SQL for SQL Server Management Studio",
-      "source": "./plugins/microsoft-sql-ssms",
-      "description": "Fifteen skills curated for database administration with SQL Server Management Studio: diagnosing slow queries, blocking and resource pressure, reading execution plans, capturing Extended Events, restoring after data loss, row-level security, passwordless access, provisioning, and bulk data movement. Application frameworks, serverless bindings, Data API Builder, and AI development skills are omitted.",
-      "version": "0.1.1",
-      "author": {
-        "name": "Microsoft"
-      },
-      "repository": "https://github.com/microsoft/microsoft-sql",
-      "keywords": [
-        "microsoft-sql",
-        "azure-sql",
-        "ssms",
-        "database-administration",
-        "diagnostics",
-        "query-store",
-        "extended-events",
-        "security"
       ],
       "category": "Databases"
     },

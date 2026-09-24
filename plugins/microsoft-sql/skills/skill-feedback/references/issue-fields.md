@@ -59,7 +59,6 @@ drift; see
 ```
 microsoft-sql
 microsoft-sql-vscode
-microsoft-sql-ssms
 microsoft-sql-migration
 microsoft-sql-fdh
 Marketplace or installation as a whole
