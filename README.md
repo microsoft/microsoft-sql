@@ -12,7 +12,7 @@ migration, and Fabric Database Hub estate observability.
 [![Documentation](https://img.shields.io/badge/Documentation-blue?logo=microsoft)](https://learn.microsoft.com/sql/)
 [![Agent Plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-8A2BE2?logo=github)](https://agent-plugins.org/specification)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-spec-brightgreen?logo=github)](https://agentskills.io/)
-[![Plugins](https://img.shields.io/badge/Plugins-6-0078D4)](#choose-a-plugin)
+[![Plugins](https://img.shields.io/badge/Plugins-5-0078D4)](#choose-a-plugin)
 [![Unique skills](https://img.shields.io/badge/Unique%20skills-70-107C10)](#choose-a-plugin)
 [![Discussions](https://img.shields.io/badge/Discussions-blueviolet?logo=github)](../../discussions)
 
@@ -20,7 +20,7 @@ Agent skills are folders of instructions and references that an agent discovers 
 the task calls for them. Install a plugin once, then ask for what you need in your own words.
 There is no special prompt syntax to remember.
 
-This repository is the installable `microsoft-sql` marketplace. It contains six portable
+This repository is the installable `microsoft-sql` marketplace. It contains five portable
 [Agent Plugins 1.0](https://agent-plugins.org/specification) packages with compatibility
 descriptors for GitHub Copilot, Claude Code, Codex, Cursor, and Grok Build.
 
@@ -34,22 +34,19 @@ The marketplace name is `microsoft-sql`. Install coordinates use
 | [`microsoft-sql`](plugins/microsoft-sql/) | `microsoft-sql@microsoft-sql` | 1.0.2 | 57 | The complete Azure SQL Database collection for users driving an agent directly |
 | [`microsoft-azuresqldb-container`](plugins/microsoft-azuresqldb-container/) | `microsoft-azuresqldb-container@microsoft-sql` | 1.1.0 | 17 | Local development and CI with the Azure SQL Database container |
 | [`microsoft-sql-vscode`](plugins/microsoft-sql-vscode/) | `microsoft-sql-vscode@microsoft-sql` | 0.2.0 | 36 | Application development and database lifecycle work in Visual Studio Code with the MSSQL extension |
-| [`microsoft-sql-ssms`](plugins/microsoft-sql-ssms/) | `microsoft-sql-ssms@microsoft-sql` | 0.1.1 | 15 | Database administration in SQL Server Management Studio |
 | [`microsoft-sql-migration`](plugins/microsoft-sql-migration/) | `microsoft-sql-migration@microsoft-sql` | 1.1.2 | 12 | Assessing, planning, executing, and validating SQL Server to Azure migrations |
 | [`microsoft-sql-fdh`](plugins/microsoft-sql-fdh/) | `microsoft-sql-fdh@microsoft-sql` | 0.1.0 | 1 | Read-only Fabric Database Hub inventory, health, and security posture |
 
-`microsoft-sql-vscode` and `microsoft-sql-ssms` are curated subsets of `microsoft-sql`.
-Normally install **one** of those three:
+`microsoft-sql-vscode` is a curated subset of `microsoft-sql`.
+Normally install **one** of those two:
 
 - Choose `microsoft-sql` for a general-purpose terminal or coding agent.
 - Choose `microsoft-sql-vscode` for the MSSQL extension. It omits Data API Builder skills that
   overlap with agent tools supplied by the extension.
-- Choose `microsoft-sql-ssms` for database administration. It omits application frameworks,
-  serverless bindings, Data API Builder, RAG, and app-scaffolding skills.
 
 `microsoft-azuresqldb-container` is the focused local-container subset. Its 17 skills are already
 included in `microsoft-sql`, so do not install those two together when testing routing. It can be
-installed alongside the VS Code or SSMS curation when that host also needs container workflows.
+installed alongside the VS Code curation when that host also needs container workflows.
 
 `microsoft-sql-migration` and `microsoft-sql-fdh` are separate workflow plugins and can be
 installed alongside any Azure SQL bundle.
@@ -110,23 +107,6 @@ It deliberately excludes `dab-rest-and-graphql`, `azuresql-db-dab`, and the broa
 the MSSQL extension.
 
 [View the exact 36-skill list](plugins/microsoft-sql-vscode/README.md).
-
-### `microsoft-sql-ssms`: database administrator curation
-
-The 15-skill SSMS bundle focuses on operating databases:
-
-- slow-query, blocking, deadlock, connection, and resource-pressure diagnosis;
-- execution plans and database-scoped Extended Events;
-- restore, recovery, and row-level security;
-- injection prevention and Microsoft Entra authentication;
-- Azure SQL Database and Hyperscale provisioning;
-- bulk loading and SqlPackage import/export; and
-- skill feedback.
-
-It leaves application frameworks, Azure Functions, Data API Builder, RAG, and app scaffolding
-to development-focused hosts.
-
-[View the exact 15-skill list](plugins/microsoft-sql-ssms/README.md).
 
 ### `microsoft-sql-migration`: SQL Server to Azure
 
@@ -249,13 +229,13 @@ copy the selected plugin to `~/.grok/plugins/<plugin-name>`.
 
 SSMS 22.7 or later discovers Agent Skills rather than installing the marketplace directly. Install
 the **AI Assistance** workload, enable Agent mode, and copy the contents of
-`plugins/microsoft-sql-ssms/skills/` to one documented skill root:
+`plugins/microsoft-sql/skills/` to one documented skill root:
 
 - workspace: `.github/skills/`, `.claude/skills/`, or `.agents/skills/`;
 - personal: `~/.copilot/skills/`, `~/.claude/skills/`, or `~/.agents/skills/`.
 
-Use only one location to avoid duplicates. Open **Tools > Skills** in Copilot Chat and confirm all
-15 curated skills are visible.
+Use only one location to avoid duplicates. Open **Tools > Skills** in Copilot Chat and confirm the
+complete collection is visible.
 
 ### Local checkout for any supported client
 
@@ -298,7 +278,7 @@ Assess performance and security posture across my Fabric Database Hub estate.
 
 ## Scope
 
-The complete, VS Code, and SSMS plugins primarily target **Azure SQL Database**. They do not
+The complete and VS Code plugins primarily target **Azure SQL Database**. They do not
 silently treat Azure SQL Managed Instance, Fabric SQL, or self-managed SQL Server as the same
 product. Local development guidance targets the Azure SQL Database container, where
 `SERVERPROPERTY('EngineEdition')` returns `5`.
@@ -324,7 +304,6 @@ plugins/
   microsoft-sql/
   microsoft-azuresqldb-container/
   microsoft-sql-vscode/
-  microsoft-sql-ssms/
   microsoft-sql-migration/
   microsoft-sql-fdh/
 ```

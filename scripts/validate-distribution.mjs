@@ -99,23 +99,6 @@ const expectedSkills = {
     "sql-server-to-sql-mi-lrs-migration",
     "validate-post-migration-data",
   ],
-  "microsoft-sql-ssms": [
-    "bulk-load-and-bulk-copy",
-    "capture-with-extended-events",
-    "diagnose-blocking-and-deadlocks",
-    "diagnose-connection-errors",
-    "diagnose-resource-pressure",
-    "diagnose-slow-query",
-    "entra-id-auth",
-    "prevent-sql-injection",
-    "provision-azure-sql-db",
-    "provision-hyperscale",
-    "read-execution-plan",
-    "restore-and-recover",
-    "rls-multi-tenant",
-    "skill-feedback",
-    "sqlpackage-import-export",
-  ],
   "microsoft-sql-vscode": [
     "azure-functions-sql-bindings",
     "bulk-load-and-bulk-copy",
@@ -162,7 +145,6 @@ const expectedVersions = {
   "microsoft-sql": "1.0.2",
   "microsoft-sql-fdh": "0.1.0",
   "microsoft-sql-migration": "1.1.2",
-  "microsoft-sql-ssms": "0.1.1",
   "microsoft-sql-vscode": "0.2.0",
 };
 const marketplaceFiles = [
@@ -171,6 +153,7 @@ const marketplaceFiles = [
   ".cursor-plugin/marketplace.json",
   ".github/plugin/marketplace.json",
 ];
+const expectedMarketplaceVersion = "3.0.0";
 const manifestFiles = [
   "plugin.json",
   ".claude-plugin/plugin.json",
@@ -179,7 +162,6 @@ const manifestFiles = [
 ];
 const feedbackPlugins = [
   "microsoft-sql",
-  "microsoft-sql-ssms",
   "microsoft-sql-vscode",
 ];
 const issueFormIds = [
@@ -345,6 +327,12 @@ for (const marketplaceName of marketplaceFiles) {
   }
   if (marketplace.name !== "microsoft-sql") {
     fail(`${marketplaceName}: marketplace name must be microsoft-sql`);
+  }
+  const marketplaceVersion = marketplace.version ?? marketplace.metadata?.version;
+  if (marketplaceVersion && marketplaceVersion !== expectedMarketplaceVersion) {
+    fail(
+      `${marketplaceName}: marketplace version must be ${expectedMarketplaceVersion}`,
+    );
   }
   const plugins = marketplace.plugins ?? [];
   equalList(
