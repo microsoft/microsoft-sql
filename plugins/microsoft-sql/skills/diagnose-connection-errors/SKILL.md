@@ -33,8 +33,8 @@ its text with no `Msg` number, which is the class 47072, 47073 and 42101 belong 
 **`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
 Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
 `brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
-message at any `-m` value, so on that build those three numbers never appear at all, and `sys.messages` is the way to get them. `build-app-on-azure-sql` tells the two
-builds apart in one table.
+message at any `-m` value, so on that build those three numbers never appear at all. Query
+`sys.messages` when the number matters.
 
 ```bash
 sqlcmd -S your-server.database.windows.net,1433 -d your-database -U your-login -P "$SQL_PASSWORD" \

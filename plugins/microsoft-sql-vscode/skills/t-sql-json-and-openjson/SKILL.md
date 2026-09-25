@@ -133,9 +133,10 @@ SELECT DATABASEPROPERTYEX(DB_NAME(), 'CompatibilityLevel') AS level;
 ```
 
 Read it that way rather than from `sys.databases`, observed stale in the same session as an
-`ALTER DATABASE`. If the level cannot move, `post-migration-compatibility-level` owns raising it,
-and Learn documents a second door: `ALLOW_BUILTIN_TVF_IN_ALL_COMPAT_LEVELS`, a database-scoped
-configuration that exempts `OPENJSON` and the other built-in table-valued functions.
+`ALTER DATABASE`. Treat raising the level as a separate migration change that requires workload
+testing. If it cannot move, Learn documents a second door:
+`ALLOW_BUILTIN_TVF_IN_ALL_COMPAT_LEVELS`, a database-scoped configuration that exempts `OPENJSON`
+and the other built-in table-valued functions.
 
 ## Check it worked
 
@@ -173,7 +174,6 @@ Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x
 message at any `-m` value, so on that build there is no number to grep for whatever `-m` says. The
 numbers in this skill that matter most, `13609`, `13618`, `13608` and `13625`, are all severity 16
 and print on either build; it is the severity 10 case this flag is for.
-`build-app-on-azure-sql` tells the two builds apart in one table.
 
 ## Do not
 

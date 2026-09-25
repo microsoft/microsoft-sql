@@ -35,8 +35,8 @@ every language and live in `connect-to-azure-sql`. SQLAlchemy is `sqlalchemy-azu
 
 **Use `mssql-python` for new code.** Skipping the operating system install removes a class of
 container and CI failures. **Keep `pyodbc` when something above it already requires it**, most often
-an ORM dialect written against it: `sqlalchemy-azure-sql`, `django-azure-sql`. Do not rewrite a data
-access layer just to change driver.
+an ORM dialect such as SQLAlchemy or Django. Use `sqlalchemy-azure-sql` for SQLAlchemy-specific
+configuration. Do not rewrite a data access layer just to change driver.
 
 ```bash
 pip install mssql-python        # first-party path

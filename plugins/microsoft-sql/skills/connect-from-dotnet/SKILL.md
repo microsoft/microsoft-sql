@@ -138,7 +138,7 @@ ones first, so it costs latency a production workload has no reason to pay. Name
 directly outside development.
 
 The identity still needs a database principal before it can connect. Creating it is `entra-id-auth`;
-wiring the identity across Azure resources is `managed-identity-across-azure-services`.
+wiring the identity through the hosting resources and deployment is `deploy-app-to-azure`.
 
 ## Check it worked
 

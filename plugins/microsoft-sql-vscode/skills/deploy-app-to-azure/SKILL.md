@@ -129,7 +129,7 @@ Microsoft-published rather than community ones, and the hook wiring end to end.
 Entra-only server, the deploying user as administrator, a user-assigned managed identity for the
 application, and the grant run from a `postprovision` hook against the user database. Their roles
 are `db_datareader`, `db_datawriter` and `db_ddladmin`, still wider than most applications need;
-`least-privilege-database-roles` owns where to land.
+replace them with a custom role containing only the permissions the application uses.
 
 ## The seam in the middle, which the good templates exist to close
 
@@ -352,8 +352,8 @@ explicitly on any hook that runs unattended rather than relying on either.
 | Retry, pooling and encryption doctrine | `connect-to-azure-sql` |
 | A pipeline that deploys on push or on merge | `github-actions-for-sql` |
 | Getting the schema into the database | `schema-migrations-safely` |
-| What roles to leave the application identity holding | `least-privilege-database-roles` |
-| Sequencing a whole new project, before any of this | `build-app-on-azure-sql` |
+| What roles to leave the application identity holding | `entra-id-auth`, followed by a custom least-privilege role |
+| Sequencing a whole new project, before any of this | Plan the application, data-access, schema, identity, and deployment choices together |
 
 **The boundary with the pipeline is a real one, not a filing decision.** Deploying from a laptop
 makes the developer administrator of the logical server, so the developer can run the grant.

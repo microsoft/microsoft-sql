@@ -171,7 +171,6 @@ message at any `-m` value. `Msg 2627` below is severity 14 and arrives with its 
 build, so this check still works; what go-sqlcmd will not show you is a severity 10 message from the
 statements around it. The ODBC build is inside the container image at
 `/opt/mssql-tools18/bin/sqlcmd`, one `docker exec` away.
-`build-app-on-azure-sql` tells the two builds apart in one table.
 
 ```bash
 UPSERT="BEGIN TRAN;

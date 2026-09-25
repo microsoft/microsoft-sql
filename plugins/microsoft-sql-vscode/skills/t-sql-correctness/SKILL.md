@@ -161,7 +161,7 @@ Prefer `OUTPUT` to `SCOPE_IDENTITY()`: it returns every row of a multi-row inser
 | Available | Note |
 |---|---|
 | `a \|\| b` and `\|\|=`, `UNISTR` | Generally available July 2025. Unlike `CONCAT`, `\|\|` yields `NULL` if any input is `NULL` |
-| Regular expression functions | Generally available November 2025. Route to `t-sql-regex-and-new-functions` |
+| Regular expression functions | Generally available November 2025. Check the database compatibility level and current function-specific limits before use |
 | `STRING_AGG(x, ',') WITHIN GROUP (ORDER BY x)` | Any compatibility level, but returns `nvarchar(4000)` for `nvarchar(1..4000)` input, so cast to `max` or lose the tail |
 | `TRIM(BOTH '.' FROM s)` | The positional keywords need a recent compatibility level; below it they are a **parse** error |
 | `GREATEST(a, b, c)`, `LEAST(...)` | Nulls ignored unless every argument is null |
@@ -169,7 +169,8 @@ Prefer `OUTPUT` to `SCOPE_IDENTITY()`: it returns every row of a multi-row inser
 
 A migrated database can sit at an old compatibility level, where the failure looks exactly like
 the function not existing: `Msg 102`, `Msg 195` or `Msg 208` at level 150. Check the level before
-believing the error. See `post-migration-compatibility-level`.
+believing the error. Treat raising the compatibility level as a separate migration change that
+requires workload testing.
 
 ## Check it worked
 
@@ -201,7 +202,7 @@ script reporting success.
 Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
 `brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
 message at any `-m` value, so on that build a quiet output file is not evidence that the engine
-stayed quiet. `build-app-on-azure-sql` tells the two builds apart in one table.
+stayed quiet. Query `sys.messages` or use the ODBC build when the number matters.
 
 ## Do not
 
@@ -214,8 +215,8 @@ stayed quiet. `build-app-on-azure-sql` tells the two builds apart in one table.
   collation and costs the index seek.
 - Do not size, collate or index columns here. `design-azure-sql-schema` owns that, including why
   a `json` column compared with `=` fails with `Msg 402`.
-- Do not put error handling here. `t-sql-error-handling` owns `TRY`, `CATCH` and
-  `XACT_ABORT`, and `t-sql-programmability-objects` owns triggers.
+- Do not expand a correctness fix into unrelated error-handling (`TRY`, `CATCH`, `XACT_ABORT`) or
+  trigger design; treat those as separate changes with their own tests.
 
 ## References
 

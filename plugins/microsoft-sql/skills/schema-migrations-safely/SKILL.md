@@ -277,7 +277,8 @@ Run the migration through `sqlcmd` with **`-m-1`**, no space between flag and va
 non-zero exit only above severity 10, so alone it reports success on the section 4 `sp_rename`
 caution, and without `-m-1` that message prints with no `Msg` number. **`-m-1` is an ODBC `sqlcmd`
 instruction**, the 18.x build from `mssql-tools18`; go-sqlcmd 1.10.0 prints no `Msg` header on a
-severity 10 message at any `-m` value (measured 2026-09-05), so there the caution arrives unnumbered. `build-app-on-azure-sql` tells the builds apart:
+severity 10 message at any `-m` value (measured 2026-09-05), so there the caution arrives
+unnumbered:
 
 ```bash
 export SQLCMDPASSWORD='<password>'

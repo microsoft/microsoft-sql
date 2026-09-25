@@ -86,7 +86,7 @@ managed identity for the application, and run the grant from a post-provision ho
 the remediation for the seam in these three as `infra/scripts/sql_add_uami_user.sql`. That is the
 pattern worth copying. Their granted roles are `db_datareader`, `db_datawriter` and `db_ddladmin`,
 narrower than the blueprint's `db_owner` and still wider than most applications need;
-`least-privilege-database-roles` owns what to leave in place.
+replace them with a custom role containing only the permissions the application uses.
 
 ## The firewall rule that survives choosing correctly
 

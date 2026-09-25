@@ -243,8 +243,8 @@ Slow query triage is `diagnose-slow-query`.
 
 ## Migrations against a cloud database
 
-Doctrine is `schema-migrations-safely`, the declarative alternative `sql-database-projects`, the
-deployment step `ef-core-migrations-azure-sql`. Only the Azure SQL Database parts are here:
+Doctrine and deployment sequencing are `schema-migrations-safely`; the declarative alternative is
+`sql-database-projects`. Only the Azure SQL Database parts are here:
 
 ```bash
 dotnet ef database update \
@@ -351,5 +351,5 @@ non-unique index the replay writes a second row and the whole defence is decorat
   cartesian explosion and every characteristic of split queries.
 - Underneath this skill: `connect-to-azure-sql` for retry and pool sizing at the connection level,
   `connect-from-dotnet` for the driver and packages, `entra-id-auth` for a passwordless identity.
-- Beside it: `design-azure-sql-schema` for string sizing and collation, `schema-migrations-safely`
-  and `ef-core-migrations-azure-sql` for how migrations reach a database.
+- Beside it: `design-azure-sql-schema` for string sizing and collation, and
+  `schema-migrations-safely` for how migrations reach a database.

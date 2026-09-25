@@ -10,7 +10,7 @@ description: >-
   managed identity, permissions, HTTPS or a blocked domain; and when embedding a whole table in
   one statement runs for hours. This skill owns producing the vector and calling out of the
   engine; storing and searching it is vector-search-azure-sql, the pipeline around it is
-  rag-on-azure-sql, and embedding offline is rag-local-with-container.
+  rag-on-azure-sql, and offline embedding from application code is outside this in-engine workflow.
 ---
 
 # Embeddings and external models in Azure SQL Database
@@ -210,7 +210,8 @@ Local hosting is closed off by two more container rules: a private address is `M
 certificate not chaining to a root the engine trusts is `Msg 31608`, a private authority in the
 container's own trust store included, because the engine does not read that store. Learn's
 `https://localhost:11435/api/embed` Ollama example is written for a differently hosted engine, so
-embedding against a model server on the developer's machine is `rag-local-with-container`.
+embed against a model server on the developer's machine from application code rather than from
+an in-database external-model call.
 
 ## Step 6: embed, in batches, never in one statement
 
@@ -311,8 +312,7 @@ Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x
 `brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
 message at any `-m` value, so on that build `Msg 31616` never appears at all and a run that
 overwrote the header still looks clean. Run the file through the ODBC build, or read the number out
-of `sys.messages` on a connection that works. `build-app-on-azure-sql` tells the two builds apart in
-one table.
+of `sys.messages` on a connection that works.
 
 ## References
 
@@ -329,5 +329,5 @@ one table.
   read before depending on any host, for the current allowlist and the payload and header limits.
 - `vector-search-azure-sql`: storing and searching the vector this skill produces.
 - `rag-on-azure-sql`: the pipeline this call sits inside, and why provenance matters.
-- `rag-local-with-container` and `azuresql-db-rag`: embedding offline from application code, where
-  this in-database path is not available.
+- For offline embedding from application code, preserve the same dimension, provenance, and
+  authorization checks even though the in-database path is not available.

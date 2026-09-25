@@ -8,9 +8,8 @@ description: >-
   "react to inserts and updates", "SQL trigger function", "SqlTrigger", "SqlInput", "SqlOutput",
   or says "my SQL trigger never fires and there is no error". Also use when an output binding
   silently updated an existing row instead of inserting, which is the documented upsert behaviour.
-  This is the Azure SQL Database story; the same bindings against the local Azure SQL Database
-  container belong to azuresql-db-functions, and connection reuse across invocations to the
-  per-language connect skills.
+  This is the Azure SQL Database story. Local-container-specific setup is outside this skill;
+  connection reuse across invocations belongs to the per-language connect skills.
 ---
 
 # Azure Functions with the Azure SQL bindings
@@ -26,7 +25,6 @@ from Microsoft Learn.
 
 | Question | Skill |
 |---|---|
-| These bindings against the local Azure SQL Database container | `azuresql-db-functions` |
 | Reusing a connection across invocations, pool sizing, retry | `connect-from-dotnet`, `connect-from-python`, `connect-from-typescript-and-node` |
 | Getting the identity to a working passwordless connection | `entra-id-auth` |
 | Publishing the app and its infrastructure | `deploy-app-to-azure` |

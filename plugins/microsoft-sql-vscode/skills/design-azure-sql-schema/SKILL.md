@@ -231,8 +231,8 @@ does not report severity 10 at all, so a migration that emitted it still exits 0
 **`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
 Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
 `brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
-message at any `-m` value, so on that build the `grep` below finds no message 1945 to report. `build-app-on-azure-sql` tells the two
-builds apart in one table.
+message at any `-m` value, so on that build the `grep` below finds no message 1945 to report.
+Query `sys.messages` or run the statement through the ODBC build when the number matters.
 
 ```bash
 export SQLCMDPASSWORD='<password>'

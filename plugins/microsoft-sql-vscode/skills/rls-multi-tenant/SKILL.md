@@ -226,8 +226,8 @@ retrieval design that never runs locally beside the index it will meet in produc
 What does work locally: the filter predicate applies correctly to exact search over
 `VECTOR_DISTANCE` with no vector index, and two tenants over 300 chunks each got back only their own
 rows. Rehearse the predicate unindexed, keep index creation out of the local path, and run the
-isolation test again once the index exists on the cloud database. `rag-local-with-container`
-measured the same pair.
+isolation test again once the index exists on the cloud database. The same local/cloud pair was
+measured for both outcomes.
 
 ## Check it worked
 
@@ -331,7 +331,7 @@ severity 16, above the severity 10 `-b` ignores, so a failed assertion does set 
 
 **`-m-1` is an ODBC `sqlcmd` instruction**, the 18.x build from `mssql-tools18`. Measured
 2026-09-05, go-sqlcmd 1.10.0 prints no `Msg` header on a severity 10 message at any `-m` value, so
-there the `PRINT` lines arrive with no number. `build-app-on-azure-sql` tells the builds apart.
+there the `PRINT` lines arrive with no number.
 
 **Each failure was planted and watched going red**, which is the only evidence an assertion asserts
 anything:
@@ -385,7 +385,7 @@ every response carries only its own tenant, the shape that measured 103 wrong an
   the isolation test into a pipeline, for what `-b`, `-m` and `-V` do.
 - `prevent-sql-injection` when any statement here is assembled rather than parameterised, which is
   what a session context design depends on. `entra-id-auth` for getting an identity onto a working
-  connection, and `least-privilege-database-roles` for the roles an application connects as.
+  connection; use a custom least-privilege role for the permissions that identity receives.
 - `design-azure-sql-schema` for the tenant column and its place in the key, `t-sql-correctness` for
   the predicate function as T-SQL, and `rag-on-azure-sql` with `vector-search-azure-sql` for the
   retrieval this policy sits under.
