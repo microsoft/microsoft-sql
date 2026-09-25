@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT license.
 #
 # verify.sh - reusable harness that proves a container is the real Azure SQL
 # Database engine (EngineEdition=5 / Edition='SQL Azure') and is usable.

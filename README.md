@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="assets/plugin-logo.svg" alt="Microsoft SQL" width="128">
-</p>
-
 # Microsoft SQL agent skills
 
 Installable agent plugins from the Microsoft SQL product team for developing applications,
@@ -9,10 +5,10 @@ operating Azure SQL Database, running local container workflows, planning migrat
 exploring database estates in Fabric Database Hub. Each plugin packages focused guidance and
 references for supported agent hosts.
 
-[![Documentation](https://img.shields.io/badge/Documentation-blue?logo=microsoft)](https://learn.microsoft.com/sql/)
-[![Agent Plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-8A2BE2?logo=github)](https://agent-plugins.org/specification)
-[![Agent Skills](https://img.shields.io/badge/Agent%20Skills-spec-brightgreen?logo=github)](https://agentskills.io/)
-[![Discussions](https://img.shields.io/badge/Discussions-blueviolet?logo=github)](../../discussions)
+[![Documentation](https://img.shields.io/badge/Documentation-blue)](https://learn.microsoft.com/sql/)
+[![Agent Plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-8A2BE2)](https://agent-plugins.org/specification)
+[![Agent Skills](https://img.shields.io/badge/Agent%20Skills-spec-brightgreen)](https://agentskills.io/)
+[![Discussions](https://img.shields.io/badge/Discussions-blueviolet)](../../discussions)
 
 Agent skills are folders of instructions and references that an agent discovers and loads when
 the task calls for them. Install a plugin once, then ask for what you need in your own words.
@@ -189,13 +185,18 @@ from the Extensions view by searching for `@agentPlugins`:
 
 For the MSSQL extension, start with `microsoft-sql-vscode`.
 
-### Cursor
+### Cursor and Grok Build
 
-For an individual local installation, clone the repository and copy one selected plugin into
-Cursor's documented local plugin directory:
+Cursor and Grok Build can both load a selected plugin from a local checkout. Clone the repository
+once:
 
 ```bash
 git clone https://github.com/microsoft/microsoft-sql.git
+```
+
+**Cursor:** Copy the selected plugin into Cursor's documented local plugin directory:
+
+```bash
 mkdir -p "$HOME/.cursor/plugins/local"
 cp -R microsoft-sql/plugins/microsoft-sql-vscode \
   "$HOME/.cursor/plugins/local/microsoft-sql-vscode"
@@ -206,30 +207,15 @@ On Teams and Enterprise, an administrator can instead use
 **Dashboard > Plugins & MCPs > Add Marketplace > Import from Repo** with this repository URL.
 Enterprise administrators must enable **Allow Local Plugin Imports** for the local path.
 
-### Grok Build
-
-Grok reads Claude-compatible plugins and supports a direct plugin directory for an isolated
-session:
+**Grok Build:** Grok reads Claude-compatible plugins and supports a direct plugin directory for
+an isolated session:
 
 ```bash
-git clone https://github.com/microsoft/microsoft-sql.git
 grok --plugin-dir microsoft-sql/plugins/microsoft-sql
 ```
 
 Inside Grok, use `/plugins` and `/skills` to inspect what loaded. For a persistent installation,
 copy the selected plugin to `~/.grok/plugins/<plugin-name>`.
-
-### GitHub Copilot in SQL Server Management Studio
-
-SSMS 22.7 or later discovers Agent Skills rather than installing the marketplace directly. Install
-the **AI Assistance** workload, enable Agent mode, and copy the contents of
-`plugins/microsoft-sql/skills/` to one documented skill root:
-
-- workspace: `.github/skills/`, `.claude/skills/`, or `.agents/skills/`;
-- personal: `~/.copilot/skills/`, `~/.claude/skills/`, or `~/.agents/skills/`.
-
-Use only one location to avoid duplicates. Open **Tools > Skills** in Copilot Chat and confirm the
-complete collection is visible.
 
 ### Local checkout for any supported client
 
@@ -326,15 +312,25 @@ that is probably a product issue; if the skill said the wrong thing, it belongs 
 ## Contributing
 
 Pull requests that improve marketplace metadata, documentation, compatibility, or validation
-are welcome. Plugin packages are generated from their canonical source definitions, so open an
-issue before editing copied skill content directly.
+are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution process and Microsoft
+Contributor License Agreement requirements. Participation in this project is governed by the
+[Microsoft Open Source Code of Conduct](CODE_OF_CONDUCT.md).
 
-Before opening a pull request:
+## Security
 
-1. Run `node scripts/validate-distribution.mjs`.
-2. Confirm the intended plugin still contains the expected skill set.
-3. Verify install commands against a local checkout when changing client instructions.
-4. Describe both the change and how it was tested.
+Do not report security vulnerabilities through public GitHub issues. Follow the private
+reporting instructions in [SECURITY.md](SECURITY.md).
+
+## Privacy
+
+The plugins do not independently collect telemetry, but agent hosts, external tools, and
+Microsoft services used by a workflow may have their own data collection behavior. See
+[PRIVACY.md](PRIVACY.md) for data collection and opt-out guidance.
+
+## License
+
+This project is released under the [MIT License](LICENSE). See [NOTICE.txt](NOTICE.txt) for
+information about third-party software.
 
 ## Trademarks
 

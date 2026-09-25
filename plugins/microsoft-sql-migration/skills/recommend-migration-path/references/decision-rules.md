@@ -520,9 +520,8 @@ Rules:
 | Heterogeneous source modernization | **SSMA** for Oracle/Sybase/DB2/MySQL/Access; not for homogeneous SQL→SQL |
 | Tier uncertainty | Perfmon/DMVs, Query Store, storage latency, log-rate baseline |
 
-### D3. Microsoft program fit and SLA reference
+### D3. SLA reference
 
-- Programs: **Cloud Accelerate Factory**, **SQL in a Day** (EMEA EPS Data Motion), **Azure Accelerate / FastTrack**.
 - SLA reference: MI Business Critical 99.99%; SQL DB Business Critical zone-redundant up to 99.995%; SQL DB Hyperscale 99.99%; SQL VM depends on VM/AG design.
 
 ---

@@ -1,3 +1,6 @@
+-- Copyright (c) Microsoft Corporation.
+-- Licensed under the MIT license.
+
 SET NOCOUNT ON;
 DECLARE @requested nvarchar(max) = CONVERT(
   nvarchar(max),

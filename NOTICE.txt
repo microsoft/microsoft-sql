@@ -1,0 +1,7 @@
+THIRD-PARTY SOFTWARE NOTICES AND INFORMATION
+
+Microsoft SQL agent skills does not bundle third-party software or pre-built dependencies.
+
+The documentation and skills may refer to separately distributed tools, libraries, agent hosts,
+and Microsoft services. Those products are not included in this repository and remain subject to
+their own license terms and privacy statements.
