@@ -1,3 +1,6 @@
+-- Copyright (c) Microsoft Corporation.
+-- Licensed under the MIT license.
+
 /*
 Single canonical implementation for the LRS SQL Agent log-backup job.
 Render only the scalar placeholders below. Do not copy any implementation from

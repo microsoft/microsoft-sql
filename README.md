@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="assets/plugin-logo.svg" alt="Microsoft SQL" width="128">
-</p>
-
 # Microsoft SQL agent skills
 
 Installable agent plugins from the Microsoft SQL product team for developing applications,
@@ -9,10 +5,10 @@ operating Azure SQL Database, running local container workflows, planning migrat
 exploring database estates in Fabric Database Hub. Each plugin packages focused guidance and
 references for supported agent hosts.
 
-[![Documentation](https://img.shields.io/badge/Documentation-blue?logo=microsoft)](https://learn.microsoft.com/sql/)
-[![Agent Plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-8A2BE2?logo=github)](https://agent-plugins.org/specification)
-[![Agent Skills](https://img.shields.io/badge/Agent%20Skills-spec-brightgreen?logo=github)](https://agentskills.io/)
-[![Discussions](https://img.shields.io/badge/Discussions-blueviolet?logo=github)](../../discussions)
+[![Documentation](https://img.shields.io/badge/Documentation-blue)](https://learn.microsoft.com/sql/)
+[![Agent Plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-8A2BE2)](https://agent-plugins.org/specification)
+[![Agent Skills](https://img.shields.io/badge/Agent%20Skills-spec-brightgreen)](https://agentskills.io/)
+[![Discussions](https://img.shields.io/badge/Discussions-blueviolet)](../../discussions)
 
 Agent skills are folders of instructions and references that an agent discovers and loads when
 the task calls for them. Install a plugin once, then ask for what you need in your own words.
@@ -326,15 +322,25 @@ that is probably a product issue; if the skill said the wrong thing, it belongs 
 ## Contributing
 
 Pull requests that improve marketplace metadata, documentation, compatibility, or validation
-are welcome. Plugin packages are generated from their canonical source definitions, so open an
-issue before editing copied skill content directly.
+are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution process and Microsoft
+Contributor License Agreement requirements. Participation in this project is governed by the
+[Microsoft Open Source Code of Conduct](CODE_OF_CONDUCT.md).
 
-Before opening a pull request:
+## Security
 
-1. Run `node scripts/validate-distribution.mjs`.
-2. Confirm the intended plugin still contains the expected skill set.
-3. Verify install commands against a local checkout when changing client instructions.
-4. Describe both the change and how it was tested.
+Do not report security vulnerabilities through public GitHub issues. Follow the private
+reporting instructions in [SECURITY.md](SECURITY.md).
+
+## Privacy
+
+The plugins do not independently collect telemetry, but agent hosts, external tools, and
+Microsoft services used by a workflow may have their own data collection behavior. See
+[PRIVACY.md](PRIVACY.md) for data collection and opt-out guidance.
+
+## License
+
+This project is released under the [MIT License](LICENSE.txt). See [NOTICE.txt](NOTICE.txt) for
+information about third-party software.
 
 ## Trademarks
 

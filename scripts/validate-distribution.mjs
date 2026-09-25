@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 import { access, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -182,12 +185,80 @@ const forbiddenSidecars = new Set([
   "skill.spec.jsonc",
   "suppression.json",
 ]);
-const textExtensions = new Set([".json", ".md", ".mjs", ".txt", ".yaml", ".yml"]);
+const requiredRootFiles = [
+  "CODE_OF_CONDUCT.md",
+  "CONTRIBUTING.md",
+  "LICENSE.txt",
+  "NOTICE.txt",
+  "PRIVACY.md",
+  "README.md",
+  "SECURITY.md",
+];
+const sourceHeaderPrefixes = new Map([
+  [".c", "//"],
+  [".cpp", "//"],
+  [".cs", "//"],
+  [".go", "//"],
+  [".h", "//"],
+  [".java", "//"],
+  [".js", "//"],
+  [".jsx", "//"],
+  [".mjs", "//"],
+  [".ps1", "#"],
+  [".py", "#"],
+  [".rs", "//"],
+  [".sh", "#"],
+  [".sql", "--"],
+  [".ts", "//"],
+  [".tsx", "//"],
+]);
+const forbiddenBinaryExtensions = new Set([
+  ".a",
+  ".bin",
+  ".dll",
+  ".dylib",
+  ".exe",
+  ".jar",
+  ".lib",
+  ".nupkg",
+  ".pdb",
+  ".so",
+  ".vsix",
+  ".zip",
+]);
+const textExtensions = new Set([
+  ...sourceHeaderPrefixes.keys(),
+  ".json",
+  ".md",
+  ".txt",
+  ".yaml",
+  ".yml",
+]);
 const obsoleteRepositoryName = ["microsoft", ["azure", "sql", "skills"].join("-")].join("/");
 const obsoleteRepositoryPattern = new RegExp(
   `${obsoleteRepositoryName.replace("/", String.raw`\/`)}(?![-\\w])`,
   "u",
 );
+const forbiddenInternalContent = [
+  [new RegExp(["partner", "confidential"].join("-"), "iu"), "restricted partner material"],
+  [
+    new RegExp(["internal", "use", "only"].join(String.raw`\s+`), "iu"),
+    "restricted-use marker",
+  ],
+  [
+    new RegExp(["microsoft", "internal"].join("[- ]"), "iu"),
+    "restricted Microsoft material",
+  ],
+  [/\bFY\d{2}\s+EMEA\s+EPS\b/iu, "internal fiscal-year program material"],
+  [
+    new RegExp(["SQL", "in", "a", "Day"].join(String.raw`\s+`), "iu"),
+    "internal event material",
+  ],
+  [
+    new RegExp(["Cloud", "Accelerate", "Factory"].join(String.raw`\s+`), "iu"),
+    "internal delivery-program material",
+  ],
+];
 
 function relative(file) {
   return path.relative(root, file).replaceAll("\\", "/");
@@ -242,6 +313,18 @@ async function walk(directory) {
 }
 
 const allFiles = await walk(root);
+
+for (const fileName of requiredRootFiles) {
+  if (!(await exists(path.join(root, fileName)))) {
+    fail(`${fileName}: required release file is missing`);
+  }
+}
+if (await exists(path.join(root, "LICENSE"))) {
+  fail("LICENSE: use the required LICENSE.txt release filename");
+}
+if (await exists(path.join(root, "assets", "plugin-logo.svg"))) {
+  fail("assets/plugin-logo.svg: Microsoft product icons must not be published");
+}
 
 for (const file of allFiles.filter((candidate) => path.extname(candidate) === ".json")) {
   await readJson(file);
@@ -367,23 +450,69 @@ for (const marketplaceName of marketplaceFiles) {
 }
 
 for (const file of allFiles) {
+  const extension = path.extname(file).toLowerCase();
+  if (forbiddenBinaryExtensions.has(extension)) {
+    fail(`${relative(file)}: pre-built binary or archive must not be published`);
+  }
+  const buffer = await readFile(file);
+  if (buffer.includes(0)) {
+    fail(`${relative(file)}: binary content must not be published`);
+  }
   if (forbiddenSidecars.has(path.basename(file))) {
     fail(`${relative(file)}: source-only sidecar must not be published`);
   }
-  if (!textExtensions.has(path.extname(file))) {
+  if (!textExtensions.has(extension)) {
     continue;
   }
-  const contents = await readFile(file, "utf8");
+  const contents = buffer.toString("utf8");
   if (obsoleteRepositoryPattern.test(contents)) {
     fail(`${relative(file)}: contains the obsolete ${obsoleteRepositoryName} repository`);
   }
   if (/msdata\.visualstudio\.com/iu.test(contents)) {
     fail(`${relative(file)}: contains an internal Azure DevOps URL`);
   }
+  for (const [pattern, description] of forbiddenInternalContent) {
+    if (pattern.test(contents)) {
+      fail(`${relative(file)}: contains ${description}`);
+    }
+  }
+}
+
+for (const file of allFiles) {
+  const extension = path.extname(file).toLowerCase();
+  const prefix = sourceHeaderPrefixes.get(extension);
+  if (!prefix) {
+    continue;
+  }
+  const lines = (await readFile(file, "utf8")).replace(/\r\n/g, "\n").split("\n");
+  const start = extension === ".sh" && lines[0].startsWith("#!") ? 1 : 0;
+  if (
+    lines[start] !== `${prefix} Copyright (c) Microsoft Corporation.` ||
+    lines[start + 1] !== `${prefix} Licensed under the MIT license.`
+  ) {
+    fail(`${relative(file)}: missing Microsoft MIT source header`);
+  }
 }
 
 const readmePath = path.join(root, "README.md");
 const readme = await readFile(readmePath, "utf8");
+const requiredReadmeReferences = [
+  "CODE_OF_CONDUCT.md",
+  "CONTRIBUTING.md",
+  "LICENSE.txt",
+  "NOTICE.txt",
+  "PRIVACY.md",
+  "SECURITY.md",
+  "Microsoft's Trademark & Brand Guidelines",
+];
+for (const reference of requiredReadmeReferences) {
+  if (!readme.includes(reference)) {
+    fail(`README.md: missing required release reference ${reference}`);
+  }
+}
+if (/[?&]logo=/iu.test(readme)) {
+  fail("README.md: remote brand or product icons must not be embedded");
+}
 for (const pluginName of expectedPlugins) {
   if (!readme.includes(`${pluginName}@microsoft-sql`)) {
     fail(`README.md: missing install coordinate ${pluginName}@microsoft-sql`);
@@ -391,6 +520,25 @@ for (const pluginName of expectedPlugins) {
   if (!readme.includes(`plugins/${pluginName}/`)) {
     fail(`README.md: missing link to plugins/${pluginName}/`);
   }
+}
+
+const license = (await readFile(path.join(root, "LICENSE.txt"), "utf8")).replace(/\r\n/g, "\n");
+if (!license.startsWith("Microsoft SQL agent skills\n\nMIT License\n")) {
+  fail("LICENSE.txt: project name must appear above the MIT license");
+}
+const contributing = await readFile(path.join(root, "CONTRIBUTING.md"), "utf8");
+if (
+  !contributing.includes("Contributor License Agreement") ||
+  !contributing.includes("https://cla.opensource.microsoft.com")
+) {
+  fail("CONTRIBUTING.md: missing Microsoft CLA requirements");
+}
+const privacy = await readFile(path.join(root, "PRIVACY.md"), "utf8");
+if (
+  !privacy.includes("turn off the telemetry") ||
+  !privacy.includes("https://go.microsoft.com/fwlink/?LinkID=824704")
+) {
+  fail("PRIVACY.md: missing required data collection notice or opt-out guidance");
 }
 
 for (const match of readme.matchAll(/!?\[[^\]]*\]\(([^)]+)\)/g)) {

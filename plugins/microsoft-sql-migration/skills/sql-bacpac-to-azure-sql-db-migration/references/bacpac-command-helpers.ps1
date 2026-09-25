@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT license.
+
 Set-StrictMode -Version Latest
 
 function Invoke-SqlcmdCapture {
