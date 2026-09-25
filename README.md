@@ -139,7 +139,8 @@ The Fabric Database Hub plugin uses read-only, delegated-user Fabric API calls t
 
 Review plugins before installing them. The examples below register this repository as the
 `microsoft-sql` marketplace and install the complete bundle. Substitute another plugin ID from
-the table above when you want a curated or workflow-specific bundle.
+the table above when you want a curated or workflow-specific bundle. None of the supported hosts
+below requires you to clone this repository.
 
 ### GitHub Copilot CLI
 
@@ -176,8 +177,7 @@ codex plugin add microsoft-sql@microsoft-sql
 
 ### GitHub Copilot in Visual Studio Code
 
-Enable Agent Plugins, add this repository to `chat.plugins.marketplaces`, then install a plugin
-from the Extensions view by searching for `@agentPlugins`:
+Enable Agent Plugins and add this repository to `chat.plugins.marketplaces`:
 
 ```json
 {
@@ -188,41 +188,45 @@ from the Extensions view by searching for `@agentPlugins`:
 }
 ```
 
-For the MSSQL extension, start with `microsoft-sql-vscode`.
+Then run **Chat: Open Customizations** from the Command Palette, open **Plugins**, select
+**Browse Marketplace**, and install the plugin. You can also search for `@agentPlugins` in the
+Extensions view. For the MSSQL extension, start with `microsoft-sql-vscode`.
 
-### Cursor and Grok Build
+### Cursor
 
-Cursor and Grok Build can both load a selected plugin from a local checkout. Clone the repository
-once:
+Register the marketplace without cloning:
 
 ```bash
-git clone https://github.com/microsoft/microsoft-sql.git
+cursor-agent plugin marketplace add https://github.com/microsoft/microsoft-sql
+cursor-agent
 ```
 
-**Cursor:** Copy the selected plugin into Cursor's documented local plugin directory:
+In the interactive session, enter `/plugin`, open the **Marketplace** tab, select the
+`microsoft-sql` marketplace, and install a plugin at user or project scope. Cursor does not
+currently provide a non-interactive plugin-install command. You can also manage installed plugins
+from **Customize** in the Cursor IDE.
+
+On Teams and Enterprise, an administrator can use
+**Dashboard > Plugins & MCPs > Add Marketplace > Import from Repo** with this repository URL and
+configure marketplace access and installation policy.
+
+### Grok Build
+
+Grok Build accepts this repository's Claude-compatible marketplace index:
 
 ```bash
-mkdir -p "$HOME/.cursor/plugins/local"
-cp -R microsoft-sql/plugins/microsoft-sql-vscode \
-  "$HOME/.cursor/plugins/local/microsoft-sql-vscode"
-```
-
-Restart Cursor or run **Developer: Reload Window**, then confirm the plugin under **Customize**.
-On Teams and Enterprise, an administrator can instead use
-**Dashboard > Plugins & MCPs > Add Marketplace > Import from Repo** with this repository URL.
-Enterprise administrators must enable **Allow Local Plugin Imports** for the local path.
-
-**Grok Build:** Grok reads Claude-compatible plugins and supports a direct plugin directory for
-an isolated session:
-
-```bash
-grok --plugin-dir microsoft-sql/plugins/microsoft-sql
+grok plugin marketplace add microsoft/microsoft-sql
+grok plugin install microsoft-sql --trust
 ```
 
 Inside Grok, use `/plugins` and `/skills` to inspect what loaded. For a persistent installation,
-copy the selected plugin to `~/.grok/plugins/<plugin-name>`.
+use the marketplace workflow above; `--plugin-dir` is intended for testing an unpublished local
+plugin.
 
-### Local checkout for any supported client
+### Local development and other Agent Skills clients
+
+Clone the repository only when reviewing or testing unpublished changes, or when using a client
+that discovers `SKILL.md` files but does not support plugin marketplaces:
 
 ```bash
 git clone https://github.com/microsoft/microsoft-sql.git
@@ -231,7 +235,8 @@ cd microsoft-sql
 
 Each plugin is self-contained under `plugins/<plugin>/`. Clients that discover
 `SKILL.md` directly can copy the selected plugin's `skills/` directories into their standard
-skill location.
+skill location. For local plugin development, Cursor discovers plugins under
+`~/.cursor/plugins/local/`, and Grok Build accepts `--plugin-dir plugins/<plugin>`.
 
 ## Examples
 
