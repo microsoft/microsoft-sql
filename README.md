@@ -1,10 +1,5 @@
 # Microsoft SQL agent skills
 
-> [!IMPORTANT]
-> **Preview:** This repository and its plugins are currently in preview. Plugin contents,
-> capabilities, packaging, and installation instructions may change before general availability.
-> Review and validate the guidance before using it in production workflows.
-
 Installable agent plugins from the Microsoft SQL product team for developing applications,
 operating Azure SQL Database, running local container workflows, planning migrations, and
 exploring database estates in Fabric Database Hub. Each plugin packages focused guidance and
