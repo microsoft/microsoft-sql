@@ -220,8 +220,8 @@ not fail on one.
 **`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
 Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
 `brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
-message at any `-m` value, so on that build a severity 10 message prints with no number whether you keep the flag or not. `build-app-on-azure-sql` tells the two
-builds apart in one table.
+message at any `-m` value, so on that build a severity 10 message prints with no number whether you
+keep the flag or not. Query `sys.messages` or use the ODBC build when the number matters.
 
 **Every model that needs the flag has it.** Print the other list and compare:
 

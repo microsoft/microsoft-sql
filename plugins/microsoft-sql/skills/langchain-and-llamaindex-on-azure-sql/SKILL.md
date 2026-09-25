@@ -9,8 +9,8 @@ description: >-
   generating LIMIT, its query checker approves a query the database refuses, or its schema tool
   puts real rows into the prompt; or when a framework-created embedding table refuses CREATE
   VECTOR INDEX or a metadata filter throws arithmetic overflow. Vector type and query shape are
-  vector-search-azure-sql, the cloud pipeline rag-on-azure-sql, the offline loop
-  rag-local-with-container, and drivers and token auth connect-from-python.
+  vector-search-azure-sql, the cloud pipeline is rag-on-azure-sql, and drivers and token
+  authentication are connect-from-python. Offline local embedding is an application-side workflow.
 ---
 
 # LangChain and LlamaIndex on Azure SQL Database
@@ -252,7 +252,8 @@ least-privilege login. Measured through the query tool with that login:
 | `DROP TABLE customers` | `Msg 3701, Cannot drop the table ..., because it does not exist or you do not have permission` |
 | `EXEC sp_executesql N'SELECT 1'` | Runs. The tool does not restrict itself to `SELECT` text either |
 
-Open `azuresql-db-auth` before creating that login, because the grant is the whole guardrail.
+Create that login only with the read-only grants shown here, because the grant is the whole
+guardrail.
 
 ### `include_tables` scopes the prompt, not the connection
 
@@ -345,11 +346,11 @@ store created, and `CREATE VECTOR INDEX` on it will return `Msg 42254`.
 - Read `vector-search-azure-sql` before writing the retrieval query yourself, for the `vector` type,
   its restriction list and the query shape that reaches the index rather than scanning.
 - Read `rag-on-azure-sql` before choosing `embedding_length`, because the dimension budget, the chunk
-  schema and the permission filter are decided there, and `rag-local-with-container` when the same
-  wiring must run offline with no cloud dependency and no keys.
+  schema and the permission filter are decided there. For offline use, keep embedding
+  application-side and preserve the same schema and permission filter.
 - Read `t-sql-correctness` when the generated SQL is wrong in a way that is not pagination,
   `connect-from-python` when the failure is the driver, the connection string or the token rather
-  than the framework, and `azuresql-db-auth` before creating the login section 3 depends on.
+  than the framework. Apply the read-only grants in section 3 before exposing the connection.
 - Read [LangChain's SQL agent guide](https://docs.langchain.com/oss/python/langchain/sql-agent) to
   check whether the shipped prompt has changed before trusting section 1, and
   [LlamaIndex structured data](https://developers.llamaindex.ai/python/framework/understanding/putting_it_all_together/structured_data)

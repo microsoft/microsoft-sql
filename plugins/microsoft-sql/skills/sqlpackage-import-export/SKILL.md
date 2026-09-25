@@ -7,8 +7,8 @@ description: >-
   dacpac, clone or move a database between servers, move the database itself from the local Azure
   SQL Database container up to Azure SQL Database, explain dacpac versus bacpac, or diagnose a
   failed sqlpackage run such as SQL71627, or SQL71659 when an Import stops because the target
-  database is not empty. Making the application code run unchanged in the cloud is
-  azuresql-db-local-to-cloud, and a first bacpac into the local container is azuresql-db-import.
+  database is not empty. Application connection changes and first-time local-container setup are
+  separate workflows.
 ---
 
 # Move a whole database with SqlPackage: dacpac and bacpac
@@ -21,7 +21,7 @@ the command line for each action. Building a dacpac from a source-controlled SQL
 it through CI, its refactorlog and its pre and post deployment scripts are `sql-database-projects`.
 Azure SQL Database's own automated backups and point-in-time or geo-restore are
 `restore-and-recover`. Loading rows into a table that already exists is `bulk-load-and-bulk-copy`.
-Vector indexes themselves are `azuresql-db-rag` and `vector-search-azure-sql`.
+Vector indexes themselves are `vector-search-azure-sql`.
 
 ## Read the property list for the action before you write the command
 

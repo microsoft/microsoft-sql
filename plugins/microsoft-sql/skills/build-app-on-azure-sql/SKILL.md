@@ -194,7 +194,7 @@ wrong reflex.
 |---|---|---|
 | REST or GraphQL over tables and views that already exist | Generate it. Do not hand-write controllers | `dab-rest-and-graphql` |
 | Serverless endpoints, or code that runs when a row changes | Input, output and trigger bindings | `azure-functions-sql-bindings` |
-| Rich domain objects and a mapped model | An ORM, chosen for the language | `ef-core-azure-sql`, `prisma-azure-sql`, `sqlalchemy-azure-sql`, `django-azure-sql` |
+| Rich domain objects and a mapped model | An ORM, chosen for the language | `ef-core-azure-sql`, `prisma-azure-sql`, `sqlalchemy-azure-sql`, or a supported Django SQL Server backend |
 | A few queries with full control over the SQL | The driver directly | the three `connect-from-*` skills |
 
 Generated, over a schema that already exists:
@@ -265,8 +265,8 @@ shared server, so say so before running this anywhere but a sandbox.
 
 **Check what it granted.** The documented grant is `GRANT CONTROL ON DATABASE::"<database>" TO
 "<user>"`, which Microsoft's own wording invites you to revoke and adjust. The quickstarts grant
-`db_datareader` and `db_datawriter` to the same identity instead. `least-privilege-database-roles`
-owns what to leave in place.
+`db_datareader` and `db_datawriter` to the same identity instead. Replace either broad grant with
+a custom role containing only the permissions the application actually uses.
 
 ## Check it worked
 

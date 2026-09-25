@@ -215,10 +215,9 @@ VECTOR_DISTANCE(...)`.
 6. The dynamic management view column naming the outstanding maintenance differed between the two
    engines tested. Read the column list from the view rather than hard coding a name.
 7. **Widely repeated claim that a DiskANN vector index cannot be built on the local Azure SQL
-   Database container.** It builds. The parity run that settles it is
-   `rag-local-with-container`'s, which built the same index over the same 140 rows on both
-   engines, 145 ms on the container against 276 ms in the cloud, with approximate search returning
-   the same rows from both. That evidence is recorded there and is not copied here.
+   Database container.** It builds. A paired run built the same index over the same 140 rows on
+   both engines, 145 ms on the container against 276 ms in the cloud, with approximate search
+   returning the same rows from both.
 8. **Widely repeated claim that `PREVIEW_FEATURES = ON` is a prerequisite for creating a vector
    index.** It is not, and **the setting's value on the container is not deterministic, so this
    file asserts no value for it.**

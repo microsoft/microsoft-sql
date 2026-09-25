@@ -261,8 +261,7 @@ Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x
 `brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
 message at any `-m` value, so on that build the 1945 warning `prisma migrate deploy` provokes stays
 unnumbered and the migration still reads as clean. Run the migration through the ODBC build when the
-number is what you are grepping for. `build-app-on-azure-sql` tells the two builds apart in one
-table.
+number is what you are grepping for.
 
 ## Do not
 

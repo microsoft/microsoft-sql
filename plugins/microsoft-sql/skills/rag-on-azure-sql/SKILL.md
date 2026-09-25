@@ -9,8 +9,8 @@ description: >-
   or "which chunks should I put in the prompt"; and when a retrieval pipeline returns plausible
   but wrong context, or returns text the asking user is not allowed to read. This skill owns the
   pipeline and the schema around it. The vector type, VECTOR_DISTANCE and the query shape are
-  vector-search-azure-sql, the embedding call embeddings-and-external-models, the offline
-  container path rag-local-with-container.
+  vector-search-azure-sql, and the in-database embedding call is
+  embeddings-and-external-models. Offline local embedding is an application-side workflow.
 ---
 
 # Retrieval augmented generation on Azure SQL Database
@@ -31,7 +31,8 @@ The tables, the ingest, what the retrieval query carries, and the grounding. Ope
 `vector-search-azure-sql` before writing any similarity query, for the `vector` type's restrictions
 and the shape that reaches the index; `embeddings-and-external-models` before steps 3 and 4, for
 the external model and the chunking and embedding functions; `rls-multi-tenant` for predicates,
-with step 6's caveat; `rag-local-with-container` when there is no cloud endpoint to develop on.
+with step 6's caveat. When no cloud endpoint is available, keep embedding application-side and
+validate the production query and security behavior against Azure SQL Database before release.
 
 ## The correction
 
@@ -279,8 +280,8 @@ means the deduplication key is wrong and re-runs are re-embedding unchanged text
 **`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
 Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
 `brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
-message at any `-m` value, so on that build a severity 10 message arrives with no number to read. `build-app-on-azure-sql` tells the two
-builds apart in one table.
+message at any `-m` value, so on that build a severity 10 message arrives with no number to read.
+Query `sys.messages` or use the ODBC build when the number matters.
 
 ## Do not
 

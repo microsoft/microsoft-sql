@@ -342,8 +342,7 @@ Msg 42244: A vector index cannot be created on tables with security policies.
 Table 'dbo.chunks' has security policy 'p_chunks'.
 ```
 
-This reproduces the parity result already published in `rag-local-with-container`, on a fresh
-container and a fresh table.
+This reproduces the prior parity result on a fresh container and a fresh table.
 
 **What does work locally.** With the policy on `dbo.chunks` and no vector index, exact search
 returned correctly isolated results:
@@ -353,8 +352,8 @@ tenant 1 top-k   chunk_id 150, 152, 148   all tenant_id 1   150 rows visible in 
 tenant 2 top-k   chunk_id 151, 149, 147   all tenant_id 2
 ```
 
-Both cloud coexistence claims in the table above are carried from the parity measurement in
-`rag-local-with-container` and were not re-run here. Nothing else on this page depends on them.
+Both cloud coexistence claims in the table above are carried from the paired cloud/container
+measurement and were not re-run here. Nothing else on this page depends on them.
 
 ## Run 11: the isolation test, and the four planted failures
 

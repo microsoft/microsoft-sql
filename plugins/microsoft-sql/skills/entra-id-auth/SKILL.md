@@ -33,9 +33,9 @@ keyword, and every failure about **who the caller is**. Route the rest.
 | Drivers and per-language syntax | `connect-from-dotnet`, `connect-from-python`, `connect-from-typescript-and-node` |
 | The server, the database, the firewall rule | `provision-azure-sql-db` |
 | Transport, pre-login, certificates, timeouts, the `40xxx` gateway family | `diagnose-connection-errors` |
-| Which roles the application should hold | `least-privilege-database-roles` |
-| Server-level Entra logins and fixed server roles | `entra-logins-and-server-roles` |
-| Identity through a hosting service, and the deployment | `managed-identity-across-azure-services`, `deploy-app-to-azure` |
+| Which roles the application should hold | Define a custom role containing only the permissions the application uses |
+| Server-level Entra logins and fixed server roles | Outside this database-user workflow; use the current Microsoft Learn guidance |
+| Identity through a hosting service, and the deployment | `deploy-app-to-azure` |
 
 **The split, stated once.** `diagnose-connection-errors` owns failures before a credential is
 evaluated; this skill owns those after it: `18456`, `4060`, `33134`, `33131`, `37545`. A failure
@@ -372,7 +372,7 @@ articles rather than recalling them.
 - Do not use `Active Directory Password` in any spelling, or leave a .NET 7.0 application on an
   `Active Directory *` mode without the extension package.
 - Do not put a client secret in a connection string on Azure, or grant `CONTROL ON DATABASE` because
-  a tool did. Role design is `least-privilege-database-roles`.
+  a tool did. Define a custom role containing only the permissions the application uses.
 - Do not enable Entra-only authentication on a shared server without naming what it turns off, or
   assign one Azure Policy definition and call the estate enforced.
 - Do not conclude a grant failed until the identity token cache has turned over.

@@ -104,7 +104,7 @@ Anything here was different not long ago, so check rather than recall.
 |---|---|---|
 | `\|\|` string concatenation and `\|\|=` compound assignment | July 2025 | ANSI concatenation. Excludes the `xml`, `json`, `image`, `ntext` and `text` types. Result over 8,000 bytes truncates unless one operand is a large value type |
 | `UNISTR` for Unicode string literals | July 2025 | |
-| Regular expression functions | November 2025 | Seven functions. Three of them require a compatibility level check first, which is `t-sql-regex-and-new-functions` |
+| Regular expression functions | November 2025 | Seven functions. Check the database compatibility level and current function-specific limits before use |
 | `DATEADD` accepting a `bigint` number | November 2025 | |
 | Vector data type and vector functions | June 2025 | Not this skill's subject, but a common source of "that cannot exist" |
 

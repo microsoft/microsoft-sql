@@ -255,9 +255,8 @@ unsupported, and `sp_verify_database_ledger` errors on a database holding a vect
   the one direction that matters, because a reader who believes the engine will stop them has no
   reason to check. `Msg 42227` is raised only by `WITH (FORCE_ANN_ONLY)`, which is why that hint
   belongs in the test that proves the index is being read.
-- **The local Azure SQL Database container builds it too.** Open
-  `references/parity.md` in `rag-local-with-container` when a plan leans on the two engines
-  agreeing.
+- **The local Azure SQL Database container builds it too.** Validate the production query plan and
+  security behavior against Azure SQL Database before relying on local parity.
 
 | Operation | Result |
 |---|---|

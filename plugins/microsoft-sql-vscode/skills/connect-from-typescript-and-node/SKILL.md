@@ -204,4 +204,5 @@ the check, then revoke it. `CONNECTIONPROPERTY` is no substitute: its documented
   the columns and the permission the check needs. Read it when the check returns no row.
 - `connect-to-azure-sql`: encryption doctrine, retry and transient faults, pool sizing, and the
   first-connect error on a paused database.
-- `connect-from-edge-runtimes`: for a runtime without TCP sockets, where `mssql` does not run.
+- For a runtime without TCP sockets, `mssql` cannot run; use an HTTP-based data or API layer that
+  the runtime supports instead.
