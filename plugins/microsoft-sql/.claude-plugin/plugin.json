@@ -1,8 +1,8 @@
 {
   "name": "microsoft-sql",
   "displayName": "Microsoft SQL",
-  "version": "1.0.2",
-  "description": "The complete collection of fifty-seven skills for agents working directly with Azure SQL Database and the Azure SQL Database container: provisioning, application development, connecting from .NET, Python and TypeScript, schema design and migrations, bulk load, RAG and vector search, Data API Builder, Azure Functions, CI, security, diagnostics, and T-SQL correctness.",
+  "version": "1.0.0",
+  "description": "Build and operate Azure SQL Database applications, from provisioning and secure connections through schema design, deployment, data movement, performance tuning, vector search, RAG, and local development with the Azure SQL Database container.",
   "author": {
     "name": "Microsoft"
   },

@@ -4,56 +4,54 @@
 
 # Microsoft SQL agent skills
 
-Agent plugins from the Microsoft SQL product team for building, operating, and migrating
-Microsoft SQL data platforms. The skills correct common agent mistakes with product-specific,
-measured guidance for Azure SQL Database, the Azure SQL Database container, SQL Server to Azure
-migration, and Fabric Database Hub estate observability.
+Installable agent plugins from the Microsoft SQL product team for developing applications,
+operating Azure SQL Database, running local container workflows, planning migrations, and
+exploring database estates in Fabric Database Hub. Each plugin packages focused guidance and
+references for supported agent hosts.
 
 [![Documentation](https://img.shields.io/badge/Documentation-blue?logo=microsoft)](https://learn.microsoft.com/sql/)
 [![Agent Plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-8A2BE2?logo=github)](https://agent-plugins.org/specification)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-spec-brightgreen?logo=github)](https://agentskills.io/)
-[![Plugins](https://img.shields.io/badge/Plugins-5-0078D4)](#choose-a-plugin)
-[![Unique skills](https://img.shields.io/badge/Unique%20skills-70-107C10)](#choose-a-plugin)
 [![Discussions](https://img.shields.io/badge/Discussions-blueviolet?logo=github)](../../discussions)
 
 Agent skills are folders of instructions and references that an agent discovers and loads when
 the task calls for them. Install a plugin once, then ask for what you need in your own words.
 There is no special prompt syntax to remember.
 
-This repository is the installable `microsoft-sql` marketplace. It contains five portable
-[Agent Plugins 1.0](https://agent-plugins.org/specification) packages with compatibility
-descriptors for GitHub Copilot, Claude Code, Codex, Cursor, and Grok Build.
+This repository is the installable `microsoft-sql` marketplace. It publishes portable
+[Agent Plugins 1.0](https://agent-plugins.org/specification) packages for GitHub Copilot,
+Claude Code, Codex, Cursor, and Grok Build.
 
 ## Choose a plugin
 
 The marketplace name is `microsoft-sql`. Install coordinates use
 `<plugin>@microsoft-sql`.
 
-| Plugin | Install coordinate | Version | Skills | Use it for |
-| --- | --- | ---: | ---: | --- |
-| [`microsoft-sql`](plugins/microsoft-sql/) | `microsoft-sql@microsoft-sql` | 1.0.2 | 57 | The complete Azure SQL Database collection for users driving an agent directly |
-| [`microsoft-azuresqldb-container`](plugins/microsoft-azuresqldb-container/) | `microsoft-azuresqldb-container@microsoft-sql` | 1.1.0 | 17 | Local development and CI with the Azure SQL Database container |
-| [`microsoft-sql-vscode`](plugins/microsoft-sql-vscode/) | `microsoft-sql-vscode@microsoft-sql` | 0.2.0 | 36 | Application development and database lifecycle work in Visual Studio Code with the MSSQL extension |
-| [`microsoft-sql-migration`](plugins/microsoft-sql-migration/) | `microsoft-sql-migration@microsoft-sql` | 1.1.2 | 12 | Assessing, planning, executing, and validating SQL Server to Azure migrations |
-| [`microsoft-sql-fdh`](plugins/microsoft-sql-fdh/) | `microsoft-sql-fdh@microsoft-sql` | 0.1.0 | 1 | Read-only Fabric Database Hub inventory, health, and security posture |
+| Plugin | Install coordinate | Best for |
+| --- | --- | --- |
+| [`microsoft-sql`](plugins/microsoft-sql/) | `microsoft-sql@microsoft-sql` | Broad Azure SQL Database application development and operations, including local container workflows |
+| [`microsoft-azuresqldb-container`](plugins/microsoft-azuresqldb-container/) | `microsoft-azuresqldb-container@microsoft-sql` | Local development and CI with the Azure SQL Database container |
+| [`microsoft-sql-vscode`](plugins/microsoft-sql-vscode/) | `microsoft-sql-vscode@microsoft-sql` | Azure SQL application development and database lifecycle work in Visual Studio Code |
+| [`microsoft-sql-migration`](plugins/microsoft-sql-migration/) | `microsoft-sql-migration@microsoft-sql` | SQL Server to Azure assessment, planning, migration, and validation |
+| [`microsoft-sql-fdh`](plugins/microsoft-sql-fdh/) | `microsoft-sql-fdh@microsoft-sql` | Read-only Fabric Database Hub inventory, performance, and security posture |
 
-`microsoft-sql-vscode` is a curated subset of `microsoft-sql`.
+`microsoft-sql-vscode` is tailored to the MSSQL extension and overlaps with `microsoft-sql`.
 Normally install **one** of those two:
 
 - Choose `microsoft-sql` for a general-purpose terminal or coding agent.
 - Choose `microsoft-sql-vscode` for the MSSQL extension. It omits Data API Builder skills that
   overlap with agent tools supplied by the extension.
 
-`microsoft-azuresqldb-container` is the focused local-container subset. Its 17 skills are already
+`microsoft-azuresqldb-container` focuses on local development. Its capabilities are already
 included in `microsoft-sql`, so do not install those two together when testing routing. It can be
-installed alongside the VS Code curation when that host also needs container workflows.
+installed alongside the VS Code plugin when that host also needs container workflows.
 
 `microsoft-sql-migration` and `microsoft-sql-fdh` are separate workflow plugins and can be
 installed alongside any Azure SQL bundle.
 
-### `microsoft-sql`: complete collection
+### `microsoft-sql`: complete Azure SQL workflow
 
-The complete 57-skill bundle covers:
+The complete plugin covers:
 
 - provisioning, service tiers, local containers, and local-to-cloud parity;
 - .NET, Python, and TypeScript drivers, pooling, retry, and Microsoft Entra authentication;
@@ -66,11 +64,11 @@ The complete 57-skill bundle covers:
 - bulk loading, SqlPackage import/export, restore, and recovery; and
 - the full Azure SQL Database container workflow.
 
-[View all 57 skills and descriptions](plugins/microsoft-sql/README.md).
+[Browse the included guidance](plugins/microsoft-sql/README.md).
 
 ### `microsoft-azuresqldb-container`: local Azure SQL Database
 
-The 17-skill container bundle covers:
+The container plugin covers:
 
 - starting, provisioning, refreshing, and troubleshooting the local engine;
 - Docker, Podman, Compose, Dev Container, sidecar, and CI workflows;
@@ -84,11 +82,11 @@ The container is for local development and CI, not production hosting. It is the
 Database engine and reports `SERVERPROPERTY('EngineEdition') = 5`; it is not the SQL Server
 container image.
 
-[View all 17 container skills](plugins/microsoft-azuresqldb-container/README.md).
+[Browse the container guidance](plugins/microsoft-azuresqldb-container/README.md).
 
-### `microsoft-sql-vscode`: MSSQL extension curation
+### `microsoft-sql-vscode`: Visual Studio Code and the MSSQL extension
 
-The 36-skill VS Code bundle covers application development and database lifecycle work:
+The VS Code plugin covers application development and database lifecycle work:
 
 - connections and drivers for .NET, Python, TypeScript, and Node.js;
 - EF Core, Prisma, SQLAlchemy, schema design, and database projects;
@@ -106,11 +104,11 @@ It deliberately excludes `dab-rest-and-graphql`, `azuresql-db-dab`, and the broa
 `build-app-on-azure-sql` router so the plugin does not compete with tools already supplied by
 the MSSQL extension.
 
-[View the exact 36-skill list](plugins/microsoft-sql-vscode/README.md).
+[Browse the VS Code guidance](plugins/microsoft-sql-vscode/README.md).
 
 ### `microsoft-sql-migration`: SQL Server to Azure
 
-The migration bundle contains 12 skills that:
+The migration plugin helps you:
 
 - recommend a target, assessment path, and migration method;
 - run, retrieve, and evaluate Azure Arc migration assessments;
@@ -123,22 +121,18 @@ The migration bundle contains 12 skills that:
 - migrate with Log Replay Service to Azure SQL Managed Instance; and
 - validate source and target data after migration.
 
-[View all 12 migration skills](plugins/microsoft-sql-migration/README.md).
+[Browse the migration guidance](plugins/microsoft-sql-migration/README.md).
 
 ### `microsoft-sql-fdh`: Fabric Database Hub
 
-The Fabric Database Hub plugin contains the `databasehub-cli` skill. It uses read-only,
-delegated-user Fabric API calls to analyze:
+The Fabric Database Hub plugin uses read-only, delegated-user Fabric API calls to analyze:
 
 - tenant-wide Azure SQL, Arc SQL Server, PostgreSQL, Cosmos DB, and Fabric SQL inventory;
 - SQL and PostgreSQL CPU, storage, and memory health;
 - Cosmos DB availability and normalized RU coverage; and
 - security findings, authentication, auditing, and customer-managed-key posture.
 
-The plugin is draft quality: local evaluation passed with findings on 2026-09-22, while live
-Fabric qualification remains pending.
-
-[View the Database Hub skill](plugins/microsoft-sql-fdh/README.md).
+[See example prompts and supported Database Hub scenarios](plugins/microsoft-sql-fdh/README.md).
 
 ## Installation
 
@@ -308,9 +302,9 @@ plugins/
   microsoft-sql-fdh/
 ```
 
-Each plugin contains a portable `plugin.json`, client compatibility descriptors, a generated
-README, and its selected `skills/`. Skill content is generated from its canonical source; do not
-edit duplicated skill files in this distribution directly.
+Each plugin is self-contained and includes a portable `plugin.json`, host compatibility
+descriptors, documentation, and its current capabilities. Skill content is generated from its
+canonical source; do not edit duplicated skill files in this distribution directly.
 
 ## Feedback
 
@@ -332,8 +326,8 @@ that is probably a product issue; if the skill said the wrong thing, it belongs 
 ## Contributing
 
 Pull requests that improve marketplace metadata, documentation, compatibility, or validation
-are welcome. The plugin bundles are generated artifacts, so open an issue before editing copied
-skill content directly.
+are welcome. Plugin packages are generated from their canonical source definitions, so open an
+issue before editing copied skill content directly.
 
 Before opening a pull request:
 
