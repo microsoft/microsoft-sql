@@ -49,7 +49,8 @@ changes. Route those requests to the owning capability described below.
 - Open [Fabric API and CLI basics](references/fabric-api-basics.md) when signing
   in, validating the tenant or token audience, adding request attribution, or
   resolving Fabric workspaces and items.
-- [Databases in Fabric documentation](https://learn.microsoft.com/en-us/fabric/database/)
+- Review [Database Hub in Fabric documentation](https://learn.microsoft.com/fabric/database/hub/)
+  and use the [Microsoft Learn MCP server](https://learn.microsoft.com/api/mcp) for official docs.
 
 ## Select one mode
 
