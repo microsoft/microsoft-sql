@@ -135,7 +135,6 @@ body:
         - Codex
         - Cursor
         - Grok Build
-        - SQL Server Management Studio
         - Other (describe below)
     validations:
       required: true

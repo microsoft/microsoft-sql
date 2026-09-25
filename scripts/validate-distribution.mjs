@@ -188,7 +188,7 @@ const forbiddenSidecars = new Set([
 const requiredRootFiles = [
   "CODE_OF_CONDUCT.md",
   "CONTRIBUTING.md",
-  "LICENSE.txt",
+  "LICENSE",
   "NOTICE.txt",
   "PRIVACY.md",
   "README.md",
@@ -319,8 +319,8 @@ for (const fileName of requiredRootFiles) {
     fail(`${fileName}: required release file is missing`);
   }
 }
-if (await exists(path.join(root, "LICENSE"))) {
-  fail("LICENSE: use the required LICENSE.txt release filename");
+if (await exists(path.join(root, "LICENSE.txt"))) {
+  fail("LICENSE.txt: use the repository-mandated LICENSE filename");
 }
 if (await exists(path.join(root, "assets", "plugin-logo.svg"))) {
   fail("assets/plugin-logo.svg: Microsoft product icons must not be published");
@@ -499,7 +499,7 @@ const readme = await readFile(readmePath, "utf8");
 const requiredReadmeReferences = [
   "CODE_OF_CONDUCT.md",
   "CONTRIBUTING.md",
-  "LICENSE.txt",
+  "LICENSE",
   "NOTICE.txt",
   "PRIVACY.md",
   "SECURITY.md",
@@ -522,9 +522,9 @@ for (const pluginName of expectedPlugins) {
   }
 }
 
-const license = (await readFile(path.join(root, "LICENSE.txt"), "utf8")).replace(/\r\n/g, "\n");
+const license = (await readFile(path.join(root, "LICENSE"), "utf8")).replace(/\r\n/g, "\n");
 if (!license.startsWith("Microsoft SQL agent skills\n\nMIT License\n")) {
-  fail("LICENSE.txt: project name must appear above the MIT license");
+  fail("LICENSE: project name must appear above the MIT license");
 }
 const contributing = await readFile(path.join(root, "CONTRIBUTING.md"), "utf8");
 if (

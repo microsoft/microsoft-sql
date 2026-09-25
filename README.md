@@ -185,13 +185,18 @@ from the Extensions view by searching for `@agentPlugins`:
 
 For the MSSQL extension, start with `microsoft-sql-vscode`.
 
-### Cursor
+### Cursor and Grok Build
 
-For an individual local installation, clone the repository and copy one selected plugin into
-Cursor's documented local plugin directory:
+Cursor and Grok Build can both load a selected plugin from a local checkout. Clone the repository
+once:
 
 ```bash
 git clone https://github.com/microsoft/microsoft-sql.git
+```
+
+**Cursor:** Copy the selected plugin into Cursor's documented local plugin directory:
+
+```bash
 mkdir -p "$HOME/.cursor/plugins/local"
 cp -R microsoft-sql/plugins/microsoft-sql-vscode \
   "$HOME/.cursor/plugins/local/microsoft-sql-vscode"
@@ -202,30 +207,15 @@ On Teams and Enterprise, an administrator can instead use
 **Dashboard > Plugins & MCPs > Add Marketplace > Import from Repo** with this repository URL.
 Enterprise administrators must enable **Allow Local Plugin Imports** for the local path.
 
-### Grok Build
-
-Grok reads Claude-compatible plugins and supports a direct plugin directory for an isolated
-session:
+**Grok Build:** Grok reads Claude-compatible plugins and supports a direct plugin directory for
+an isolated session:
 
 ```bash
-git clone https://github.com/microsoft/microsoft-sql.git
 grok --plugin-dir microsoft-sql/plugins/microsoft-sql
 ```
 
 Inside Grok, use `/plugins` and `/skills` to inspect what loaded. For a persistent installation,
 copy the selected plugin to `~/.grok/plugins/<plugin-name>`.
-
-### GitHub Copilot in SQL Server Management Studio
-
-SSMS 22.7 or later discovers Agent Skills rather than installing the marketplace directly. Install
-the **AI Assistance** workload, enable Agent mode, and copy the contents of
-`plugins/microsoft-sql/skills/` to one documented skill root:
-
-- workspace: `.github/skills/`, `.claude/skills/`, or `.agents/skills/`;
-- personal: `~/.copilot/skills/`, `~/.claude/skills/`, or `~/.agents/skills/`.
-
-Use only one location to avoid duplicates. Open **Tools > Skills** in Copilot Chat and confirm the
-complete collection is visible.
 
 ### Local checkout for any supported client
 
@@ -339,7 +329,7 @@ Microsoft services used by a workflow may have their own data collection behavio
 
 ## License
 
-This project is released under the [MIT License](LICENSE.txt). See [NOTICE.txt](NOTICE.txt) for
+This project is released under the [MIT License](LICENSE). See [NOTICE.txt](NOTICE.txt) for
 information about third-party software.
 
 ## Trademarks
