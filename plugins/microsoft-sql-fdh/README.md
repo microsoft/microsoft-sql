@@ -52,7 +52,8 @@ plugin.
 
 - Copilot CLI: `copilot plugin marketplace add microsoft/microsoft-sql`, then `copilot plugin install microsoft-sql-fdh@microsoft-sql`
 - Claude Code: `/plugin marketplace add microsoft/microsoft-sql`, then `/plugin install microsoft-sql-fdh@microsoft-sql`
-- VS Code: add the repository to `chat.plugins.marketplaces`, then install from the Extensions view (`@agentPlugins`)
+- VS Code: add `microsoft/microsoft-sql` to `chat.plugins.marketplaces`, then install from **Chat: Open Customizations > Plugins** or the Extensions view (`@agentPlugins`)
 - Codex: `codex plugin marketplace add microsoft/microsoft-sql --ref main`, then `codex plugin add microsoft-sql-fdh@microsoft-sql`
-- Cursor and Grok Build: Cursor reads `.cursor-plugin/`; Grok Build reads the Claude Code descriptors
-- Any Agent Skills client: copy `skills/<skill>/` wherever the client discovers `SKILL.md`
+- Cursor: `cursor-agent plugin marketplace add https://github.com/microsoft/microsoft-sql`, then run `cursor-agent` and install `microsoft-sql-fdh` from `/plugin`
+- Grok Build: `grok plugin marketplace add microsoft/microsoft-sql`, then `grok plugin install microsoft-sql-fdh --trust`
+- Other Agent Skills clients: copy `skills/<skill>/` only when the client has no plugin marketplace
