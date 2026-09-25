@@ -1,7 +1,7 @@
 {
   "name": "microsoft-sql-migration",
-  "version": "1.1.2",
-  "description": "Twelve skills curated for assessing, planning, executing and validating SQL Server to Azure migrations: recommend a migration path, generate a prerequisite plan, run or retrieve Azure Arc migration assessments, evaluate offline readiness, size an Azure SQL SKU from performance data, analyze readiness across an estate, migrate with backup/restore to SQL Server on Azure VM, BACPAC to Azure SQL Database, or Log Replay Service to Azure SQL Managed Instance, and validate data after migration.",
+  "version": "1.0.0",
+  "description": "Plan and execute SQL Server migrations to Azure, including target selection, readiness assessment, prerequisite planning, SKU sizing, BACPAC, backup and restore, Log Replay Service, and post-migration validation.",
   "author": {
     "name": "Microsoft"
   },

@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "microsoft-sql-fdh",
-  "version": "0.1.0",
-  "description": "A skill curated for Fabric Database Hub estate observability through read-only, Entra-authenticated Fabric APIs: tenant-wide database inventory across Azure SQL, Arc SQL Server, Azure Database for PostgreSQL, Azure Cosmos DB and Fabric SQL; operational health; and authentication, auditing and customer-managed-key security posture. Draft maturity: local evaluation passed with findings on 2026-09-22; live Fabric qualification pending.",
+  "version": "1.0.0",
+  "description": "Explore database inventory, performance, and security posture across Fabric Database Hub using read-only, Microsoft Entra-authenticated APIs for Azure SQL, Arc-enabled SQL Server, Azure Database for PostgreSQL, Azure Cosmos DB, and Fabric SQL.",
   "author": {
     "name": "Microsoft"
   },

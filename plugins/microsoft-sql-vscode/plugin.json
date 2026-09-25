@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "microsoft-sql-vscode",
-  "version": "0.2.0",
-  "description": "Thirty-six skills curated for application development and database lifecycle work with the MSSQL extension in Visual Studio Code: connections and drivers, schema and ORMs, deployment and provisioning, diagnostics and security, data movement and recovery, T-SQL, vector search and RAG, Azure Functions bindings, and database projects. Data API Builder skills are omitted to avoid conflicting with the extension's agent tools.",
+  "version": "1.0.0",
+  "description": "Build and manage Azure SQL Database applications in Visual Studio Code with the MSSQL extension, including connections, schema and ORM workflows, deployment, diagnostics, security, data movement, recovery, T-SQL, vector search, and database projects. Data API Builder guidance is excluded where it would duplicate tools provided by the extension.",
   "author": {
     "name": "Microsoft"
   },

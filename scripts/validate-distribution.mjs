@@ -141,11 +141,11 @@ const expectedSkills = {
 
 const expectedPlugins = Object.keys(expectedSkills).sort();
 const expectedVersions = {
-  "microsoft-azuresqldb-container": "1.1.0",
-  "microsoft-sql": "1.0.2",
-  "microsoft-sql-fdh": "0.1.0",
-  "microsoft-sql-migration": "1.1.2",
-  "microsoft-sql-vscode": "0.2.0",
+  "microsoft-azuresqldb-container": "1.0.0",
+  "microsoft-sql": "1.0.0",
+  "microsoft-sql-fdh": "1.0.0",
+  "microsoft-sql-migration": "1.0.0",
+  "microsoft-sql-vscode": "1.0.0",
 };
 const marketplaceFiles = [
   ".agents/plugins/marketplace.json",
@@ -153,7 +153,7 @@ const marketplaceFiles = [
   ".cursor-plugin/marketplace.json",
   ".github/plugin/marketplace.json",
 ];
-const expectedMarketplaceVersion = "3.0.0";
+const expectedMarketplaceVersion = "1.0.0";
 const manifestFiles = [
   "plugin.json",
   ".claude-plugin/plugin.json",

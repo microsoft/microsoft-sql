@@ -1,7 +1,7 @@
 {
   "name": "microsoft-azuresqldb-container",
-  "version": "1.1.0",
-  "description": "Seventeen skills for developing with the Azure SQL Database container: run and troubleshoot the local engine, connect securely, migrate from the SQL Server image, move local workloads to Azure, manage schema and data, build RAG and APIs, scaffold applications, and run integration tests in CI.",
+  "version": "1.0.0",
+  "description": "Develop and test applications locally with the Azure SQL Database container, including setup, secure connections, schema and data management, CI, migration from SQL Server containers, local-to-cloud workflows, APIs, and RAG.",
   "author": {
     "name": "Microsoft"
   },
