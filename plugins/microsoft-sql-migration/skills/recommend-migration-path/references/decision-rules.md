@@ -15,7 +15,7 @@ Apply Steps **A → D** in order. Steps map to the two engine phases:
 - **Phase B — Ranking and plan:** Steps B → D. Rank only surviving targets, then choose method, tier, blockers, cost, and assessment.
 
 Regression contract: these rules are a **prompt policy under regression test**. Replaying the same inputs through the rules mirror in `tests/` gives the same result, and 116 golden scenarios enforce it on every commit. The mirror is not what runs in a session: an agent reads these rules and applies them. Treat the contract as a tested policy, not as a guarantee that two runs produce identical wording. Every recommendation must carry the KB version, engine version, and, when available, the source commit SHA and fetch timestamp.
-Source of truth: `knowledge-base.md` (sql-migration-advisor), **v3.14**, verified August 2026.
+Source of truth: `knowledge-base.md` (sql-migration-advisor), **v3.15**, verified August 2026.
 
 Three layers, never mixed:
 - **Target** = where the DB ends up (runtime).
