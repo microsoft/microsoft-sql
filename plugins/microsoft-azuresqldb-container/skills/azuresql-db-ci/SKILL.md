@@ -1,18 +1,6 @@
 ---
 name: azuresql-db-ci
-description: >-
-  Runs integration tests against the Azure SQL Database container (Private Preview, local
-  engine) in CI. Use when setting up GitHub Actions, Azure Pipelines, or GitLab
-  CI to test against Azure SQL DB; when adding a database service container to a
-  CI workflow; when tests need a real Azure SQL engine in the pipeline; or when
-  you see "service container", "health-cmd", "ACR_USERNAME/ACR_PASSWORD",
-  "MSSQL_SA_PASSWORD secret", or "integration test database". Also use when a
-  workflow was about to pull the SQL Server image mcr.microsoft.com/mssql/server,
-  in which case stop and use the Azure SQL Database engine image instead. Covers
-  pulling from the private ACR with credentials, the service health check that
-  runs sqlcmd inside the container so the runner needs no client tools,
-  provisioning appdb before tests, and pointing the test connection string at the
-  user database not master.
+description: "Use when CI (GitHub Actions, Azure Pipelines, GitLab) runs integration tests against the Azure SQL Database container as a service: health check, registry secrets. For Testcontainers, use `azuresql-db-testing`."
 ---
 
 # The Azure SQL Database container in CI
@@ -24,14 +12,6 @@ service container. This is the local Azure SQL engine, not the SQL Server image
 
 For the full readiness loop, connection model, vectors, seeding, and registry detail, load the
 **azuresql-db-container** skill.
-
-Verified on 2026-09-05 against the container image
-`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
-5, Edition `SQL Azure`, build `12.0.2000.8`. All four executable checks behind this skill
-passed: the engine identity, that a test session is on the user database and not `master`,
-`Msg 40508` for `USE`, and `sqlcmd` at `/opt/mssql-tools18/bin/sqlcmd` inside the image. The
-workflow YAML itself was not executed by that run; what was checked is the engine behaviour
-the workflow rests on.
 
 ## Load-bearing facts (inlined)
 
@@ -196,7 +176,7 @@ echo "ready on localhost,$HOST_PORT"
 
 ## Minimum tool versions
 
-Use only the tools needed by the selected recipe, at or above these minimum tested versions:
+Use only the tools needed by the selected recipe, at or above these minimum versions:
 
 - **`sqlcmd`**: go-sqlcmd 1.10.0
 

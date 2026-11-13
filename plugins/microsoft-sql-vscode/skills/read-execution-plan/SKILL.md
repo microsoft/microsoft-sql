@@ -1,24 +1,19 @@
 ---
 name: read-execution-plan
-description: >-
-  Retrieves an Azure SQL Database execution plan, estimated or actual, and pulls out the
-  small set of facts that explain slowness: operators, estimated versus actual row counts,
-  warnings, missing-index hints, and the memory grant, instead of returning the whole plan
-  XML. Use when someone says "read this execution plan", "why did the optimizer choose a
-  scan here", "show me the actual plan not the estimated one", or hands over a plan and asks
-  what is wrong with it. Also covers retrieval itself: SET SHOWPLAN_XML, SET STATISTICS XML,
-  the plan-handle views, and Query Store, and the several ways a same-looking call returns
-  the wrong kind of plan, a stub, or NULL without raising an error. Not general slow-query
-  triage (diagnose-slow-query), lock analysis (diagnose-blocking-and-deadlocks), or
-  instance-level CPU or memory pressure (diagnose-resource-pressure).
+description: "Use when reading an Azure SQL Database execution plan: what is expensive, why a scan, actual vs estimated rows, warnings, missing-index hints, getting the actual plan, a plan returned as NULL."
 ---
 
 # Read an Azure SQL Database execution plan
 
 Gets the plan that explains a query, in the smallest form that carries the signal, and tells
-estimated numbers from measured ones. Measured 2026-08-29 against a live engine
-reporting `EngineEdition` 5 and Edition `SQL Azure`; claims one session cannot measure are
-attributed to Microsoft Learn inline.
+estimated numbers from actual ones. Claims that come from Microsoft Learn are linked inline.
+
+## Scope
+
+- Retrieving and reading one Azure SQL Database plan, including the calls that return the wrong
+  kind of plan, a stub, or NULL without raising an error.
+- Not general slow-query triage (`slow-query-investigation`), lock analysis
+  (`check-live-blocking`), or instance-level CPU or memory pressure (`resource-usage-sqlserver`).
 
 ## Estimated is not actual, and the sources disagree about which you get
 
@@ -95,15 +90,17 @@ Advice telling you to enable it was written for SQL Server, which also defaults
 query can be absent from `sys.query_store_query` after several executions: unresolved, never
 proof it did not run, and not worth waiting on. Use step 3. Match on `object_id`, not a `LIKE`
 search against the SQL you submitted, because `query_sql_text` stores the parameterized form:
-a literal and a trailing comment came back here as
+a query with a literal and a trailing comment is stored as
 `(@1 tinyint)SELECT COUNT(*) FROM [dbo].[q] WHERE [id]>@1`.
 
-**6. Pull the small part, not the whole XML.** A two-operator plan measured here was 7.8 KB
-and a two-table join 13 KB, both too large to paste into a response. Reduce on the server.
+**6. Pull the small part, not the whole XML.** Even a two-operator plan is several kilobytes of
+XML, and a two-table join more, too large to paste into a response. Reduce on the server.
 Every `.nodes()`, `.value()` and `.exist()` call needs `QUOTED_IDENTIFIER ON`, which a
-client's default session may have off; without it the call fails with `Msg 1934`, an error
-naming indexed views, computed columns, filtered indexes, query notifications and spatial
-indexes, and never the setting that caused it.
+client's default session may have off (the ODBC `sqlcmd` does unless run with `-I`); without it
+the call fails with `Msg 1934`, `SELECT failed because the following SET options have incorrect
+settings: 'QUOTED_IDENTIFIER'`, followed by a list of features (indexed views, computed columns,
+filtered indexes, query notifications, XML data type methods, spatial indexes) that makes it read
+like an index problem. Set the option first rather than waiting for the error.
 
 ```sql
 SET QUOTED_IDENTIFIER ON;
@@ -170,7 +167,7 @@ WHERE ps.object_id = OBJECT_ID('dbo.<procedure_name>');
 rows means step 3's configuration is still off, or the plan left the cache.
 
 If you do pull the whole document to a client, `xml` truncates at 256 characters by default
-and a truncated plan parses as a corrupt one. Per `sqlcmd 1.10.0` help and
+and a truncated plan parses as a corrupt one. Per the `sqlcmd` help and
 [Learn](https://learn.microsoft.com/sql/tools/sqlcmd/sqlcmd-utility), `-y` sets that width and
 `0` removes the cap:
 

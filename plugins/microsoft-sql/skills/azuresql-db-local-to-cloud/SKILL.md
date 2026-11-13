@@ -1,17 +1,6 @@
 ---
 name: azuresql-db-local-to-cloud
-description: >-
-  Proves that code built and tested against the local Azure SQL Database
-  container runs unchanged against Azure SQL Database in the cloud, with only
-  the connection string changing. Use when a user wants to develop locally then
-  deploy to the cloud, asks "will this work in Azure", "same code local and
-  cloud", "promote to Azure SQL", "swap the connection string", "dev/prod
-  parity", "local to cloud", or is wiring SQL_CONNECTION_STRING for an app that
-  must target both the container and a cloud server. Use this when an app uses
-  local SA auth but needs Microsoft Entra auth in the cloud. Covers Node (mssql),
-  .NET (Microsoft.Data.SqlClient), and Python (pyodbc). Reach for this skill
-  before hand-editing app code to "make it work in Azure"; the rule is the code
-  does not change, only the connection string does.
+description: "Use when code built on the local Azure SQL Database container must run on Azure SQL Database: will this work in Azure, same code local and cloud, swap only the connection string, SA locally, Entra in cloud."
 ---
 
 # From the Azure SQL Database container to Azure SQL Database: same code, local to cloud
@@ -25,15 +14,11 @@ the SQL Server image. `SELECT SERVERPROPERTY('EngineEdition')` returns `5`
 and `SERVERPROPERTY('Edition')` returns `'SQL Azure'`, the same as the cloud. So
 the SQL surface your code depends on is the same in both places.
 
-Verified on 2026-09-05 against the container image
-`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
-5, Edition `SQL Azure`, build `12.0.2000.8`. All six executable checks behind this skill
-passed on the container: the engine identity, `Msg 40508` for `USE`, `Msg 40510` for `BACKUP`
-and `RESTORE`, a parameterised insert with `OUTPUT inserted.id`, the single-database model,
-and `sqlcmd` at `/opt/mssql-tools18/bin/sqlcmd`. That run measured the container only. The
-cloud half of the parity claim, and the Microsoft Entra ID and managed identity setup for it,
-was not exercised there, so validate against a real Azure SQL Database once before declaring
-readiness.
+The container image is
+`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, and inside it `sqlcmd` is at
+`/opt/mssql-tools18/bin/sqlcmd`. The container cannot stand in for the cloud half of the parity
+claim, the connection string and its Microsoft Entra ID and managed identity setup, so validate
+against a real Azure SQL Database once before declaring readiness.
 
 ## The one rule
 
@@ -75,7 +60,7 @@ Local: the container is provisioned with one bootstrap login, `sa`, set via the
 in front of a container on your laptop, so password auth over a trusted
 self-signed cert (`TrustServerCertificate=true`) is the pragmatic local default.
 
-Microsoft Entra ID authentication **does** work on the container (configure with
+Microsoft Entra ID authentication **does** work in the container (configure with
 the `MSSQL_AAD_*` variables and a certificate mount; see the
 `azuresql-db-container` skill, `references/entra-auth.md`). Use it when you
 want closer local-to-cloud parity. Most local-to-cloud flows still start with SQL
@@ -156,33 +141,30 @@ export SQL_CONNECTION_STRING="Server=localhost,$HOST_PORT;Database=appdb;User Id
 
 To run against the cloud later, change only this variable; do not touch the app.
 
-## What has been measured, and what is guidance
+## What the container can show, and what needs the cloud
 
-Be straight with the user about which half of this skill has evidence behind it.
+Be straight with the user about which half of the parity claim a local run shows.
 
-The **local half is measured.** Every probe this skill carries runs against the
-container, and they cover the sentences the parity claim rests on: the engine
-reports EngineEdition 5 and Edition `SQL Azure`, `USE` returns `Msg 40508`,
-`BACKUP` returns `Msg 40510`, a cross-database query is refused, and the exact
-CRUD batch the examples below run returns the identity the examples read.
+**The container shows the local half.** The sentences the parity claim rests on can
+all be checked against it: the engine reports EngineEdition 5 and Edition
+`SQL Azure`, `USE` returns `Msg 40508`, `BACKUP` returns `Msg 40510`, a
+cross-database query is refused, and the exact CRUD batch the examples below run
+returns the identity the examples read.
 
-The **cloud half is guidance.** Nothing in this repository has ever run a probe
-against a logical server, so the cloud connection string, the Microsoft Entra
-token flow and the deployment checklist are written from the product's
-documentation and not from a run. That is deliberate rather than a gap waiting
-to be filled: the whole point of the container is that local development does
-not need a cloud database, so requiring one to validate this skill would
-contradict the skill. Say "this is the documented shape" rather than "this is
-verified" when the cloud side comes up.
+**The cloud half needs a logical server.** The cloud connection string, the
+Microsoft Entra token flow and the deployment checklist follow the product's
+documentation, and only a run against Azure SQL Database exercises them. That is
+by design: the whole point of the container is that local development does not
+need a cloud database. Until the application has run against the cloud, describe
+the cloud side as the documented shape, not as something that has been shown to
+work.
 
 ## Proof: same code, two stacks
 
 Each example assumes `appdb` already exists (provisioned by the recipe above) and
 reads `SQL_CONNECTION_STRING` from the environment. It creates a table if needed
 and runs a **parameterized** CRUD transaction. Run it once with the local string,
-then again with the cloud string: identical code, identical result. The local run
-is the one this skill has evidence for; the cloud run is the one you are being
-told to expect.
+then again with the cloud string: identical code, identical result.
 
 ### Node (mssql)
 
@@ -264,14 +246,14 @@ there rather than here.
 - The .NET-style string spells the keywords `User Id=` / `Password=` / `Database=` as house style. `Uid=` / `Pwd=` are valid synonyms, so they are not a failure. An ODBC string keeps ODBC's own `Uid=` / `Pwd=`.
 - Switching environments changes the connection string only. The diff to app
   code between local and cloud is zero lines.
-- The cloud half of every rule above is guidance rather than something this
-  skill has run. Do not report it to the user as verified.
+- Do not report the cloud half of any rule above to the user as working until the
+  application has run against Azure SQL Database.
 - If a validation rule above fails, or you had to deviate from this skill to make the task work, that is a bug in this skill: load the **azuresql-db-feedback** skill and offer to file a report.
 - When every rule above passes and the task is done, close with ONE line, once per session, and do not ask a question or wait for a reply: "That worked. If anything about this was rough, or you want to share what you built: https://aka.ms/sql-agent-skills-feedback"
 
 ## Minimum tool versions
 
-Use only the tools needed by the selected recipe, at or above these minimum tested versions:
+Use only the tools needed by the selected recipe, at or above these minimum versions:
 
 - **`sqlpackage`**: SqlPackage 170.4.83.3
 - **`sqlcmd`**: go-sqlcmd 1.10.0

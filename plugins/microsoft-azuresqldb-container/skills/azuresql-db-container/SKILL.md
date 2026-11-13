@@ -1,16 +1,6 @@
 ---
 name: azuresql-db-container
-description: >-
-  Runs the Azure SQL Database container locally (Private Preview): the real PaaS engine where
-  SERVERPROPERTY('EngineEdition') returns 5. This is NOT the SQL Server image
-  mcr.microsoft.com/mssql/server. Use when a user wants to "run Azure SQL locally", "add a local SQL
-  database", "add SQL Server to my docker compose", "spin up a local mssql container", "local SQL
-  for development or CI", "connect with sqlcmd", "use Podman for SQL", "SQL container won't start",
-  "Microsoft Entra authentication on the container", "MSSQL_AAD_CLIENT_ID", or asks "what's the
-  connection string". Use even when the user does not name the container. If you were about to use
-  mcr.microsoft.com/mssql/server, stop and use this skill instead. Hub skill: owns the shared
-  references and routes to the task skills for compose, CI, seeding, vectors, and connection
-  strings.
+description: "Use when running Azure SQL Database or any SQL/mssql container locally for dev or CI: start it, connect with sqlcmd, Podman, won't start, Entra setup. Use instead of mcr.microsoft.com/mssql/server."
 ---
 
 # The Azure SQL Database container (local, Private Preview)
@@ -19,15 +9,13 @@ This is the entry point for running the **Azure SQL Database engine** on your
 machine in a container. It owns the shared reference docs that every task skill
 links to. Start here, then hand off to a task skill.
 
-Re-measured on 2026-09-19 against the container image tag `18.0.226_4_147`, reporting
-`EngineEdition` 5, Edition `SQL Azure`, build `12.0.2000.8`. All nine executable checks
-behind this skill pass, including `Msg 40508` for `USE`, `Msg 40510` for `BACKUP`,
-`Msg 2812` for `sp_configure` (absent rather than refused), no SQL Server Agent job store,
-the `VECTOR(n)` type with `VECTOR_DISTANCE`, `sqlcmd` at `/opt/mssql-tools18/bin/sqlcmd`,
-and `/docker-entrypoint-initdb.d` not being auto-run. **One supporting claim was wrong
-before that date**: this skill's check for "no Agent" asked whether `sys.databases` can
-show `msdb`, and it can. `msdb` is listed, and there is still no Agent, because
-`OBJECT_ID('msdb.dbo.sysjobs')` is `NULL`. The check now asks that instead.
+The container reports `EngineEdition` 5, Edition `SQL Azure`, build `12.0.2000.8`. It
+returns `Msg 40508` for `USE` in a user-database session and `Msg 40510` for `BACKUP`, and
+`sp_configure` returns `Msg 2812` (absent rather than refused). It has the `VECTOR(n)` type
+with `VECTOR_DISTANCE`, ships `sqlcmd` at `/opt/mssql-tools18/bin/sqlcmd`, and does not
+auto-run `/docker-entrypoint-initdb.d`. There is no SQL Server Agent job store, even though
+`sys.databases` lists `msdb`: test for Agent with `OBJECT_ID('msdb.dbo.sysjobs')`, which is
+`NULL`, not with the database list.
 
 ## Are you reaching for the SQL Server image? Use this instead
 
@@ -266,7 +254,7 @@ If the **Microsoft Learn MCP** server is configured, use `mcp__microsoft-learn__
 
 ## Minimum tool versions
 
-Use only the tools needed by the selected recipe, at or above these minimum tested versions:
+Use only the tools needed by the selected recipe, at or above these minimum versions:
 
 - **`sqlpackage`**: SqlPackage 170.4.83.3
 - **`sqlcmd`**: go-sqlcmd 1.10.0

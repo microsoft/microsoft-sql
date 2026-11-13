@@ -2,7 +2,7 @@
 
 ## Contents
 
-- [What was measured](#what-was-measured)
+- [What decides the design](#what-decides-the-design)
 - [Schema](#schema)
 - [Idempotent ingest](#idempotent-ingest)
 - [Embedding pass](#embedding-pass)
@@ -13,29 +13,28 @@
 - [Changing the model or the chunking](#changing-the-model-or-the-chunking)
 - [Failure modes and what they look like](#failure-modes-and-what-they-look-like)
 
-## What was measured
+## What decides the design
 
-Run on 2026-08-28 against an Azure SQL Database provisioned for it: General Purpose serverless,
-two vCores, compatibility level 170, Microsoft Entra authentication only, and re-run 2026-09-03 as
-this skill's probes, which is where `Msg 37579` comes from. Statements below ran as written, apart
-from the embedding call, which is `embeddings-and-external-models` territory and is a placeholder.
+The statements below run as written, apart from the embedding call, which is
+`embeddings-and-external-models` territory and is a placeholder.
 
-Three results decide the design:
+Three facts decide the design:
 
-1. A security policy **cannot be created at all** on a table carrying a vector index, `Msg 37579`,
-   measured 2026-09-03. This reverses what this file claimed on 2026-08-28 and changes the advice
-   in step 6. See below.
-2. A vector column's dimension could not be changed by `ALTER COLUMN` even on an empty table, and
-   `CREATE VECTOR INDEX` failed on 50 rows and succeeded on 500. Both are `vector-search-azure-sql`
-   and are probed there; they are noted here only because they decide the schema.
-3. Nothing about the queries changed when the index appeared, which is why an environment can
+1. Whether a security policy can sit on a table carrying a vector index is **build-dependent and
+   undocumented**: earlier container builds and SQL Server 2025 refuse it (`Msg 37579`, or
+   `Msg 42244` for the index after the policy); Azure SQL Database and container build
+   18.0.310.0_253 accept it in either order, but approximate search under the policy does not use
+   the index. The advice in step 6 does not depend on which is true. See below.
+2. A vector column's dimension cannot be changed by `ALTER COLUMN` even on an empty table, and
+   `CREATE VECTOR INDEX` fails below 100 rows. Both are `vector-search-azure-sql`, which has checks
+   for them; they are noted here only because they decide the schema.
+3. Nothing about the queries changes when the index appears, which is why an environment can
    silently run without one and only latency says so.
 
 ## Schema
 
 The canonical schema is `SKILL.md` step 2, deliberately not repeated here: two copies of a
-`CREATE TABLE` drift, and this pair already had, with `embedded_at` declared `NOT NULL` in one file
-and `NULL` in the other while the ingest below never supplied it.
+`CREATE TABLE` drift. `embedded_at` is nullable there because the ingest below never supplies it.
 
 `source_hash` is `HASHBYTES('SHA2_256', chunk_text)`. The rest of the reasoning is in that step.
 
@@ -105,7 +104,8 @@ ORDER BY ordinal;
 
 ## Row level security and the vector index
 
-These two statements are **refused** while `dbo.document_chunks` carries a vector index:
+On earlier container builds these two statements are **refused** while `dbo.document_chunks`
+carries a vector index:
 
 ```sql
 CREATE FUNCTION dbo.fn_chunk_tenant (@tenant_id INT)
@@ -127,9 +127,17 @@ The security policy 'dbo.chunk_access' cannot reference tables with vector index
 Table 'dbo.document_chunks' has a vector index.
 ```
 
-The same two statements are correct against `dbo.documents`, which carries no vector index, and
-that policy does **not** reach the chunk copy. So on the retrieval path the tenant boundary is the
-query's `WHERE` clause and nothing else. Three sourced ways to live with that:
+On container build 18.0.310.0_253 the same statements **succeed**, in this order and in the
+reverse one, and the filter holds through `TOP (n) WITH APPROXIMATE` with no cross-tenant rows.
+But the index is not used under the policy: the same query with `WITH (FORCE_ANN_ONLY)` fails with
+`Msg 8622`, and without the hint it returns rows from an exact search, while an identical table
+with no policy and the tenant test written as a `WHERE` clause gets a `Vector Index Seek`. Azure SQL
+Database behaves the same way: the pair is accepted in both orders, the filter holds, and
+`WITH (FORCE_ANN_ONLY)` under the policy fails with `Msg 8622`. SQL Server 2025 refuses the pair
+with the two numbers above.
+
+The policy on `dbo.documents` does **not** reach the chunk copy either way. So on the retrieval path
+treat the query's `WHERE` clause as the tenant boundary. Three sourced ways to live with that:
 
 1. Keep the filter in the query and wrap a test around it: run the retrieval with the filter and
    without it, and require different row counts. That test is security code now.
@@ -140,13 +148,14 @@ query's `WHERE` clause and nothing else. Three sourced ways to live with that:
    predicate then sits on the joined table, and Learn labels only the searched table's predicate an
    iterative filter, so expect post-filter behaviour.
 
-**This limitation is not documented.** Learn's `CREATE VECTOR INDEX` limitations list names
-partitioning, the clustered primary key, replication, `TRUNCATE TABLE` and package import, and the
-`vector` type's limitations page names constraints, indexes, ledger tables and Always Encrypted.
-Neither mentions security policies, as of 2026-09-03. `Msg 37579` is this skill's own measurement,
-and it contradicts what an earlier revision of this file recorded on 2026-08-28. That entry could
-not be re-run, the refusal reproduces, so the refusal stands. Creating the policy **before** the
-index was not measured, so do not plan around that order.
+**None of this is documented.** Learn's `CREATE VECTOR INDEX` limitations list names
+partitioning, replication, `TRUNCATE TABLE` and package import, the `vector` type's limitations
+page names constraints, indexes, ledger tables and Always Encrypted, and row-level security's
+cross-feature list does not mention vectors; none mentions security policies on vector-indexed
+tables. `Msg 37579` and `Msg 42244` both exist in the engine's `sys.messages`, but build
+18.0.310.0_253 and Azure SQL Database do not raise them for this pair. Because nothing documents
+the behaviour it can change without notice, so run the three checks in `SKILL.md` step 6 on the
+target database before promising a reviewer anything.
 
 ## Detecting a mixed corpus
 
@@ -167,9 +176,10 @@ was built for the previous distribution and recall degrades with no error.
 
 | Symptom | Cause | Where it is caught |
 |---|---|---|
-| Answers quote documents the user should not see | The retrieval query has no tenant filter, and no policy can supply one | Nowhere, until someone reports it. Only a test on the query catches it |
+| Answers quote documents the user should not see | The retrieval query has no tenant filter, and no verified policy supplies one | Nowhere, until someone reports it. Only a test on the query catches it |
 | Answers get vaguer after a model change | Two models' vectors in one column | The group by above |
 | Retrieval is correct but slow, and slows as the corpus grows | The query shape never reaches the vector index | The execution plan. `vector-search-azure-sql` |
 | Filtered results return fewer rows than asked for | The filter runs in application code, or the index is an earlier version that post-filters | `index_version`, and the count with the predicate moved into the query |
 | Part of the corpus is never retrieved | Rows with a null embedding | The unembedded count above |
-| `CREATE SECURITY POLICY` is refused | The target table carries a vector index | `Msg 37579`, at once. There is no policy on the retrieval path; the query's filter is the boundary |
+| `CREATE SECURITY POLICY` is refused | The target table carries a vector index, on an engine build that refuses the pair | `Msg 37579`, at once (or `Msg 42244` for the index after the policy). The query's filter is the boundary |
+| Approximate retrieval under a policy is slow | The policy is accepted but the search no longer uses the vector index | The plan has no `Vector Index Seek`; `WITH (FORCE_ANN_ONLY)` fails with `Msg 8622` |

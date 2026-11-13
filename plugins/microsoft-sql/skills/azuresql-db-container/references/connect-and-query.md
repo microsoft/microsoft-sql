@@ -46,8 +46,11 @@ house style, so every example in this collection reads the same way. `Uid=` and
 `Pwd=` are documented SqlClient synonyms, so a string that uses them still works.
 
 ```
-Server=localhost,1433;Database=appdb;User Id=sa;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true
+Server=localhost,1433;Database=appdb;User Id=sa;Password=<sa-password>;TrustServerCertificate=true
 ```
+
+`<sa-password>` is the `MSSQL_SA_PASSWORD` you started the container with; fill it in from the
+environment, never as a literal committed with the code.
 
 Apps read this from a single `SQL_CONNECTION_STRING` env var (see
 `environment-variables.md`).
@@ -58,12 +61,12 @@ All target `appdb`, which must already exist.
 
 | Stack | Connection string / config |
 | --- | --- |
-| ADO.NET / EF Core (SqlClient) | `Server=localhost,1433;Database=appdb;User Id=sa;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true` |
-| Go (microsoft/go-mssqldb) | `sqlserver://sa:YourStr0ng_Passw0rd@localhost:1433?database=appdb&TrustServerCertificate=true` |
-| Python (pyodbc, ODBC 18) | `Driver={ODBC Driver 18 for SQL Server};Server=localhost,1433;Database=appdb;Uid=sa;Pwd=YourStr0ng_Passw0rd;TrustServerCertificate=yes` |
-| Python (pymssql) | `pymssql.connect(server="localhost", port=1433, user="sa", password="YourStr0ng_Passw0rd", database="appdb")` |
+| ADO.NET / EF Core (SqlClient) | `Server=localhost,1433;Database=appdb;User Id=sa;Password=<sa-password>;TrustServerCertificate=true` |
+| Go (microsoft/go-mssqldb) | `sqlserver://sa:<sa-password>@localhost:1433?database=appdb&TrustServerCertificate=true` |
+| Python (pyodbc, ODBC 18) | `Driver={ODBC Driver 18 for SQL Server};Server=localhost,1433;Database=appdb;Uid=sa;Pwd=<sa-password>;TrustServerCertificate=yes` |
+| Python (pymssql) | `pymssql.connect(server="localhost", port=1433, user="sa", password=os.environ["MSSQL_SA_PASSWORD"], database="appdb")` |
 | Node.js (mssql / tedious) | `{ server: "localhost", port: Number(process.env.HOST_PORT), user: "sa", password: process.env.MSSQL_SA_PASSWORD, database: "appdb", options: { trustServerCertificate: true } }` |
-| JDBC | `jdbc:sqlserver://localhost:1433;databaseName=appdb;user=sa;password=YourStr0ng_Passw0rd;trustServerCertificate=true` |
+| JDBC | `jdbc:sqlserver://localhost:1433;databaseName=appdb;user=sa;password=<sa-password>;trustServerCertificate=true` |
 
 Note: ODBC is a different connection string grammar with its own keyword set, and
 that set uses `Uid`/`Pwd`. Keep an ODBC string in ODBC form. For the .NET-style

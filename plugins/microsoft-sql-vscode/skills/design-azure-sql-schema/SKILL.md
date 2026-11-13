@@ -1,16 +1,6 @@
 ---
 name: design-azure-sql-schema
-description: >-
-  Designs tables for Azure SQL Database so the first index or long value does not force a
-  rebuild. Covers index key limits in bytes, why Unicode sizing makes NVARCHAR(850) and
-  NVARCHAR(450) the real ceilings, collation decided once at CREATE DATABASE, the implicit
-  conversion that turns a lookup into a scan, identity gaps of a thousand after a restart, unique
-  columns that accept exactly one NULL. Use when creating or reviewing tables, porting a
-  PostgreSQL or MySQL schema to Azure SQL Database, choosing a key, a string length or a
-  collation, or reports a warning about maximum key length, an insert failing long after its
-  migration, a lookup that suddenly scans, identity values that jumped, or a duplicate key on
-  NULL. The engine rule under the mappers: ef-core-azure-sql and sqlalchemy-azure-sql own how
-  each expresses it, t-sql-correctness syntax, vector-search-azure-sql vector columns.
+description: "Use when creating, reviewing or porting tables for Azure SQL Database: key and string lengths, collation, identity gaps. Has verified behavior common answers miss, e.g. a unique index on nvarchar(1000) builds with only a warning."
 ---
 
 # Design a schema Azure SQL Database will not make you rebuild
@@ -18,10 +8,10 @@ description: >-
 These are the schema decisions Azure SQL Database punishes **later**, not at `CREATE TABLE`.
 Normalisation and naming are not here: they are the same everywhere.
 
-Everything below was measured on 2026-08-28 against a live engine where
-`SERVERPROPERTY('EngineEdition')` returns `5` and `Edition` is `SQL Azure`.
-Open [the measured statements](references/key-bytes-collation-and-identity-gaps.md) when a number
-below disagrees with your engine, and before changing one.
+Everything below holds on Azure SQL Database, where `SERVERPROPERTY('EngineEdition')` returns `5`
+and `Edition` is `SQL Azure`.
+Open [the statements behind each number](references/key-bytes-collation-and-identity-gaps.md) when
+a number below disagrees with your engine, and before changing one.
 
 | | |
 |---|---|
@@ -102,15 +92,15 @@ collation conflict, `Msg 468`. The second half of the default's cost is section 
 
 The common drivers bind a string parameter as Unicode by default. Under the **default** collation,
 comparing that parameter to a `VARCHAR` column converts the **column**, and a converted column
-cannot be sought. Measured over 20,000 rows with a unique index on `email`:
+cannot be sought. With a unique index on `email`:
 
 | Column | Collation | Parameter | Plan | Logical reads |
 |---|---|---|---|---|
-| `VARCHAR(320)` | `SQL_Latin1_General_CP1_CI_AS` (the default) | `NVARCHAR` | **Index Scan** | **80** |
-| `VARCHAR(320)` | `Latin1_General_CI_AS` | `NVARCHAR` | Index Seek | 2 |
-| `VARCHAR(850)` | `Latin1_General_100_CI_AS_SC_UTF8` | `NVARCHAR` | Index Seek | 2 |
-| `NVARCHAR(320)` | any | `NVARCHAR` | Index Seek | 2 |
-| `VARCHAR(320)` | the default | `VARCHAR` | Index Seek | 2 |
+| `VARCHAR(320)` | `SQL_Latin1_General_CP1_CI_AS` (the default) | `NVARCHAR` | **Index Scan** | **the whole index** |
+| `VARCHAR(320)` | `Latin1_General_CI_AS` | `NVARCHAR` | Index Seek | a few pages |
+| `VARCHAR(850)` | `Latin1_General_100_CI_AS_SC_UTF8` | `NVARCHAR` | Index Seek | a few pages |
+| `NVARCHAR(320)` | any | `NVARCHAR` | Index Seek | a few pages |
+| `VARCHAR(320)` | the default | `VARCHAR` | Index Seek | a few pages |
 
 ```text
 |--Index Scan(OBJECT:([dbo].[users_v].[ux_v]),
@@ -120,7 +110,7 @@ cannot be sought. Measured over 20,000 rows with a unique index on `email`:
 Row two seeks because a Windows collation lets the optimizer build a range with
 `GetRangeThroughConvert`. **A SQL collation cannot, and the default is a SQL collation.**
 
-**Consequence of being wrong: every lookup on that column reads the whole index instead of three
+**Consequence of being wrong: every lookup on that column reads the whole index instead of a few
 pages, forever, with no error and no warning.** Two designs avoid it, and one has to be chosen up
 front:
 
@@ -133,7 +123,7 @@ Do not mix. `VARCHAR` under the default collation plus an application binding Un
 
 ## 4. Identity gaps are routine here, and the remembered fix does not exist
 
-Measured across one engine restart, which is what a planned failover looks like from inside:
+Across one engine restart, which is what a planned failover looks like from inside:
 
 | Column | Last value before | First value after | Gap |
 |---|---|---|---|
@@ -148,7 +138,8 @@ ticket number, an order reference, develops thousand-wide holes, unrecoverably.*
 
 ```sql
 -- The remembered remedy from a non-PaaS engine. Refused here.
-DBCC TRACEON (272, -1);   -- Msg 40518, DBCC command 'traceon' is not supported
+DBCC TRACEON (272, -1);   -- container: Msg 40518, DBCC command 'traceon' is not supported
+                          -- Azure SQL Database: Msg 2571, no permission to run DBCC TRACEON
 
 -- The lever that works. It survives a restart and costs a log write per value.
 ALTER DATABASE SCOPED CONFIGURATION SET IDENTITY_CACHE = OFF;
@@ -172,7 +163,7 @@ INSERT INTO dbo.accounts (code) VALUES (NULL);
 -- Msg 2601, Cannot insert duplicate key row ... The duplicate key value is (<NULL>).
 -- Msg 2627 instead, where the constraint is a unique constraint rather than an index.
 
--- The fix, verified to accept many NULL rows:
+-- The fix, which accepts many NULL rows:
 DROP INDEX ux_code ON dbo.accounts;
 CREATE UNIQUE INDEX ux_code ON dbo.accounts (code) WHERE code IS NOT NULL;
 ```
@@ -191,9 +182,9 @@ Both are storage decisions, not key decisions.
 |---|---|---|
 | Index key column | no, `Msg 1978` | no, `Msg 1978` |
 | Primary key | no | no, `Msg 1919` |
-| `INCLUDE` column | yes, verified | route to `vector-search-azure-sql` |
+| `INCLUDE` column | yes | route to `vector-search-azure-sql` |
 | Compared with `=` | no, `Msg 402` against `nvarchar` | route to `vector-search-azure-sql` |
-| Ceiling | 2 GB | 1998 dimensions, `Msg 2717` above it |
+| Ceiling | 2 GB | 1998 dimensions at `float32` (3996 at `float16`), `Msg 2717` above it |
 
 A `json` column is not a filter. Promote anything a query filters on **every time** into a real
 column:
@@ -229,9 +220,9 @@ Run the DDL through `sqlcmd` with `-m-1`, because message 1945 is **severity 10*
 does not report severity 10 at all, so a migration that emitted it still exits 0:
 
 **`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
-Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
-`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
-message at any `-m` value, so on that build the `grep` below finds no message 1945 to report.
+Microsoft command line utilities. go-sqlcmd 1.x, the build `brew install sqlcmd` and
+`winget install sqlcmd` install, prints no `Msg` header on a severity 10 message at any `-m` value,
+so on that build the `grep` below finds no message 1945 to report.
 Query `sys.messages` or run the statement through the ODBC build when the number matters.
 
 ```bash
@@ -304,8 +295,8 @@ SELECT id FROM dbo.users WHERE email = @p;
 SET STATISTICS IO OFF;
 ```
 
-Expect single-digit logical reads that do not grow with the table. Reads in the tens over twenty
-thousand rows is the implicit conversion in section 3, not a cold cache.
+Expect single-digit logical reads that do not grow with the table. Reads that grow with the table
+are the implicit conversion in section 3, not a cold cache.
 
 ## Do not
 
@@ -315,19 +306,20 @@ thousand rows is the implicit conversion in section 3, not a cold cache.
 - Do not use `VARCHAR` under the default collation for anything an application looks up by value.
 - Do not add `LOWER()` or `UPPER()` around a column to fix a collation problem. That costs the
   index too, and it is `t-sql-correctness`.
-- Do not reach for trace flag 272. It is rejected with `Msg 40518`. The lever is
+- Do not reach for trace flag 272. It is rejected, with `Msg 40518` on the container and
+  `Msg 2571` (no permission, even as `dbo`) on Azure SQL Database. The lever is
   `IDENTITY_CACHE = OFF`.
 - Do not put an invoice or ticket number, or anything an auditor reads, on a bare `IDENTITY`.
 - Do not create a `SEQUENCE` without `START WITH`.
 - Do not give a model two or three optional unique columns and expect PostgreSQL NULL semantics.
 - Do not store a value in a `json` document and then filter on it. Promote it.
-- Do not add a clustered index only because you believe this engine demands one. A heap was
-  created and took rows on 2026-08-28.
+- Do not add a clustered index only because you believe this engine demands one. A heap can be
+  created and takes rows.
 
 ## References
 
-- Open [the measured statements](references/key-bytes-collation-and-identity-gaps.md) when you need
-  the statement behind a number above, the two query plans, or the reproduction steps.
+- Open [the statements behind each number](references/key-bytes-collation-and-identity-gaps.md)
+  when you need the statement behind a number above, the two query plans, or the setup to run them.
 - Read [Maximum capacity specifications](https://learn.microsoft.com/sql/sql-server/maximum-capacity-specifications-for-sql-server)
   before designing a wide composite key.
 - Read [Collation and Unicode support](https://learn.microsoft.com/sql/relational-databases/collations/collation-and-unicode-support)
@@ -337,7 +329,7 @@ thousand rows is the implicit conversion in section 3, not a cold cache.
 - Read [Database scoped configurations](https://learn.microsoft.com/sql/t-sql/statements/alter-database-scoped-configuration-transact-sql)
   before setting `IDENTITY_CACHE`, and
   [T-SQL differences](https://learn.microsoft.com/azure/azure-sql/database/transact-sql-tsql-differences-sql-server)
-  when a statement is refused with 40510, 40515, 40517 or 40518.
+  when a statement is refused with 40510, 40515, 40517, 40518 or 2571.
 - `ef-core-azure-sql` and `sqlalchemy-azure-sql`: how each mapper reaches these lengths and the
   default it lands on. The other mapper skills are listed in `skill.spec.jsonc`.
 - `t-sql-correctness` for query-level correctness, `t-sql-json-and-openjson` for querying a

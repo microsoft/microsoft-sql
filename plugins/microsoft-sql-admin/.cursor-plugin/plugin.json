@@ -1,0 +1,25 @@
+{
+  "name": "microsoft-sql-admin",
+  "displayName": "Microsoft SQL administration",
+  "version": "1.0.0",
+  "description": "Diagnose and administer SQL Server, Azure SQL Database, Azure SQL Managed Instance, and Fabric SQL databases, including performance and wait analysis, Query Store and execution plans, blocking and deadlocks, backup and recovery, high availability and disaster recovery, security, schema health, and SQL Server Agent jobs.",
+  "author": {
+    "name": "Microsoft"
+  },
+  "repository": "https://github.com/microsoft/microsoft-sql",
+  "keywords": [
+    "microsoft-sql",
+    "sql-server",
+    "azure-sql",
+    "database-administration",
+    "dba",
+    "ssms",
+    "performance-tuning",
+    "query-store",
+    "blocking",
+    "backup",
+    "high-availability",
+    "diagnostics"
+  ],
+  "skills": "skills/"
+}

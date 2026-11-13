@@ -55,7 +55,7 @@ docker run -d --name sqldb --network appnet --platform linux/amd64 \
 docker run -d --name dab --network appnet -p 127.0.0.1:5000:5000 \
   -e SQL_CONNECTION_STRING \
   -v "$PWD/dab-config.json:/App/dab-config.json" \
-  mcr.microsoft.com/azure-databases/data-api-builder:latest
+  mcr.microsoft.com/azure-databases/data-api-builder:2.1.5
 )
 ```
 
@@ -74,7 +74,7 @@ services:
   # sqldb-init: ...   (creates appdb, see azuresql-db-sidecar)
 
   dab:
-    image: mcr.microsoft.com/azure-databases/data-api-builder:latest
+    image: mcr.microsoft.com/azure-databases/data-api-builder:2.1.5
     depends_on:
       sqldb-init:
         condition: service_completed_successfully

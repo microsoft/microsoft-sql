@@ -1,16 +1,6 @@
 ---
 name: rag-local-with-container
-description: >-
-  Answers whether a retrieval augmented generation prototype proved on the local Azure SQL
-  Database container still holds in Azure SQL Database, and names what does not survive the move.
-  Owns the offline loop, the local embedding model, and the parity claim. Use when someone asks
-  to "prototype RAG offline with no cloud account", "use a local embedding model with SQL",
-  "develop against the container and deploy to Azure SQL Database", or asks what has to be redone
-  after the move; and when the engine refuses a local embedding endpoint, or a vector index and a
-  security policy will not coexist. A plain request to build RAG on the container belongs to
-  azuresql-db-rag; come here for the move. The cloud pipeline is rag-on-azure-sql, the type and
-  the query vector-search-azure-sql, embedding in the engine embeddings-and-external-models,
-  framework wiring langchain-and-llamaindex-on-azure-sql.
+description: "Use when prototyping RAG offline on the local Azure SQL Database container with a local embedding model, no cloud account, or asking what changes when it moves to Azure. For a plain local build, use `azuresql-db-rag`."
 ---
 
 # Local RAG on the Azure SQL Database container
@@ -18,13 +8,9 @@ description: >-
 Build the whole retrieval loop on a laptop with no cloud account, no keys and no outbound calls,
 then move it. This skill is about **what survives the move and what does not**.
 
-Verified 2026-08-28 by running one script against the local Azure SQL Database container and the
-same script against a live Azure SQL Database and comparing line by line; both report
-`SERVERPROPERTY('EngineEdition')` of 5. The local model commands were rerun 2026-09-03 on Ollama
-0.33.2. The two sqlcmd builds were compared on 2026-09-05, go-sqlcmd 1.10.0 against ODBC sqlcmd
-18.6.0002.1, and the chunk lengths below were re-read off the engine the same day. Open
-[references/parity.md](references/parity.md) before repeating any number below, or whenever someone
-disputes that the offline prototype is real.
+The container and Azure SQL Database both report `SERVERPROPERTY('EngineEdition')` of 5. Open
+[references/parity.md](references/parity.md) for the side by side comparison and the checks behind
+it, or whenever someone disputes that the offline prototype is real.
 
 ## What this owns
 
@@ -41,20 +27,19 @@ cloud?**
 
 ## The correction
 
-An agent told the container is the same engine concludes everything proved locally holds in the
-cloud. An agent told it is "just a container" will not prototype offline at all. Both are wrong.
+Told the container is the same engine, you would conclude everything proved locally holds in the
+cloud. Told it is "just a container", you would not prototype offline at all. Both are wrong.
 
-**Parity is real for the part people doubt.** The same 140 chunk corpus, embedded by the same local
-model and inserted into both engines, produced **identical cosine distances to six decimal
-places**, an identical top three, a vector index that built on both, and approximate search
-returning the same rows in the same order. The prototype is not a simulation.
+**Parity is real for the part people doubt.** The same vectors inserted into both engines give
+**identical cosine distances**, an identical top three, a vector index that builds on both, and
+approximate search returning the same rows in the same order. The prototype is not a simulation.
 
 **Three things break, and each breaks in the direction that flatters the laptop.**
 
 | What | Container | Azure SQL Database | Consequence |
 |---|---|---|---|
 | Outbound calls from the engine | any public host answers | an Azure domain allowlist, `Msg 31612` before DNS | Works locally, refused in the cloud |
-| Row level security beside a vector index | refused, `Msg 37579` and `Msg 42244` | both coexist, either order | The isolation cannot be rehearsed locally |
+| Row level security beside a vector index | depends on the build: refused (`Msg 37579`, `Msg 42244`) on earlier builds; accepted on 18.0.310.0_253, but the vector index is not used under the policy | accepted, and the vector index is not used under the policy either; undocumented | Current builds agree with the cloud; an earlier build cannot rehearse it |
 | Managed identity for an outbound credential | refused, `Msg 31644` | works | The production identity has no local rehearsal |
 
 A fourth is not an engine difference and costs the most: **the code moves unchanged, the corpus
@@ -74,8 +59,8 @@ rather than assuming, because the number goes straight into the column:
 ollama show nomic-embed-text
 ```
 
-`embedding length` is the answer, and on Ollama 0.33.2 it reads `768`. Confirm that against the
-endpoint the code will actually call:
+`embedding length` is the answer, and for `nomic-embed-text` it reads `768`. Confirm that against
+the endpoint the code will actually call:
 
 ```bash
 curl -s http://localhost:11434/api/embed \
@@ -83,11 +68,11 @@ curl -s http://localhost:11434/api/embed \
   python3 -c "import json,sys; print(len(json.load(sys.stdin)['embeddings'][0]))"
 ```
 
-Expect `768`. Two calls with the same input returned a byte identical vector, so the local corpus
-is reproducible and a diff between runs means the model changed.
+Expect `768`. Two calls with the same input return a byte identical vector, so the local corpus is
+reproducible and a diff between runs means the model changed.
 
 Then choose a cloud model that can be **asked** for that same number. A hosted model whose default
-is 1536 returned a 768 dimension vector when its external model definition carried
+is 1536 returns a 768 dimension vector when its external model definition carries
 `PARAMETERS = '{"dimensions":768}'`, and 512 when asked for 512; Microsoft Learn documents
 `PARAMETERS` on `CREATE EXTERNAL MODEL` and the same override per call on
 `AI_GENERATE_EMBEDDINGS`.
@@ -103,7 +88,7 @@ empty table.
 
 This is structural, not a preference. Microsoft Learn lists `Ollama` as an accepted `API_FORMAT`
 and gives its location path as `https://localhost:{port}/api/embed`, which reads as though the
-engine can call a model on your machine. On the container every route is closed. Ollama serves
+engine can call a model on your machine. In the container every route is closed. Ollama serves
 plain HTTP, and `LOCATION` accepts HTTPS only:
 
 ```sql
@@ -143,7 +128,7 @@ The dimension is interpolated as a literal and the vector bound as a JSON array 
 dimension as a parameter is a syntax error, a property of the type rather than of the container.
 
 Chunking is the exception and it is worth taking. `AI_GENERATE_CHUNKS` runs in the engine with no
-endpoint, no credential and no network, and produced byte identical output on both engines:
+endpoint, no credential and no network, and produces byte identical output on both engines:
 
 ```sql
 SELECT c.chunk_order, c.chunk_offset, c.chunk_length
@@ -155,28 +140,23 @@ Expect three rows, lengths 25, 25 and 16. It needs compatibility level 170 or hi
 the engine cannot find the function at all. Chunk in the database on both sides and one more piece
 of the pipeline stops being environment specific.
 
-## Step 3: build the loop, and measure it
+## Step 3: build the loop
 
-A complete offline run on the container: 152 chunks embedded locally in 0.8 s, indexed, searched
-with a tenant filter and answered by a local generation model in 2.3 s, with nothing leaving the
-host. The retrieval query is `vector-search-azure-sql`'s, unchanged, carrying the filter inside it
-that `rag-on-azure-sql` requires. Neither is restated here.
+The complete loop runs offline in the container: chunks embedded locally, indexed, searched with a
+tenant filter and answered by a local generation model, with nothing leaving the host. The
+retrieval query is `vector-search-azure-sql`'s, unchanged, carrying the filter inside it that
+`rag-on-azure-sql` requires. Neither is restated here.
 
-| Operation, same 140 rows | Container | Cloud |
-|---|---|---|
-| Insert 140 rows carrying a 768 dimension vector | 766 ms | 16851 ms |
-| Exact top three by distance | 16 ms | 150 ms |
-| `CREATE VECTOR INDEX` over those rows | 145 ms | 276 ms |
-
-The gap is round trips and provisioned throughput, not engine capability, and it is the honest
-reason the inner loop belongs on the laptop. The last row also settles the belief that a vector
-index cannot be built on the container: it builds, with no `ALTER DATABASE SCOPED CONFIGURATION`
-to make it.
+Inserts, exact search and the index build are all faster in the container than against a cloud
+database, inserts by far the most. The gap is round trips and provisioned throughput, not engine
+capability, and it is the honest reason the inner loop belongs on the laptop. A vector index does
+build in the container, with no `ALTER DATABASE SCOPED CONFIGURATION` to make it.
 
 ## Step 4: know what you cannot rehearse locally
 
-**Row level security and a vector index are mutually exclusive on the container**, in both orders.
-On a table holding at least 100 rows with non null vectors:
+**Row level security beside a vector index is not something the container can prove.** On earlier
+container builds the two are mutually exclusive, in both orders. On a table holding at least 100
+rows with non null vectors:
 
 ```sql
 CREATE VECTOR INDEX vi_kb ON dbo.kb (embedding) WITH (METRIC = 'cosine', TYPE = 'diskann');
@@ -186,12 +166,16 @@ CREATE FUNCTION dbo.fn_kb (@t INT) RETURNS TABLE WITH SCHEMABINDING AS
 GO
 CREATE SECURITY POLICY dbo.p_kb
     ADD FILTER PREDICATE dbo.fn_kb (tenant_id) ON dbo.kb WITH (STATE = ON);
--- Container: Msg 37579. Cloud: succeeds.
 ```
 
-Reverse the order and the container refuses the index instead, with `Msg 42244`. No ordering trick
-gets both. The predicate on the chunk table is the cheapest defence in the design, so it has to be
-exercised somewhere. Two workable answers, and the wrong one is to drop it:
+On earlier container builds the last statement fails with `Msg 37579`, and reversing the order
+makes the container refuse the index instead, with `Msg 42244`. On build 18.0.310.0_253 both
+orders are accepted and the filter holds through approximate search, but the vector index is not
+used under the policy: `WITH (FORCE_ANN_ONLY)` fails with `Msg 8622`. Azure SQL Database does the
+same: both orders accepted, the filter holds, the index unused under the policy. SQL Server 2025
+refuses the pair like the earlier builds. Microsoft Learn documents none of this. The predicate on the chunk table is the
+cheapest defence in the design, so it has to be exercised somewhere you can trust. Two workable
+answers, and the wrong one is to drop it:
 
 1. **Rehearse the predicate on an unindexed local table.** Under a few thousand rows an exact scan
    is fast, and the predicate is what is under test, not the plan.
@@ -203,8 +187,7 @@ that ships is the query text that was tested.
 
 **Managed identity has no local rehearsal.** The container answers `Msg 31644` and names
 `sp_configure 'allow server scoped db credentials'` as the remedy, and the remedy does not take.
-Which statement stops it was re-measured on 2026-09-06 against 18.0.226_4_147, because this skill
-attributed it to the wrong one until that day. From a user database `sp_configure` is not there at
+From a user database `sp_configure` is not there at
 all, `Msg 2812, Could not find stored procedure`. Connected to `master` it runs and stages the value
 without complaint. **`RECONFIGURE` is what refuses**, with
 `Msg 40510, Statement 'CONFIG' is not supported in this version of SQL Server`, so the staged value
@@ -225,7 +208,9 @@ Change the connection string, then these four things and nothing else:
 2. **The credential**, from a key to managed identity. The `USE MODEL` text does not change.
 3. **Re-embed the corpus** with the cloud model, in one pass before any retrieval runs against it.
    A half migrated column is the failure `rag-on-azure-sql` describes and nothing raises it.
-4. **Add the security policy** the local environment could not carry alongside the index.
+4. **Add the security policy** if the design uses one, and check on the cloud database that it is
+   created, that a cross-tenant retrieval returns none of the other tenant's rows, and whether the
+   plan still shows a `Vector Index Seek`.
 
 Then re-run the same retrieval assertions against the cloud database. The point of the exercise is
 that they are the same assertions.
@@ -237,10 +222,10 @@ on an error and `-m-1` makes severity 10 messages arrive with their `Msg` number
 anonymous text, which `-b` alone never surfaces.
 
 **`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
-Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
-`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
-message at any `-m` value, so on that build these commands print the message text with no number at
-all. The ODBC build is inside the container image at `/opt/mssql-tools18/bin/sqlcmd`, one
+Microsoft command line utilities. With go-sqlcmd 1.x, the build `brew install sqlcmd` and
+`winget install sqlcmd` install, a severity 10 message prints no `Msg` header at any `-m` value, so
+these commands print the message text with no number at all. The ODBC build is inside the
+container image at `/opt/mssql-tools18/bin/sqlcmd`, one
 `docker exec` away. `build-app-on-azure-sql` tells the two builds apart in one table.
 
 Start with the declared dimension against what the model produces:
@@ -272,10 +257,9 @@ rows, same distances, no error. A failure names an outbound call you did not kno
 
 ## References
 
-- [references/parity.md](references/parity.md): read it before quoting any parity number, when a
-  plan assumes the two engines agree, or when a break needs its exact error text in both orders. It
-  holds the side by side run, the timings, the claims that did not hold, and how to reproduce all
-  of it in about ten minutes.
+- [references/parity.md](references/parity.md): read it when a plan assumes the two engines agree,
+  or when a break needs its exact error text in both orders. It holds the side by side comparison,
+  the claims that do not hold, and the checks for each break.
 - `azuresql-db-rag`: start there for the container, the first vector table and a full scan search,
   then come back here for the move.
 - `vector-search-azure-sql`: open it before writing any similarity query, for the type, the

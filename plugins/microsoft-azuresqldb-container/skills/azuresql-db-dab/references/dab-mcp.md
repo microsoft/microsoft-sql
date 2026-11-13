@@ -79,3 +79,11 @@ dab start --mcp-stdio            # optionally: --mcp-stdio role:<role>
 ```
 
 This runs DAB's MCP surface over stdio using the same `dab-config.json`.
+
+## Once it is hosted
+
+Everything above is loopback. A hosted endpoint on version 2.1 also needs its
+public host name in `runtime.mcp.allowed-hosts`, or every MCP request is refused
+with 403 while REST keeps working. Hosting belongs to **deploy-dab-to-azure**;
+remote clients, their authentication, and tool descriptions to
+**dab-mcp-endpoint**.

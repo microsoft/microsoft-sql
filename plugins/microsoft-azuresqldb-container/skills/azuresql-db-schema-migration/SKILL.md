@@ -1,16 +1,6 @@
 ---
 name: azuresql-db-schema-migration
-description: >-
-  Runs database schema migrations against the local Azure SQL Database container so the
-  same migrations apply identically on the local engine and in the Azure cloud.
-  Use when asked to "run my migrations against the local SQL", "apply schema to
-  the container", "apply EF Core / dotnet ef database update", "Prisma migrate
-  dev / deploy", "Alembic upgrade head", or deploy a DACPAC / SqlPackage to the
-  container. Covers provisioning appdb on master first, then applying schema to
-  the user database, plus per-tool commands and connection-string hygiene. This
-  is the Azure SQL Database engine (EngineEdition 5), not the SQL Server image;
-  reach for this skill whenever schema migration tooling targets the local
-  container.
+description: "Use when running migrations against the local Azure SQL Database container: dotnet ef database update, prisma migrate, alembic upgrade head, a dacpac publish, so they match Azure."
 ---
 
 # Schema migrations on the Azure SQL Database container
@@ -22,13 +12,11 @@ Database engine (`SELECT SERVERPROPERTY('EngineEdition')` returns **5**,
 `mcr.microsoft.com/mssql/server`. If a tool or template points at the SQL Server image,
 stop and use the image below instead.
 
-Verified on 2026-09-05 against the container image
-`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
-5, Edition `SQL Azure`, build `12.0.2000.8`. All six executable checks behind this skill
-passed: the engine identity, `Msg 40508` for `USE`, a `VECTOR(n)` column in migration DDL, the
-three SqlPackage `Publish` parameters and `/TargetTrustServerCertificate` present in
-SqlPackage 170.4.83.3's own help, and `dotnet ef database update` on Entity Framework Core
-.NET command-line tools 9.0.19.
+## Scope
+
+- Applying EF Core, Prisma, Alembic or SqlPackage migrations to the local container, so the same
+  migrations apply identically in Azure.
+- Building a SQL database project, or a dacpac publish that fails, is `sql-database-projects`.
 
 ## The one rule that breaks every migration tool
 
@@ -49,15 +37,41 @@ provisioning only; run migrations against `appdb`.
 
 ## Start the container and provision appdb (canonical recipe)
 
-The engine is not ready the instant `docker run` returns. Wait with a retry loop
-and create `appdb` inside that same loop. Image is x64 only; on a non-x64 host the
+The engine is not ready the instant `docker run` returns. This **Bash** recipe
+waits on a bounded readiness probe, then provisions `appdb` once on `master`.
+It requires GNU coreutils `timeout` (`gtimeout` on macOS or `gnutimeout` on
+systems whose default uses another implementation); install coreutils before
+starting if none is available. Image is x64 only; on a non-x64 host the
 recipe adds `--platform linux/amd64` automatically. The registry is private during
 Private Preview, so sign in first.
 
 ```bash
+# Fail before allocating a container if the bounded-process dependency is missing.
+TIMEOUT_BIN=
+for candidate in timeout gtimeout gnutimeout; do
+  candidate_path=$(command -v "$candidate") || continue
+  case "$("$candidate_path" --version 2>/dev/null)" in
+    *'GNU coreutils'*) TIMEOUT_BIN=$candidate_path; break;;
+  esac
+done
+[ -n "$TIMEOUT_BIN" ] || { echo "READINESS_TIMEOUT_REQUIRED: GNU coreutils" >&2; exit 69; }
+READY_TIMEOUT_SECONDS=${READY_TIMEOUT_SECONDS:-120}
+READY_MAX_ATTEMPTS=${READY_MAX_ATTEMPTS:-30}
+PROVISION_TIMEOUT_SECONDS=${PROVISION_TIMEOUT_SECONDS:-30}
+for bound in "$READY_TIMEOUT_SECONDS" "$READY_MAX_ATTEMPTS" "$PROVISION_TIMEOUT_SECONDS"; do
+  case "$bound" in ''|*[!0-9]*) echo "READINESS_INVALID_BOUND" >&2; exit 64;; esac
+  if [ "${#bound}" -gt 5 ] || [ "$bound" -eq 0 ] || [ "$bound" -gt 86400 ]; then
+    echo "READINESS_INVALID_BOUND" >&2; exit 64
+  fi
+done
+# Normalize decimal settings before Bash arithmetic (including leading zeroes).
+READY_TIMEOUT_SECONDS=$((10#$READY_TIMEOUT_SECONDS))
+READY_MAX_ATTEMPTS=$((10#$READY_MAX_ATTEMPTS))
+PROVISION_TIMEOUT_SECONDS=$((10#$PROVISION_TIMEOUT_SECONDS))
+
 docker login sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io   # pull-only creds by signing up at https://aka.ms/sqldbcontainerpreview-signup
 
-# Pick a free host port and add the platform flag only on a non-x64 host (works in bash and zsh).
+# Pick a free host port and add the platform flag only on a non-x64 host.
 : "${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD to a unique password before running this recipe}"; export MSSQL_SA_PASSWORD
 HOST_PORT=1433; while lsof -nP -iTCP:"$HOST_PORT" -sTCP:LISTEN >/dev/null 2>&1; do HOST_PORT=$((HOST_PORT+1)); done
 export HOST_PORT
@@ -65,29 +79,58 @@ PLATFORM=(); case "$(docker info -f '{{.Architecture}}' 2>/dev/null)" in x86_64|
 docker rm -f sqldb 2>/dev/null
 docker run -d --name sqldb "${PLATFORM[@]}" -e "ACCEPT_EULA=Y" -e MSSQL_SA_PASSWORD \
   -p "127.0.0.1:$HOST_PORT:1433" sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest
-until docker exec sqldb sh -c 'SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" exec /opt/mssql-tools18/bin/sqlcmd "$@"' sh \
-  -S localhost -U sa -C -b -l 2 \
-  -Q "IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;" >/dev/null 2>&1; do sleep 2; done
+# Readiness has a wall-clock deadline as well as a finite attempt count.
+deadline=$((SECONDS + READY_TIMEOUT_SECONDS)); attempt=0; ready=0
+while [ "$attempt" -lt "$READY_MAX_ATTEMPTS" ]; do
+  remaining=$((deadline - SECONDS))
+  [ "$remaining" -gt 0 ] || break
+  attempt=$((attempt+1)); probe_seconds=5
+  [ "$remaining" -ge "$probe_seconds" ] || probe_seconds=$remaining
+  if "$TIMEOUT_BIN" --kill-after=1 "$probe_seconds" docker exec sqldb sh -c \
+    'SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" exec /opt/mssql-tools18/bin/sqlcmd "$@"' sh \
+    -S localhost -U sa -d master -C -b -l 2 -t 5 -Q "SELECT 1;" >/dev/null 2>&1; then
+    ready=1; break
+  fi
+  remaining=$((deadline - SECONDS))
+  [ "$remaining" -gt 0 ] && [ "$attempt" -lt "$READY_MAX_ATTEMPTS" ] || break
+  delay=2; [ "$remaining" -ge "$delay" ] || delay=$remaining
+  sleep "$delay"
+done
+[ "$ready" -eq 1 ] || { echo "READINESS_FAILED after $attempt attempts" >&2; exit 70; }
+
+# A provisioning error is not retried as startup delay. Password stays in the guest environment.
+"$TIMEOUT_BIN" --kill-after=1 "$PROVISION_TIMEOUT_SECONDS" docker exec sqldb sh -c \
+  'SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" exec /opt/mssql-tools18/bin/sqlcmd "$@"' sh \
+  -S localhost -U sa -d master -C -b -l 2 -t "$PROVISION_TIMEOUT_SECONDS" \
+  -Q "IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;" || { echo "PROVISIONING_FAILED" >&2; exit 71; }
 echo "ready on localhost,$HOST_PORT"
 ```
 
-`-C` trusts the self-signed cert; `-b` makes a SQL error set the exit code so
-transient startup errors (like `Msg 913`) are retried instead of masked. Never
-poll bare `sqlcmd` without `-l`. For full lifecycle detail, see the
-**azuresql-db-container** skill.
+`-C` trusts the self-signed cert; `-b` makes a SQL error set the exit code.
+Readiness retries transient failures but stops after the total deadline or
+attempt limit. `-l` bounds login, `-t` bounds queries and GNU timeout bounds a
+hung Docker client. The Bash deadline has one-second clock resolution; timeout
+cleanup allows up to one additional second of kill grace;
+the separate provisioning step has its own bound. These bounds cover readiness
+and provisioning, not registry login, image pull or container startup. A failure
+exits the recipe before migration tools can run. Docker exec's guest SQL command
+retains its own SQL timeouts if the host client disconnects. For full container
+lifecycle and owned cleanup detail, see the **azuresql-db-container** skill.
 
 ## Connection-string hygiene
 
 Standardize on one form and read it from a single `SQL_CONNECTION_STRING` env var:
 
 ```
-Server=localhost,1433;Database=appdb;User Id=sa;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true
+Server=localhost,1433;Database=appdb;User Id=sa;Password=<sa-password>;TrustServerCertificate=true
 ```
 
 - Spell the keywords `User Id=` / `Password=` / `Database=` as house style. `Uid=` / `Pwd=` are
   documented SqlClient synonyms and work too.
 - `Database=appdb`, never `master`, for migrations and app work.
 - `TrustServerCertificate=true` for the local self-signed cert.
+- `<sa-password>` is the container's `MSSQL_SA_PASSWORD`. The commands below read it from the
+  environment (URL-encode it in the URL forms if it contains `@`, `:`, `/` or `;`).
 - If you chose a non-default `HOST_PORT` above, use `Server=localhost,<HOST_PORT>`.
 
 ## Apply migrations (per tool)
@@ -98,7 +141,7 @@ troubleshooting per tool are in [references/migration-tools.md](references/migra
 ### EF Core (.NET)
 
 ```bash
-export SQL_CONNECTION_STRING="Server=localhost,1433;Database=appdb;User Id=sa;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true"
+export SQL_CONNECTION_STRING="Server=localhost,1433;Database=appdb;User Id=sa;Password=$MSSQL_SA_PASSWORD;TrustServerCertificate=true"
 dotnet ef database update
 ```
 
@@ -113,7 +156,7 @@ Prisma needs the `sqlserver://` URL form in `DATABASE_URL`:
 ```bash
 npm install -D prisma@6
 npm install @prisma/client@6
-export DATABASE_URL="sqlserver://localhost:1433;database=appdb;user=sa;password=YourStr0ng_Passw0rd;trustServerCertificate=true"
+export DATABASE_URL="sqlserver://localhost:1433;database=appdb;user=sa;password=$MSSQL_SA_PASSWORD;trustServerCertificate=true"
 npx prisma migrate deploy          # apply committed migrations (CI / prod-like)
 npx prisma migrate dev --name init # author + apply a new migration (local dev)
 ```
@@ -130,7 +173,7 @@ Prisma 7 wiring.
 ### Alembic (Python)
 
 ```bash
-export SQL_CONNECTION_STRING="mssql+pyodbc://sa:YourStr0ng_Passw0rd@localhost,1433/appdb?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+export SQL_CONNECTION_STRING="mssql+pyodbc://sa:$MSSQL_SA_PASSWORD@localhost,1433/appdb?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
 alembic upgrade head
 ```
 
@@ -160,8 +203,8 @@ When inserting via `CAST(CAST(? AS NVARCHAR(MAX)) AS VECTOR(n))`, `n` must be a
 literal, never a bind parameter (a parameter dimension fails with "Incorrect
 syntax near '@P3'"); the inner `NVARCHAR(MAX)` cast keeps a real embedding's
 JSON from being sent as ntext, which the engine rejects (error 529).
-`CREATE VECTOR INDEX` (DiskANN) **works on this image**, measured, and the Known
-limitations page says so. Three things matter in a migration:
+`CREATE VECTOR INDEX` (DiskANN) **works on this image**, as the Known limitations
+page says. Three things matter in a migration:
 
 - It needs `SET QUOTED_IDENTIFIER ON` in the session running the DDL, and it refuses
   to build on fewer than 100 rows with non-null vectors (`Msg 42266`). So the index
@@ -200,7 +243,7 @@ docker exec -i sqldb sh -c 'SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" exec /opt/mssql-
 
 ## Minimum tool versions
 
-Use only the tools needed by the selected recipe, at or above these minimum tested versions:
+Use only the tools needed by the selected recipe, at or above these minimum versions:
 
 - **`sqlcmd`**: go-sqlcmd 1.10.0
 - **`prisma`**: Prisma 6.19.3

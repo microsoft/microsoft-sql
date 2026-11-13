@@ -1,27 +1,13 @@
 ---
 name: azuresql-db-import
-description: >-
-  Imports an existing Azure SQL Database or SQL Server schema and data INTO the
-  local Azure SQL Database container using SqlPackage. Use when asked to "import a
-  bacpac", "load my existing database locally", "restore a dacpac into the
-  container", "bring my prod schema into the dev container", "run my
-  .bacpac/.dacpac against the local Azure SQL engine", or migrate an existing
-  database into the preview container. Handles provisioning the target database
-  on master first, then running SqlPackage /Action:Import against the
-  provisioned user database. Use this for any "get my real database running in
-  the container" request instead of hand-writing SqlPackage flags.
+description: "Use when loading an existing database into the local Azure SQL Database container: import a bacpac from prod, deploy a dacpac, bring my real schema and data local with SqlPackage."
 ---
 
 # The Azure SQL Database container: import a database
 
 Bring an existing database INTO the local container from a
-`.bacpac` (schema + data) or `.dacpac` (schema only) using SqlPackage.
-
-Verified on 2026-09-05 against the container image
-`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
-5, Edition `SQL Azure`, build `12.0.2000.8`. All five executable checks behind this skill
-passed: the engine identity, `Msg 40508` for `USE`, `Msg 40510` for `RESTORE`, and that
-SqlPackage runs on the host because the image does not ship it.
+`.bacpac` (schema + data) or `.dacpac` (schema only) using SqlPackage. The image does not ship
+SqlPackage, so it runs on the host.
 
 ## What this is (load-bearing facts)
 
@@ -35,8 +21,12 @@ and use this instead.
   (x64, linux/amd64; private preview registry, sign in first). Registry/tag are
   provisional during Private Preview.
 - On a non-x64 host, add `--platform linux/amd64`.
-- The engine does **NOT** auto-create databases. You must `CREATE DATABASE appdb`
-  on a **master** connection before importing into it.
+- SqlPackage `/Action:Import` can create a missing target database when the
+  authenticated user has create-database permissions. Pre-creation is optional.
+  If the target already exists, it must contain no user-defined schema objects.
+- Leave `/p:DatabaseEdition` and `/p:DatabaseServiceObjective` unset for the
+  container. These select Azure service tiers, not whether Import creates the
+  database. Use the container's defaults instead.
 - **There is no restore path.** `BACKUP` and `RESTORE` are refused in every
   session with `Msg 40510`, exactly as in Azure SQL Database in the cloud, so a
   `.bak` file is not a way in no matter where it is copied. SqlPackage with a
@@ -53,17 +43,18 @@ For full container detail (start recipe, connection model, readiness), see the
 
 ## The three steps
 
-1. Have a running container with the target database provisioned on master.
-2. Run SqlPackage `/Action:Import` targeting the provisioned user database.
+1. Have a running container and credentials with permission to create the target
+   database, or an existing empty target with appropriate import permissions.
+2. Run SqlPackage `/Action:Import` targeting the new or empty user database.
 3. Validate what landed (PaaS restrictions may drop some objects).
 
 This is the Private Preview supported import path. Always validate the result.
 
-## Step 0: start the container and provision the target DB
+## Step 0: start the container and wait for readiness
 
 Reuse the canonical start recipe. It picks a free host port, adds `--platform`
-only on a non-x64 host, waits for readiness with a retry loop, and provisions the
-target database `appdb` on master in that same loop.
+only on a non-x64 host, and waits for readiness on master with a retry loop.
+It does not need to create the target database before import.
 
 ```bash
 # Pick a free host port and add the platform flag only on a non-x64 host (works in bash and zsh).
@@ -74,26 +65,30 @@ PLATFORM=(); case "$(docker info -f '{{.Architecture}}' 2>/dev/null)" in x86_64|
 docker rm -f sqldb 2>/dev/null
 docker run -d --name sqldb "${PLATFORM[@]}" -e "ACCEPT_EULA=Y" -e MSSQL_SA_PASSWORD \
   -p "127.0.0.1:$HOST_PORT:1433" sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest
-until docker exec -e SQLCMDPASSWORD sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -l 2 \
-  -Q "IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;" >/dev/null 2>&1; do sleep 2; done
+until docker exec -e SQLCMDPASSWORD sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -l 2 -d master \
+  -Q "SELECT 1;" >/dev/null 2>&1; do sleep 2; done
 echo "ready on localhost,$HOST_PORT"
 ```
 
-If the container is already running, just provision the target database on master:
+If the container is already running, reuse it and check readiness on master.
+To pre-create the target explicitly, optionally run:
 
 ```bash
 : "${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD to the password used by the running container}"
 export SQLCMDPASSWORD="$MSSQL_SA_PASSWORD"
-docker exec -e SQLCMDPASSWORD sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b \
-  -Q "IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;"
+docker exec -e SQLCMDPASSWORD sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -d master \
+  -Q "IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name = N'appdb') CREATE DATABASE appdb;"
 ```
 
-> The target database MUST exist and be empty before import. SqlPackage imports
-> the **user** database; it does not create it on the server for you here.
+> Pre-creation is not required: SqlPackage can create `appdb` during import.
+> If `appdb` already exists, it must contain no user-defined schema objects.
+> Check existence through `sys.databases` on master; `DB_ID('appdb')` can return
+> NULL for a different database on Azure SQL Database.
 
 ## Step 1: import with SqlPackage
 
-Point `/TargetConnectionString` at the provisioned database (`Database=appdb`).
+Point `/TargetConnectionString` at the intended database (`Database=appdb`),
+even when it does not exist yet.
 Use the canonical connection string shape: `User Id=`/`Password=`/`Database=`,
 `TrustServerCertificate=true`.
 
@@ -152,7 +147,8 @@ Read SqlPackage output for skipped/blocking items. See
 
 ## Validation rules
 
-- Target database exists on master and is empty BEFORE import.
+- Before import, the target either does not exist and the authenticated user can
+  create it, or it exists and contains no user-defined schema objects.
 - `/TargetConnectionString` sets `Database=appdb` (never the literal `master`).
 - After import, `SERVERPROPERTY('EngineEdition')` on the target is `5`.
 - Use `.bacpac` for schema + data via `/Action:Import`; `.dacpac` for schema via
@@ -162,7 +158,7 @@ Read SqlPackage output for skipped/blocking items. See
 
 ## Minimum tool versions
 
-Use only the tools needed by the selected recipe, at or above these minimum tested versions:
+Use only the tools needed by the selected recipe, at or above these minimum versions:
 
 - **`sqlpackage`**: SqlPackage 170.4.83.3
 - **`sqlcmd`**: go-sqlcmd 1.10.0
@@ -186,14 +182,14 @@ A missing command, an older version, or a nonzero version check is a prerequisit
 
 - Do not use the `mcr.microsoft.com/mssql/server` SQL Server image.
 - Do not reach for `RESTORE DATABASE ... FROM DISK`; it is refused with `Msg 40510` and copying the `.bak` into the container does not change that.
-- Do not import into `master`; import into the provisioned user database.
+- Do not import into `master`; name the intended user database as the target.
 - Do not put `USE appdb` in any pre/post script; select the DB in the connection
   string instead.
 - Do not rely on `/docker-entrypoint-initdb.d/*.sql` auto-seeding; it is NOT
   honored by this image.
 - Do not call a non-x64 host "supported"; just add `--platform linux/amd64`
   on a non-x64 host.
-- Do not treat a clean `docker run` as "ready"; provision inside the retry loop.
+- Do not treat a clean `docker run` as "ready"; check master inside the retry loop.
 
 ## References
 

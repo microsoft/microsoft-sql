@@ -1,15 +1,6 @@
 ---
 name: azuresql-db-testing
-description: >-
-  Writes integration tests that run IN CODE against a real Azure SQL Database
-  container, spun up per test or per suite with Testcontainers and torn down after.
-  Use when the user asks for "integration tests against SQL", "Testcontainers",
-  "spin up a database for tests", "an ephemeral test database", "a test database
-  per test", "xUnit/Jest/pytest with a real database", or "a database fixture".
-  Use this INSTEAD of the Testcontainers MsSql preset (mcr.microsoft.com/mssql/server),
-  because this is the Azure SQL engine (EngineEdition 5). For wiring the engine
-  into a CI pipeline via service containers or workflow YAML instead, use
-  azuresql-db-ci.
+description: "Use when integration tests start the Azure SQL Database container from code with Testcontainers: xUnit, Jest or pytest with a real database, per-test fixture. For CI pipelines, use `azuresql-db-ci`."
 ---
 
 # Integration tests on the Azure SQL Database container with Testcontainers
@@ -23,13 +14,8 @@ This skill is about tests that manage their own engine lifecycle in-process
 into a CI pipeline as a service container via workflow YAML. If the goal is a CI job
 rather than in-code test setup, use **azuresql-db-ci** instead.
 
-Verified on 2026-09-05 against the container image
-`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
-5, Edition `SQL Azure`, build `12.0.2000.8`. All six executable checks behind this skill
-passed: the engine identity, `Msg 40508` for `USE`, that the engine inside the container
-listens on `1433` so a random mapped host port works, that connecting creates no database, the
-native `VECTOR(n)` type, and the `/opt/mssql-tools18/bin` tools the wait strategy
-invokes being present inside the image. The Testcontainers recipes themselves were not executed by that run.
+The image ships the `/opt/mssql-tools18/bin` tools, so a wait strategy can run `sqlcmd` inside
+the container.
 
 ## Use the right image (interception point)
 
@@ -78,14 +64,14 @@ run `docker login` as a step before the tests (see **azuresql-db-ci**).
 ## The lifecycle every recipe follows
 
 1. Build a generic container from the engine image with `ACCEPT_EULA=Y` and a complex
-   `MSSQL_SA_PASSWORD` (example literal: `YourStr0ng_Passw0rd`; at least 8 characters using
+   `MSSQL_SA_PASSWORD` (read from the environment, never a literal in test code; at least 8 characters using
    at least three of upper case, lower case, digits, and symbols). Expose container port
    1433. On a non-x64 host, set the image platform to `linux/amd64`.
 2. Attach a **wait-for-ready** strategy so `Start` returns only once the engine answers.
 3. Provision `appdb` on a master connection (a `SELECT 1` plus
    `IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;`).
 4. Build the connection string from the mapped host port and hand it to the test:
-   `Server=localhost,<mappedPort>;Database=appdb;User Id=sa;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true`.
+   `Server=localhost,<mappedPort>;Database=appdb;User Id=sa;Password=<sa-password>;TrustServerCertificate=true`.
    House style spells the keywords `User Id=` / `Password=` / `Database=`; `Uid=` / `Pwd=` are
    documented SqlClient synonyms and work too. The command-line equivalent of
    `TrustServerCertificate=true` is `-C`, as on the command line the
@@ -125,7 +111,7 @@ parameter** (a parameter dimension fails with "Incorrect syntax near '@P3'").
 
 ## Minimum tool versions
 
-Use only the tools needed by the selected recipe, at or above these minimum tested versions:
+Use only the tools needed by the selected recipe, at or above these minimum versions:
 
 - **`dotnet`**: .NET SDK 8.0.421
 

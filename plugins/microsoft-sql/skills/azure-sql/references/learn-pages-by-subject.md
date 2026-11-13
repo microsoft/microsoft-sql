@@ -1,6 +1,6 @@
 # Microsoft Learn pages for Azure SQL Database, by subject
 
-Each entry says what the page settles, so the fetch is targeted. Links checked 2026-09-03.
+Each entry says what the page settles, so the fetch is targeted.
 
 ## Contents
 
@@ -80,8 +80,8 @@ a decision, and it should be made deliberately.
 
 ### Tooling
 
-- The `az sql db` command reference, which is the authority for flags, and which this catalog has
-  already caught disagreeing with the command's own behaviour:
+- The `az sql db` command reference, which is the authority for flags, and which can disagree with
+  the command's own behaviour (see the last section):
   <https://learn.microsoft.com/en-us/cli/azure/sql/db>
 
 ## Questions to ask the running system instead
@@ -93,7 +93,7 @@ the actual question.
 |---|---|
 | What compatibility level is this database on | `SELECT name, compatibility_level FROM sys.databases;` |
 | What engine version am I connected to | `SELECT @@VERSION;` |
-| Which product am I connected to | `SELECT SERVERPROPERTY('EngineEdition');` 5 is Azure SQL Database and nothing else is in scope, not 2 or 3 for SQL Server, not 8 for Azure SQL Managed Instance, not 12 for SQL database in Microsoft Fabric, per Learn's SERVERPROPERTY reference |
+| Which product am I connected to | `SELECT SERVERPROPERTY('EngineEdition');` 5 is Azure SQL Database and nothing else is in scope, not 2 or 3 for SQL Server, not 8 for Azure SQL Managed Instance, not 12 for SQL database in Microsoft Fabric, per Learn's SERVERPROPERTY reference. The local Azure SQL Database container also reports 5, so the server name, not the edition, tells the container from the service |
 | Which service objectives exist in this region for this tier | `az sql db list-editions -l <region> -e <tier> --query "[].supportedServiceLevelObjectives[].name" -o tsv` |
 | What is this database actually running right now | `az sql db show -g <rg> -s <server> -n <database> --query "{current:currentServiceObjectiveName,requested:requestedServiceObjectiveName}"` |
 | Is a long-running change still in flight | `az sql db op list -g <rg> -s <server> -d <database> -o table` |
@@ -104,11 +104,11 @@ validates against, so it is more current than the help text beside it.
 
 ## Reading a first-party page without inheriting its mistakes
 
-Documentation is written by people and it drifts, in specific and repeatable ways. Three that this
-catalog has found and verified rather than assumed:
+Documentation is written by people and it drifts, in specific and repeatable ways. Three to watch
+for:
 
-- **Command help text can name a value the command rejects.** It has happened in this command group,
-  where the documented exhaustion behaviour value for the free offer is not one the tool accepts.
+- **Command help text can name a value the command rejects.** In this command group, the documented
+  exhaustion behaviour value for the free offer is not one the tool accepts.
 - **Help text can understate a limit.** The same command's help says the free offer is allowed on one
   database in a subscription. The offer's own FAQ says ten, twice.
 - **Two pages can disagree about a maximum.** The tier overview and the resource limits reference

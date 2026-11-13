@@ -1,16 +1,6 @@
 ---
 name: schema-migrations-safely
-description: >-
-  Decides whether a schema change is safe to apply to a live Azure SQL Database, and rewrites the
-  migration so it is. Use when someone asks "is this migration safe to run in production", "can I
-  add this column without downtime", "zero downtime schema change", "expand and contract", "blue
-  green database deploy", "make this migration re-runnable", "should the app run migrations at
-  startup", or "how do I roll this back"; and when a deployment blocked every query, instances
-  fought over the same migration, or a retry applied its backfill twice. Covers metadata-only
-  versus table-rewriting alterations, the schema lock that blocks readers under snapshot
-  isolation, ONLINE and RESUMABLE, and why a guard is not a guard under concurrency or retry.
-  Tooling is sql-database-projects and github-actions-for-sql, ORM migrations their own skills,
-  the table design design-azure-sql-schema.
+description: "Use when asking if a schema change is safe on a live Azure SQL Database: add or alter a column, NOT NULL, deploys timing out, rollback. Has verified behavior common answers miss, e.g. a NEWID() default rewrites the table; a constant one doesn't."
 ---
 
 # Apply a schema change to a live Azure SQL Database
@@ -18,46 +8,45 @@ description: >-
 The doctrine every migration tool inherits and none enforces, whether the change travels by project
 publish, pipeline step, ORM migration or hand written script.
 
-Timings and log bytes measured 2026-08-28 on a live engine reporting
-`SERVERPROPERTY('EngineEdition')` 5 and Edition `SQL Azure`, compatibility level 170, read committed
-snapshot isolation on, over a 2,000,000 row 230 MB table. Options checked against
-Microsoft Learn the same week; every statement below runs on Azure SQL Database.
+Every statement below runs on Azure SQL Database; what it says about readers assumes read committed
+snapshot isolation is on.
 
 ## The correction
 
-An agent asked whether a migration is safe answers with expand and contract, adds `IF NOT EXISTS`
-guards, and calls the script idempotent. All three break here, silently:
+The usual answer to "is this migration safe" is expand and contract, `IF NOT EXISTS` guards, and
+calling the script idempotent. All three break here, silently:
 
-1. **`ALTER TABLE` is not uniformly cheap, and the expensive ones do not look expensive.** On 2
-   million rows a `NOT NULL` column with a constant default took 1.7 ms; widening `varchar(50)` to
-   `varchar(max)` took 7.3 s and wrote 572 MB of log.
+1. **`ALTER TABLE` is not uniformly cheap, and the expensive ones do not look expensive.** A
+   `NOT NULL` column with a constant default is metadata only, effectively instant at any table
+   size; widening `varchar(50)` to `varchar(max)` rewrites every row, so its time and log grow with
+   the table.
 2. **The lock a schema change takes is the one thing snapshot isolation does not save you from.**
-   A plain, a `SNAPSHOT` and a `NOLOCK` read all waited on it.
-3. **A guard protects the statement it wraps and nothing else.** Eight instances starting at once
-   all passed the same `IF NOT EXISTS` checks and applied the same backfill eight times.
+   A plain, a `SNAPSHOT` and a `NOLOCK` read all wait on it.
+3. **A guard protects the statement it wraps and nothing else.** Instances starting at once all
+   pass the same `IF NOT EXISTS` checks, and each applies the same backfill again.
 
 ## 1. Which alterations are metadata only, and which rewrite every row
 
 Log bytes are the honest signal: metadata only writes kilobytes whatever the row count; a rewrite
 writes more log than the table holds.
 
-| Change | Time | Log written |
+| Change | Cost | Log written |
 |---|---|---|
-| `ADD` nullable column, no default | 3.6 ms | 1.2 KB |
-| `ADD` `NOT NULL` column, **constant** default | 1.7 ms | 2.2 KB |
-| `ADD` `NOT NULL` column, `SYSUTCDATETIME()` default | 1.5 ms | 2.2 KB |
-| `ALTER COLUMN` widen `varchar(20)` to `varchar(50)` | 1.0 ms | 1.1 KB |
-| `ADD CONSTRAINT ... CHECK` `WITH NOCHECK` | 1.5 ms | 1.4 KB |
-| `DROP COLUMN` | 2.9 ms | 1.2 KB |
-| `ADD CONSTRAINT ... CHECK`, validated | 521 ms | 1.7 KB (scan, no writes) |
-| `CREATE INDEX`, offline | 628 ms | 37 MB |
-| **`ADD` `NOT NULL` column, `NEWID()` default** | **4.6 s** | **448 MB** |
-| **`ALTER COLUMN` `int` to `bigint`** | **6.1 s** | **509 MB** |
-| **`ALTER COLUMN` `varchar` to `nvarchar`** | **5.1 s** | **426 MB** |
-| **`ALTER COLUMN` `varchar(50)` to `varchar(max)`** | **7.3 s** | **572 MB** |
-| **`ALTER COLUMN` `NULL` to `NOT NULL`** | **14.5 s** | **661 MB** |
+| `ADD` nullable column, no default | metadata only | kilobytes |
+| `ADD` `NOT NULL` column, **constant** default | metadata only | kilobytes |
+| `ADD` `NOT NULL` column, `SYSUTCDATETIME()` default | metadata only | kilobytes |
+| `ALTER COLUMN` widen `varchar(20)` to `varchar(50)` | metadata only | kilobytes |
+| `ADD CONSTRAINT ... CHECK` `WITH NOCHECK` | metadata only | kilobytes |
+| `DROP COLUMN` | metadata only | kilobytes |
+| `ADD CONSTRAINT ... CHECK`, validated | scans every row | kilobytes (scan, no writes) |
+| `CREATE INDEX`, offline | builds the index | grows with the index |
+| **`ADD` `NOT NULL` column, `NEWID()` default** | **rewrites every row** | **more than the table holds** |
+| **`ALTER COLUMN` `int` to `bigint`** | **rewrites every row** | **more than the table holds** |
+| **`ALTER COLUMN` `varchar` to `nvarchar`** | **rewrites every row** | **more than the table holds** |
+| **`ALTER COLUMN` `varchar(50)` to `varchar(max)`** | **rewrites every row** | **more than the table holds** |
+| **`ALTER COLUMN` `NULL` to `NOT NULL`** | **rewrites every row** | **more than the table holds** |
 
-The line is not "adding is cheap, changing is expensive". Learn's rule, which the measurements obey:
+The line is not "adding is cheap, changing is expensive". Learn's rule, which the table follows:
 a `NOT NULL` column with a default is metadata only when the default is a **runtime constant**, the
 same value for every row. `SYSUTCDATETIME()` is one; `NEWID()` and `NEWSEQUENTIALID()` are named as
 not, so those "always run offline and an exclusive (Sch-M) lock is acquired for the duration". Never
@@ -66,31 +55,32 @@ free **unless the target is `MAX`**; changing nullability rewrites even when eve
 
 ## 2. The lock, and the queue behind it
 
-Every `ALTER TABLE` above held a **schema modification lock, `Sch-M`**, for its whole transaction,
+Every `ALTER TABLE` above holds a **schema modification lock, `Sch-M`**, for its whole transaction,
 incompatible with every other mode, the schema stability lock a plain `SELECT` takes included.
-Behind an uncommitted `Sch-M` held 3 seconds, a default read committed snapshot read, an explicit
-`SNAPSHOT` isolation read and a `WITH (NOLOCK)` read each waited 3.10 s on `LCK_M_SCH_S`.
+Behind an uncommitted `Sch-M`, a default read committed snapshot read, an explicit `SNAPSHOT`
+isolation read and a `WITH (NOLOCK)` read each wait on `LCK_M_SCH_S` until it commits.
 
-**Then the part that turns a fast change into an outage.** With one 10 second reporting query in
+**Then the part that turns a fast change into an outage.** With one long reporting query in
 flight, a `SELECT` arriving after the `ALTER` is blocked by the *pending* `ALTER`, not the slow
 query:
 
-| Session | Own work | Waited |
+| Session | Own work | Waits |
 |---|---|---|
-| reporting query | 10 s | 10.0 s |
-| `ALTER TABLE ... ADD c int NULL` | ~2 ms | **9.0 s**, `LCK_M_SCH_M` |
-| three trivial `SELECT`s issued after it | ~1 ms each | **8.0 s each**, blocked by the `ALTER` |
+| reporting query | long | none |
+| `ALTER TABLE ... ADD c int NULL` | milliseconds | **until the reporting query ends**, on `LCK_M_SCH_M` |
+| trivial `SELECT`s issued after it | milliseconds | **until the `ALTER` completes**, blocked by the `ALTER` |
 
-A 2 millisecond change stalled the table for 8 seconds, and nothing in the migration output says so.
+A change that takes milliseconds stalls the table for as long as the slowest query in flight, and
+nothing in the migration output says so.
 
 ## 3. The three settings that decide whether anyone notices
 
-**`WITH (ONLINE = ON)`.** Same table: `ALTER COLUMN w2 bigint` took 8.4 s and held two concurrent
-`SELECT`s **7.17 s each**; with `WITH (ONLINE = ON)` it took 3.5 s and they returned in **74 ms and
-76 ms**. Not always faster in isolation, but it does not convoy: behind the same 10 second reader, later
-`SELECT`s got through in 80 ms. Learn scopes it to "data type, column length or precision,
-nullability, sparseness, and collation". Measured: accepted on `ALTER COLUMN`, `ALTER TABLE REBUILD`,
-`CREATE INDEX`, `ALTER INDEX REBUILD`; a syntax error on `ADD` and `DROP COLUMN`; and `ALTER COLUMN`
+**`WITH (ONLINE = ON)`.** An offline `ALTER COLUMN` holds concurrent `SELECT`s for as long as it
+runs; with `WITH (ONLINE = ON)` they return in milliseconds. Not always faster in isolation, but it
+does not convoy: behind the same long reader, later `SELECT`s still get through in milliseconds.
+Learn scopes it to "data type, column length or precision, nullability, sparseness, and collation".
+On Azure SQL Database it is accepted on `ALTER COLUMN`, `ALTER TABLE REBUILD`, `CREATE INDEX`,
+`ALTER INDEX REBUILD`; it is a syntax error on `ADD` and `DROP COLUMN`; and `ALTER COLUMN` is
 refused with `Msg 5074`, online or not, when an index or default constraint references the column.
 
 **`ELEVATE_ONLINE`, which makes forgetting it impossible.** Learn: default `OFF`; `WHEN_SUPPORTED`
@@ -106,16 +96,18 @@ WHERE name IN ('ELEVATE_ONLINE', 'ELEVATE_RESUMABLE');
 ```
 
 **`SET LOCK_TIMEOUT`.** With the same reader in flight, an offline `ALTER COLUMN` under
-`SET LOCK_TIMEOUT 2000` gave up after 2.1 s with `Msg 1222`, and the queries behind it waited 1.1 s
-instead of 8 s. The trap, from Learn: `Msg 1222` cancels the statement and **does not roll back its
-transaction**, so a lock timeout inside `BEGIN TRAN` needs `SET XACT_ABORT ON` or the script carries
-on missing a statement.
+`SET LOCK_TIMEOUT 2000` gives up when the timeout passes, with `Msg 1222`, and the queries behind it
+wait only that long instead of until the reader finishes. The trap, from Learn: `Msg 1222` cancels
+the statement and **does not roll back its transaction**, so a lock timeout inside `BEGIN TRAN`
+needs `SET XACT_ABORT ON` or the script carries on missing a statement.
 
 For rebuilds only, `WAIT_AT_LOW_PRIORITY` is more precise; Learn says it "can't be used with online
-`ALTER COLUMN`", the `Msg 102` measured here. `RESUMABLE = ON` requires `ONLINE = ON`, pauses to fit
-a window and survives a failover, but **cannot run inside an explicit transaction**. Before writing
-either, open run 4 of [the measured runs](references/alter-cost-schema-locks-and-retry.md) for a
-worked pausable build, its `PAUSE`, and a rebuild that gives up rather than queue the workload.
+`ALTER COLUMN`", and there it fails with `Msg 102`. `RESUMABLE = ON` requires `ONLINE = ON`, pauses
+to fit a window and survives a failover, but **cannot run inside an explicit transaction**. Before
+writing either, open
+[a pausable build, and a rebuild that gives up](references/alter-cost-schema-locks-and-retry.md#a-pausable-build-and-a-rebuild-that-gives-up)
+for a worked pausable build, its `PAUSE`, and a rebuild that gives up rather than queue the
+workload.
 
 A paused build still costs disk and DML, and any statement needing a table level exclusive lock,
 such as `INSERT ... WITH (TABLOCK)`, fails with error `10637` until resumed or `ABORT`ed.
@@ -126,32 +118,32 @@ One database, which cannot be swapped, must satisfy the code either side of the 
 green database deploy" reduces to this. **Expand** adds, never alters or renames, nullable or with a
 runtime constant default, so it lands in milliseconds. **Migrate**
 backfills in bounded batches, in its own deployment. **Contract** drops the old shape only after
-every instance referencing it is gone: measured, after another session dropped a column, a
-connection on the old shape got `Msg 207, Invalid column name` on its next write while its
-`SELECT *` kept working. The failure is per statement and hits instances not yet replaced.
+every instance referencing it is gone: after another session drops a column, a connection on the
+old shape gets `Msg 207, Invalid column name` on its next write while its `SELECT *` keeps working.
+The failure is per statement and hits instances not yet replaced.
 
-**Never rename in place.** `sp_rename` on a column raised no error, only informational message
+**Never rename in place.** `sp_rename` on a column raises no error, only informational message
 15477 at severity 10, "Caution: Changing any part of an object name could break scripts and
 stored procedures", which a runner logging only exceptions discards. A view and a procedure over the
-column kept existing and failed with `Msg 207` **when next called**, while
-`sys.sql_expression_dependencies` still resolved both with `is_ambiguous = 0`.
+column keep existing and fail with `Msg 207` **when next called**, while
+`sys.sql_expression_dependencies` still resolves both with `is_ambiguous = 0`.
 
-## 5. Never migrate on application startup, measured
+## 5. Never migrate on application startup
 
-Eight instances starting at once, each running four steps: add a column, backfill a value, create an
-index, record the version.
+Several instances starting at once, each running four steps: add a column, backfill a value, create
+an index, record the version.
 
 | Script shape | Outcome |
 |---|---|
-| No guards, no transaction | **7 of 8 failed with `Msg 2705`**, duplicate column name; one succeeded |
-| `IF NOT EXISTS` guards, no transaction | All 8 passed the guards; backfill ran **8 times**, 4000 where 500 was correct. Only error: `Msg 2627` on the version row, **after** the data was wrong |
-| The same guards, one transaction | 7 of 8 rolled back. Data correct, 7 instances reported failure |
-| `sp_getapplock` first | **1 applied, 7 skipped, 0 errors** |
+| No guards, no transaction | **One succeeds; every other fails with `Msg 2705`**, duplicate column name |
+| `IF NOT EXISTS` guards, no transaction | Every instance passes the guards and the backfill runs **once per instance**, so the data is wrong before the first error. Only error: `Msg 2627` on the version row, **after** the data is wrong |
+| The same guards, one transaction | Every instance but one rolls back. Data correct, but those instances report failure |
+| `sp_getapplock` first | **One applies, the rest skip, no errors** |
 
-In row two the guards worked as written and the data was still wrong, because
-`UPDATE ... SET tier = tier + 1` has no `IF NOT EXISTS` form; what surfaced was a duplicate key on
-the history table, reading as a harmless double record, while the wrong number sat in a column nobody
-watched. Row one fails visibly, the better failure. Row two ships.
+In row two the guards work as written and the data is still wrong, because
+`UPDATE ... SET tier = tier + 1` has no `IF NOT EXISTS` form; what surfaces is a duplicate key on
+the history table, reading as a harmless double record, while the wrong number sits in a column
+nobody watches. Row one fails visibly, the better failure. Row two ships.
 
 Startup migration also leaves schema altering permission on the runtime identity for good and makes
 every restart a potential schema change. Migrations are a deployment step with their own identity,
@@ -176,22 +168,22 @@ COMMIT;
 
 Retry is not optional on Azure SQL Database, so every path carries a retry policy, the migration's
 included; `connect-to-azure-sql` owns that doctrine. **A retriable unit will be run more than
-once.** Reproduced: the same guarded four steps, faulted once after the
-backfill committed and before the version row was written, under a policy treating a broken
-connection as transient.
+once.** Take the same guarded four steps, break the connection once after the backfill commits
+and before the version row is written, under a policy treating a broken connection as transient,
+and the runner's log reads:
 
 ```text
 attempt 1: FAILED, "Connection may have been terminated by the server", classified transient
 attempt 2: applied, no error
 runner reported success: True
-final state: version 1 recorded, backfill applied TWICE (1000 where 500 was correct)
+final state: version 1 recorded, backfill applied TWICE
 ```
 
 No exception, no warning, and the history table says applied. The same four steps in **one
-transaction**, faulted at the same point, ended correct.
+transaction**, faulted at the same point, end correct.
 
 So: **either the whole migration is one transaction, or every statement in it is idempotent, data
-statements included.** A guard on the DDL and none on the backfill is the shape that reproduced.
+statements included.** A guard on the DDL and none on the backfill is the shape that fails.
 Three limits decide where it is split:
 
 - `ALTER DATABASE ... SET` is refused inside a multi statement transaction with `Msg 226`.
@@ -201,7 +193,7 @@ Three limits decide where it is split:
 
 ## 7. Idempotent scripts on this engine
 
-The syntax an agent reaches for from another database mostly does not exist here. Verified:
+The guard syntax other databases offer mostly does not exist here:
 
 | Written | Result |
 |---|---|
@@ -238,7 +230,8 @@ DECLARE @df sysname = (SELECT d.name FROM sys.default_constraints AS d
                        JOIN sys.columns AS c ON c.object_id = d.parent_object_id
                                             AND c.column_id = d.parent_column_id
                        WHERE d.parent_object_id = OBJECT_ID('dbo.customers') AND c.name = 'legacy');
-IF @df IS NOT NULL EXEC sys.sp_executesql N'ALTER TABLE dbo.customers DROP CONSTRAINT ' + @df;
+DECLARE @drop_df nvarchar(max) = N'ALTER TABLE dbo.customers DROP CONSTRAINT ' + QUOTENAME(@df);
+IF @df IS NOT NULL EXEC sys.sp_executesql @drop_df;
 ALTER TABLE dbo.customers DROP COLUMN IF EXISTS legacy;
 
 INSERT INTO dbo.__migrations (version) VALUES (7);
@@ -246,11 +239,11 @@ COMMIT;
 ```
 
 **A guard is a race, not a guard.** Every `IF NOT EXISTS` reads the catalog, releases the lock, then
-acts, so two runners both read absent and both act; section 5 measured eight of eight. Only
+acts, so two runners both read absent and both act, as every instance does in section 5. Only
 serialisation makes a script safe to run twice.
 
 **Names you did not choose will break the script.** An inline default constraint gets a generated
-name that differs per environment, and `DROP COLUMN qty` failed with `Msg 5074, The object
+name that differs per environment, and `DROP COLUMN qty` fails with `Msg 5074, The object
 'DF__parts__qty__123EB7A3' is dependent on column 'qty'`. Hence the lookup above. Re-run errors
 meaning a script is not idempotent: `Msg 2705`, `Msg 2714`, `Msg 1913`, and `Msg 2627` on the
 history table.
@@ -260,12 +253,13 @@ history table.
 - **A down script that drops the column loses every value written since the up ran**, and the up
   shipped because something started writing to that column.
 - **`DROP COLUMN` is metadata only, so the space is not reclaimed and the row budget is not
-  released.** Re-adding the dropped `char(4000)` column, which is what "roll back, fix, roll
-  forward" does, failed with **`Msg 1701`**, minimum row size 11011 against a maximum of 8060 bytes,
-  counting a column no longer in `sys.columns`. `ALTER TABLE ... REBUILD` reclaimed it and the
-  re-add succeeded; page counts and the full message are in the reference.
-- **The reversing statement is often the expensive one.** Widening to `varchar(max)` cost 7.3 s;
-  narrowing back is another rewrite and fails outright if any row no longer fits.
+  released.** Re-adding a dropped `char(4000)` column beside a `char(3000)` one, which is what "roll
+  back, fix, roll forward" does, fails with **`Msg 1701`**: the minimum row size still counts the
+  dropped column, no longer in `sys.columns`, and passes the 8060 byte maximum.
+  `ALTER TABLE ... REBUILD` reclaims it and the re-add succeeds; the steps and the full message are
+  in [the reference](references/alter-cost-schema-locks-and-retry.md#rename-contract-and-drop-then-re-add).
+- **The reversing statement is often the expensive one.** Widening to `varchar(max)` rewrites every
+  row; narrowing back is another rewrite and fails outright if any row no longer fits.
 
 Plan so that not proceeding is free. Expand is reversible by being ignored; contract is the
 irreversible step, gated on the old code being gone. After it, the undo is a new forward migration
@@ -276,9 +270,8 @@ against the state the database is in.
 Run the migration through `sqlcmd` with **`-m-1`**, no space between flag and value. `-b` sets a
 non-zero exit only above severity 10, so alone it reports success on the section 4 `sp_rename`
 caution, and without `-m-1` that message prints with no `Msg` number. **`-m-1` is an ODBC `sqlcmd`
-instruction**, the 18.x build from `mssql-tools18`; go-sqlcmd 1.10.0 prints no `Msg` header on a
-severity 10 message at any `-m` value (measured 2026-09-05), so there the caution arrives
-unnumbered:
+instruction**, the 18.x build from `mssql-tools18`. With go-sqlcmd 1.10.0, a severity 10 message
+prints no `Msg` header at any `-m` value, so there the caution arrives unnumbered:
 
 ```bash
 export SQLCMDPASSWORD='<password>'
@@ -330,9 +323,9 @@ paused build still blocking exclusive table locks with error `10637`.
 
 ## References
 
-- Open [the measured runs](references/alter-cost-schema-locks-and-retry.md) for the statement
-  behind a number above, the lock traces, the retry fault injection, or the two claims that did not
-  hold. Read it before changing any figure here.
+- Open [the checks you can run](references/alter-cost-schema-locks-and-retry.md) for the statement
+  behind a claim above, the lock repros, the retry fault injection, or the assumptions that are
+  false here. Read it before changing a claim here.
 - [ALTER TABLE](https://learn.microsoft.com/sql/t-sql/statements/alter-table-transact-sql) before an
   online alteration: the runtime constant rule and the `ONLINE` restrictions.
 - [Guidelines for online index operations](https://learn.microsoft.com/sql/relational-databases/indexes/guidelines-for-online-index-operations)
@@ -344,6 +337,6 @@ paused build still blocking exclusive table locks with error `10637`.
 - [sys.sp_getapplock](https://learn.microsoft.com/sql/relational-databases/system-stored-procedures/sp-getapplock-transact-sql)
   for return codes and lock owner semantics.
 - This skill decides whether a change is safe; `sql-database-projects` and `github-actions-for-sql`
-  carry it, `ef-core-azure-sql` and `sqlalchemy-azure-sql` are per tool workflows, the rest are in
-  `skill.spec.jsonc`. Also `design-azure-sql-schema`, `connect-to-azure-sql` for retry, and
-  `deploy-app-to-azure` for rolling the instances.
+  carry it, `ef-core-azure-sql` and `sqlalchemy-azure-sql` are per tool workflows. Also
+  `design-azure-sql-schema`, `connect-to-azure-sql` for retry, and `deploy-app-to-azure` for
+  rolling the instances.

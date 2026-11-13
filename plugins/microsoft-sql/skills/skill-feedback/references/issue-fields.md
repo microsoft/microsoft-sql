@@ -36,7 +36,7 @@ silently empty.
 | `plugin` | dropdown | yes | the installed plugin id, verbatim from the list below |
 | `skill` | dropdown | yes | the catalog id, verbatim from the list below |
 | `problem-type` | dropdown | yes | verbatim from the list below |
-| `agent` | dropdown | yes | which harness is running, verbatim |
+| `agent` | dropdown | yes | which agent is running, verbatim |
 | `install-method` | dropdown | yes | how the skills were installed, verbatim |
 | `version` | input | no | plugin and host versions, when known |
 | `what-happened` | textarea | yes | what the user asked, and what the agent did |
@@ -49,17 +49,18 @@ Title parameter is `title`, prefix `[Skill]: ` (keep the prefix, add a short sum
 
 ## Dropdown values, verbatim
 
-Snapshot taken 2026-09-22 directly from `.github/ISSUE_TEMPLATE/skill_feedback.yml` in
-`microsoft/microsoft-sql`. The skill list grows as the marketplace does and this snapshot can
-drift; see
+These lists mirror `.github/ISSUE_TEMPLATE/skill_feedback.yml` in `microsoft/microsoft-sql`.
+The skill list grows as the marketplace does and these lists can drift; see
 [If a field or a value does not exist any more](#if-a-field-or-a-value-does-not-exist-any-more).
 
 ### `plugin`
 
 ```
 microsoft-sql
+microsoft-azuresqldb-container
 microsoft-sql-vscode
 microsoft-sql-migration
+microsoft-sql-admin
 microsoft-sql-fdh
 Marketplace or installation as a whole
 Not sure
@@ -67,7 +68,7 @@ Not sure
 
 ### `skill`
 
-The live form contains all seventy unique published skill ids plus:
+The live form contains every unique published skill id plus:
 
 ```
 The plugin as a whole (install, discovery, or wrong skill loaded)
@@ -96,7 +97,6 @@ GitHub Copilot (CLI)
 Codex
 Cursor
 Grok Build
-SQL Server Management Studio
 Other (describe below)
 ```
 
@@ -120,21 +120,16 @@ Not sure
 
 ## Labels
 
-```
-&labels=skills,needs-triage,via-skill
-```
-
-A `labels=` parameter **replaces** the template's own labels rather than adding to them, so a URL
-that passes only `via-skill` strips the other two and the report lands untriaged. Always pass all
-three. `via-skill` is the only signal that lets the maintainers see a report came through an agent
-rather than a person typing into the form by hand.
+Leave `labels` out of the URL. The form declares its own labels, and GitHub answers a URL that
+carries `labels=` with a 404 for anyone without permission to label issues, which is most people
+reporting a bug. A `labels=` parameter also replaces the form's labels rather than adding to them.
 
 ## Redaction, worked example
 
 Before, as it might appear in a terminal or a config file:
 
 ```
-Server=tcp:your-server.database.windows.net,1433;Database=appdb;User Id=svc_app;Password=YourStr0ng_Passw0rd;TrustServerCertificate=false;
+Server=tcp:your-server.database.windows.net,1433;Database=appdb;User Id=svc_app;Password=<the-real-password>;TrustServerCertificate=false;
 ```
 
 After, as it goes in `skill-said` or `repro`:
@@ -158,7 +153,6 @@ port that does not match the sample project, and the agent had to work out the r
 ```
 https://github.com/microsoft/microsoft-sql/issues/new
 ?template=skill_feedback.yml
-&labels=skills,needs-triage,via-skill
 &title=%5BSkill%5D%3A%20connect-from-typescript-and-node%20hardcodes%20the%20wrong%20port
 &plugin=microsoft-sql
 &skill=connect-from-typescript-and-node

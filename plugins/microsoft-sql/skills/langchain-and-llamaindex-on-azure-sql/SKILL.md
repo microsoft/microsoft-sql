@@ -1,16 +1,6 @@
 ---
 name: langchain-and-llamaindex-on-azure-sql
-description: >-
-  Wires LangChain or LlamaIndex to Azure SQL Database from Python: the SQL toolkits, their text to
-  SQL prompts, the langchain-sqlserver vector store, and the guardrails neither framework
-  enforces. Use when someone asks to "use LangChain with Azure SQL", "build a SQL agent over the
-  database", "text to SQL", "SQLDatabaseToolkit", "NLSQLTableQueryEngine", "which LlamaIndex
-  vector store works with Azure SQL", or "make the SQL agent read only"; when a SQL agent keeps
-  generating LIMIT, its query checker approves a query the database refuses, or its schema tool
-  puts real rows into the prompt; or when a framework-created embedding table refuses CREATE
-  VECTOR INDEX or a metadata filter throws arithmetic overflow. Vector type and query shape are
-  vector-search-azure-sql, the cloud pipeline is rag-on-azure-sql, and drivers and token
-  authentication are connect-from-python. Offline local embedding is an application-side workflow.
+description: "Use when using LangChain or LlamaIndex with Azure SQL Database: SQL agent or text-to-SQL emits LIMIT, read-only agent, SQLDatabaseToolkit, langchain-sqlserver vector store, vector index refused."
 ---
 
 # LangChain and LlamaIndex on Azure SQL Database
@@ -18,10 +8,8 @@ description: >-
 Both frameworks connect to this engine on the first try and then get three things wrong that the
 connection test cannot show. This is not a text to SQL tutorial and not a vector search reference.
 
-**Measured 2026-08-28** by installing the packages, reading what ships, and running every statement
-below against a local Azure SQL Database container (`SERVERPROPERTY('EngineEdition')` returns 5).
-Every argument name was re-checked 2026-09-03 against the LangChain and LlamaIndex reference
-documentation. The pinned versions move fast, so re-run the reference file before trusting one.
+What follows holds for the package versions pinned in the install line below. Those versions move
+fast, so re-run the reference file's checks before trusting one.
 
 ## Reproduce it first, in two minutes
 
@@ -36,9 +24,11 @@ import os, urllib.parse
 from langchain_community.utilities import SQLDatabase
 from langchain_community.agent_toolkits.sql.prompt import SQL_PREFIX
 
+# Azure SQL: TrustServerCertificate=no, so the certificate is validated. Use yes only for a local
+# container on localhost, whose certificate is self-signed.
 odbc = urllib.parse.quote_plus(
     "DRIVER={ODBC Driver 18 for SQL Server};SERVER=<host>,<port>;DATABASE=<database>;"
-    "UID=<user>;PWD=" + os.environ["SQL_PASSWORD"] + ";Encrypt=yes;TrustServerCertificate=yes")
+    "UID=<user>;PWD=" + os.environ["SQL_PASSWORD"] + ";Encrypt=yes;TrustServerCertificate=no")
 db = SQLDatabase.from_uri(f"mssql+pyodbc:///?odbc_connect={odbc}")
 
 print(db.dialect)                                       # mssql
@@ -59,12 +49,12 @@ a prompt that never learned T-SQL. Section 1.
 creates it with `PRIMARY KEY NONCLUSTERED`, so the table is a heap and `CREATE VECTOR INDEX` is
 refused with `Msg 42254`. The package holds no approximate search path at all, so retrieval is a
 full scan for the life of the table, with correct results and latency that only grows. **LlamaIndex
-has no Azure SQL Database vector store**, so an agent installs a neighbour and wires the wrong
+has no Azure SQL Database vector store**, so it is easy to install a neighbour and wire the wrong
 database. Section 2.
 
 **3. Read-only, table scoping and no-DML are prompt text, not access control.** With
-`include_tables` set to one table, the query tool still ran a `SELECT` against an excluded table and
-returned a row; `db.run` executed an `INSERT` and a `CREATE`/`DROP` pair. Section 3.
+`include_tables` set to one table, the query tool still runs a `SELECT` against an excluded table and
+returns a row; `db.run` executes an `INSERT` and a `CREATE`/`DROP` pair. Section 3.
 
 | Capability | LangChain | LlamaIndex |
 |---|---|---|
@@ -89,7 +79,7 @@ The fix exists and sits on the chain path current documentation steers people aw
 
 ### The failure is loud in the wrong place
 
-Measured through `QuerySQLDatabaseTool`, which is what the model reads before it retries:
+Through `QuerySQLDatabaseTool`, which is what the model reads before it retries:
 
 | Query the model wrote | What comes back |
 |---|---|
@@ -97,8 +87,8 @@ Measured through `QuerySQLDatabaseTool`, which is what the model reads before it
 | `SELECT ... FROM customers ORDER BY full_name LIMIT 10` | `Msg 102, Incorrect syntax near 'LIMIT'` |
 | `SELECT customer_id FROM customers OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY` | `Msg 102, Incorrect syntax near '0'` |
 
-**Without an `ORDER BY`, the error names the number and never mentions `LIMIT`.** The reason is
-measured, not inferred:
+**Without an `ORDER BY`, the error names the number and never mentions `LIMIT`.** This statement
+shows why:
 
 ```sql
 SELECT LIMIT.customer_id FROM dbo.customers LIMIT;   -- succeeds, returns every row
@@ -227,8 +217,8 @@ shape that reaches the index is a different statement, not a tuning option.
 
 ### LlamaIndex has no Azure SQL Database vector store
 
-Checked on the package index and in the integrations tree on 2026-08-28. Do not let an agent install
-a neighbouring package because the name looks close. The two honest options are to keep retrieval in
+Neither the package index nor the integrations tree has one. Do not install a neighbouring package
+because the name looks close. The two honest options are to keep retrieval in
 T-SQL and feed the rows in as nodes, or to use the SQL toolkit for structured questions and put the
 semantic half where this catalog already covers it. Producing the embedding inside the engine is
 `embeddings-and-external-models`.
@@ -239,11 +229,11 @@ Treat all three as things to switch on. None of them is a default.
 
 ### Read-only is a login, not a setting
 
-Neither framework has a read-only mode. `SQLDatabase.run` executed an `INSERT` that committed and a
-`CREATE TABLE`/`DROP TABLE` pair in one call; LlamaIndex's `run_sql` executed an `UPDATE`. The
+Neither framework has a read-only mode. `SQLDatabase.run` executes an `INSERT` that commits and a
+`CREATE TABLE`/`DROP TABLE` pair in one call; LlamaIndex's `run_sql` executes an `UPDATE`. The
 `DO NOT make any DML statements` line is a sentence in a prompt, so any instruction reaching the
 model through retrieved content competes with it on equal terms. The control is a dedicated
-least-privilege login. Measured through the query tool with that login:
+least-privilege login. Through the query tool with that login:
 
 | Statement | Result |
 |---|---|
@@ -257,7 +247,7 @@ guardrail.
 
 ### `include_tables` scopes the prompt, not the connection
 
-Worth measuring yourself, because the parameter name suggests otherwise:
+Check it yourself, because the parameter name suggests otherwise:
 
 ```python
 db = SQLDatabase.from_uri(uri, include_tables=["customers"], sample_rows_in_table_info=0)
@@ -314,9 +304,12 @@ can write, which is the finding and not a test bug. Then confirm the vector tabl
 at all, with the password in `SQLCMDPASSWORD`:
 
 ```bash
-sqlcmd -S <host>,<port> -d <database> -U <user> -C -Q \
+sqlcmd -S <host>,<port> -d <database> -U <user> -N mandatory -Q \
   "SELECT type_desc FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.lcv_docs') AND type_desc = 'CLUSTERED';"
 ```
+
+Add `-C` (trust the server certificate) only for a local container on `localhost`; against Azure SQL
+leave it out so the certificate is validated.
 
 Expected: one row reading `CLUSTERED`. An empty result set means the table is still the heap the
 store created, and `CREATE VECTOR INDEX` on it will return `Msg 42254`.
@@ -342,7 +335,7 @@ store created, and `CREATE VECTOR INDEX` on it will return `Msg 42254`.
 
 - Open [references/framework-prompts-and-vector-store.md](references/framework-prompts-and-vector-store.md) when a claim
   above disagrees with what you are seeing, which after a version bump it will: it holds the install,
-  every probe script, the raw engine output and the reproduction steps.
+  every check script, the raw engine output, and how to run each check.
 - Read `vector-search-azure-sql` before writing the retrieval query yourself, for the `vector` type,
   its restriction list and the query shape that reaches the index rather than scanning.
 - Read `rag-on-azure-sql` before choosing `embedding_length`, because the dimension budget, the chunk

@@ -1,8 +1,8 @@
-# Measured behaviour of the build and the publish
+# Build and publish behaviour, and how to check it
 
 ## Contents
 
-- [How these were run](#how-these-were-run)
+- [The project the checks use](#the-project-the-checks-use)
 - [Target platform against the build](#target-platform-against-the-build)
 - [Target platform against the publish](#target-platform-against-the-publish)
 - [What the build parses](#what-the-build-parses)
@@ -13,26 +13,18 @@
 - [Project file properties worth setting](#project-file-properties-worth-setting)
 - [SqlPackage options this skill relies on](#sqlpackage-options-this-skill-relies-on)
 
-## How these were run
+## The project the checks use
 
-Every result below came from building a project and publishing it, on 2026-08-28, with:
-
-| Component | Version |
-|---|---|
-| .NET SDK | 8.0.421, on macOS on an arm64 host |
-| `Microsoft.Build.Sql` | 2.2.0, the current stable release |
-| `Microsoft.Build.Sql.Templates` | 2.2.0 |
-| SqlPackage | 170.4.83.3, installed with `dotnet tool install -g microsoft.sqlpackage` |
-| Target engine | the Azure SQL Database container, `EngineEdition` 5, `SQL Azure`, `12.0.2000.8` |
-
-The project is four files: a table, a Service Broker queue, a table using a filegroup clause, and
-a procedure calling a mail stored procedure.
+Four files: a table, a Service Broker queue, a table using a filegroup clause, and a procedure
+calling a mail stored procedure. SqlPackage comes from
+`dotnet tool install -g microsoft.sqlpackage`.
 
 ## Target platform against the build
 
-`dotnet new sqlproj` offers ten target platforms and defaults to the newest box-product one. The
-choice is written into the project as a single `DSP` property, and the schema provider for Azure
-SQL Database is `Microsoft.Data.Tools.Schema.Sql.SqlAzureV12DatabaseSchemaProvider`.
+With `Microsoft.Build.Sql.Templates` 2.2.0, `dotnet new sqlproj` offers ten target platforms and
+defaults to the newest box-product one. The choice is written into the project as a single `DSP`
+property, and the schema provider for Azure SQL Database is
+`Microsoft.Data.Tools.Schema.Sql.SqlAzureV12DatabaseSchemaProvider`.
 
 | Source file | Default target | `SqlAzureV12` |
 |---|---|---|
@@ -61,12 +53,11 @@ Initializing deployment (Failed)
 *** An error occurred during deployment plan generation. Deployment cannot continue.
 A project which specifies <target platform> as the target platform cannot be published to
 Microsoft Azure SQL Database v12.
-Time elapsed 0:00:01.45
 ```
 
-Exit code 1. The message names the platform the project declared. Three different non-Azure
-targets were tried and all three were refused with the same shape of message, at the same point,
-before the deployment plan existed. Nothing is written to the database.
+Exit code 1. The message names the platform the project declared. A non-Azure target is refused
+with the same shape of message, at the same point, before the deployment plan exists. Nothing is
+written to the database.
 
 ## What the build parses
 
@@ -74,17 +65,17 @@ before the deployment plan existed. Nothing is written to the database.
 anything declared as `PreDeploy`, `PostDeploy`, `None` or an extension configuration. There is a
 `RefactorLog` item type, and **no glob creates one**.
 
-Evidence for the deployment scripts being unparsed: a post-deployment script whose entire body is
+The deployment scripts are not parsed: a post-deployment script whose entire body is
 `INSERT INTO dbo.NoSuchTable (id) VALUES (1);` builds with `0 Error(s), 0 Warning(s)`. The same
 statement inside a procedure produces `SQL71502`.
 
-Evidence for the refactorlog not being globbed: a file named `<ProjectName>.refactorlog` sitting
-beside the project produced a dacpac containing four entries and no `refactor.xml`. Adding
-`<RefactorLog Include="ShopDb.refactorlog" />` produced five entries including `refactor.xml`.
+The refactorlog is not globbed: with a file named `<ProjectName>.refactorlog` beside the project,
+`unzip -l` on the dacpac shows no `refactor.xml`. Adding
+`<RefactorLog Include="ShopDb.refactorlog" />` adds `refactor.xml` to the dacpac.
 
 ## Atomicity of a publish
 
-One publish that adds a column and then runs a failing post-deployment script:
+A publish that adds a column and then runs a failing post-deployment script prints:
 
 ```text
 Updating database (Start)
@@ -100,13 +91,13 @@ Error SQL72045: Script execution error.
 
 Exit code 1. `sys.columns` afterwards still lists the added column.
 
-The run was repeated with `/p:IncludeTransactionalScripts=True` after dropping the column again.
-Same failure, and the column is present afterwards again. The option does not put a deployment
-script inside the transaction.
+With `/p:IncludeTransactionalScripts=True`, starting again without the column, the failure is the
+same and the column is present afterwards. The option does not put a deployment script inside the
+transaction.
 
 ## Rename, refactorlog and data loss
 
-`dbo.Product` held two rows. The project renamed `Name` to `ProductName`.
+`dbo.Product` holds rows, and the project renames `Name` to `ProductName`.
 
 | Configuration | Output | Exit | Data |
 |---|---|---|---|
@@ -115,15 +106,16 @@ script inside the transaction.
 | refactorlog declared | `The following operation was generated from a refactoring log file <key>` / `Rename [dbo].[Product].[Name] to ProductName` | 0 | both values preserved |
 | no refactorlog, `/p:BlockOnPossibleDataLoss=False` | `*** The column [dbo].[Product].[Name] is being dropped, data loss could occur.` then `Starting rebuilding table [dbo].[Product]...` then `Successfully published database.` | **0** | **both values null** |
 
-The last row printed eleven lines in total. The only warning sat above `Initializing deployment
-(Complete)`, and the final line was a success.
+The last row's output is short: its only warning sits above `Initializing deployment
+(Complete)`, and its final line is a success.
 
 When a rename is applied, `dbo.__RefactorLog` appears in the target database and records the
 operation key, so the same rename is not attempted twice.
 
 ## Objects in the target and not in the project
 
-A table and a procedure were created directly in the target. The project contained neither.
+Create a table and a procedure directly in the target, neither of them in the project, then
+publish:
 
 | Publish | Result |
 |---|---|

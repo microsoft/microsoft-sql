@@ -22,6 +22,7 @@ body:
         - microsoft-azuresqldb-container
         - microsoft-sql-vscode
         - microsoft-sql-migration
+        - microsoft-sql-admin
         - microsoft-sql-fdh
         - Marketplace or installation as a whole
         - Not sure
@@ -34,7 +35,10 @@ body:
       label: Which skill
       description: Choose the skill that caused the problem, or the plugin as a whole if discovery failed.
       options:
+        - active-connections
+        - always-encrypted-columns
         - analyze-readiness-at-scale
+        - authentication-diagnostics
         - azure-functions-sql-bindings
         - azure-sql
         - azuresql-db-auth
@@ -54,56 +58,97 @@ body:
         - azuresql-db-seed
         - azuresql-db-sidecar
         - azuresql-db-testing
+        - backup-history-azuresql
+        - backup-strategy-sqlserver
+        - blocking-root-cause-analysis
         - build-app-on-azure-sql
         - bulk-load-and-bulk-copy
-        - capture-with-extended-events
+        - check-live-blocking
+        - code-analysis
         - connect-from-dotnet
         - connect-from-python
         - connect-from-typescript-and-node
         - connect-to-azure-sql
+        - connectivity-troubleshoot
+        - create-xe-session
+        - dab-mcp-endpoint
         - dab-rest-and-graphql
+        - database-config-azuresql
+        - database-settings-review
         - databasehub-cli
+        - deadlock-analysis
+        - deadlock-analysis-azuresql
         - deploy-app-to-azure
+        - deploy-dab-to-azure
         - design-azure-sql-schema
         - dev-container-templates
-        - diagnose-blocking-and-deadlocks
-        - diagnose-connection-errors
-        - diagnose-resource-pressure
-        - diagnose-slow-query
         - ef-core-azure-sql
         - embeddings-and-external-models
         - entra-id-auth
         - evaluate-azure-migration-assessment
         - evaluate-offline-migration-readiness
         - generate-migration-prerequisite-plan
+        - geo-dr-assessment-health-check
         - get-migration-assessment
         - github-actions-for-sql
+        - ha-assessment-health-check
+        - health-audit-sqlserver
+        - improve-query-performance
+        - investigate-geo-dr-issues
+        - investigate-ha-issues
+        - investigate-sql-cpu-pressure
+        - investigate-sql-data-io-pressure
+        - investigate-sql-log-io-pressure
+        - investigate-sql-memory-issues
+        - investigate-statistics-issues
         - langchain-and-llamaindex-on-azure-sql
+        - ledger-tables
+        - missing-index-analysis
+        - partitioned-tables
+        - plan-analysis
+        - plan-cache-analysis
+        - plan-cache-qds-bridge
         - prevent-sql-injection
         - prisma-azure-sql
         - provision-azure-sql-db
         - provision-hyperscale
+        - query-hint-tuning
+        - query-rewrite
+        - query-store-investigation
+        - query-store-volatile-historical-slow-queries-comparison
         - rag-local-with-container
         - rag-on-azure-sql
         - read-execution-plan
         - recommend-migration-path
         - recommend-sku-sizing
+        - resource-usage-sqlserver
         - restore-and-recover
         - rls-multi-tenant
         - run-migration-assessment
+        - schema-design-guidance
         - schema-migrations-safely
         - skill-feedback
+        - slow-query-investigation
+        - sql-admin-analyze-readiness-at-scale
+        - sql-admin-evaluate-azure-migration-assessment
+        - sql-admin-get-migration-assessment
+        - sql-agent-job-failure-investigator
         - sql-backup-restore-to-azure-sql-vm-migration
         - sql-bacpac-to-azure-sql-db-migration
         - sql-database-projects
         - sql-server-to-sql-mi-lrs-migration
+        - sql-tools-mcp-setup
         - sqlalchemy-azure-sql
         - sqlpackage-import-export
         - t-sql-correctness
         - t-sql-json-and-openjson
         - t-sql-upserts-merge
+        - table-access-analysis
+        - table-health-check
+        - top-queries-noqds
         - validate-post-migration-data
         - vector-search-azure-sql
+        - wait-category-analysis
         - The plugin as a whole (install, discovery, or wrong skill loaded)
         - Not sure
     validations:

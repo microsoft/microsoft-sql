@@ -1,20 +1,9 @@
 ---
 name: sqlpackage-import-export
-description: >-
-  Moves a whole Azure SQL Database as a portable file with SqlPackage, choosing between the
-  Extract, Publish, Export and Import actions, stating what each one carries, and giving the
-  command line for each. Use when asked to export a database to a bacpac, extract or publish a
-  dacpac, clone or move a database between servers, move the database itself from the local Azure
-  SQL Database container up to Azure SQL Database, explain dacpac versus bacpac, or diagnose a
-  failed sqlpackage run such as SQL71627, or SQL71659 when an Import stops because the target
-  database is not empty. Application connection changes and first-time local-container setup are
-  separate workflows.
+description: "Use when moving a whole Azure SQL Database as a file with SqlPackage: export or import a bacpac, extract or publish a dacpac, copy between servers, dacpac vs bacpac, SQL71627 or SQL71659 failures."
 ---
 
 # Move a whole database with SqlPackage: dacpac and bacpac
-
-Verified 2026-09-02 against SqlPackage 170.4.83.3, and the engine behaviour below measured
-2026-08-29 against a container reporting `EngineEdition` 5, `12.0.2000.8`.
 
 This owns the four-action decision for moving an entire existing database as a portable file, and
 the command line for each action. Building a dacpac from a source-controlled SQL project, shipping
@@ -22,6 +11,13 @@ it through CI, its refactorlog and its pre and post deployment scripts are `sql-
 Azure SQL Database's own automated backups and point-in-time or geo-restore are
 `restore-and-recover`. Loading rows into a table that already exists is `bulk-load-and-bulk-copy`.
 Vector indexes themselves are `vector-search-azure-sql`.
+
+## Scope
+
+- Includes moving the database itself from the local Azure SQL Database container up to Azure SQL
+  Database.
+- Pointing the application's connection string at the cloud database, and first-time setup of the
+  local container, are separate workflows.
 
 ## Read the property list for the action before you write the command
 
@@ -101,6 +97,8 @@ how the database they create is sized. Extract and Export do not accept them.
 Microsoft Learn states it for each. Publish: if the database doesn't exist on the server, the
 publish operation creates it, otherwise an existing database is updated. Import: a new database
 can be created by the import action when the authenticated user has create database permissions.
+On a logical server both need that permission to create the target: the server admin, or a member
+of the `dbmanager` role in `master`.
 
 What Import will not do is load into a target that already holds a user object:
 
@@ -115,8 +113,8 @@ chosen. Publish diffs instead: rerun it against a target it already published to
 
 ## The property decides what is in the file, not the extension
 
-An Extract of a database with one table and one view produced a `.dacpac` carrying no data entry
-of any kind, and an Export of the same database produced a `.bacpac` carrying
+An Extract of a database with one table and one view produces a `.dacpac` carrying no data entry
+of any kind, and an Export of the same database produces a `.bacpac` carrying
 `Data/dbo.Widget/TableData-000-00000.BCP`, one entry per base table holding rows.
 
 Then the same Extract with one property added:
@@ -147,8 +145,8 @@ unzip -l app-with-data.dacpac
 ## An export is not a backup, and is not consistent by default
 
 Microsoft Learn states plainly that bacpac files aren't intended to be used for backup and restore
-operations. `BACKUP DATABASE app TO DISK='/tmp/x.bak'` against this engine returns `Msg 40510`, and
-there is no RESTORE either.
+operations. On Azure SQL Database `BACKUP DATABASE app TO DISK='/tmp/x.bak'` returns `Msg 40510`,
+and there is no RESTORE either.
 
 Learn again, on Export: for an export to be transactionally consistent, either no write activity is
 occurring during the export, or the export is taken from a transactionally consistent copy of the
@@ -211,8 +209,8 @@ FROM sys.indexes WHERE type_desc = 'VECTOR';
 ```
 
 An import creates schema objects before it loads data, so a vector index is created against an
-empty table. Measured 2026-08-31 against `12.0.2000.8`: a vector index needs at least 100 rows
-carrying non-null vectors, 99 is refused with `Msg 42266` and 100 succeeds. Drop the vector indexes
+empty table. A vector index needs at least 100 rows carrying non-null vectors; with fewer, its
+creation is refused with `Msg 42266`. Drop the vector indexes
 before exporting and recreate them after the data is loaded. `TRUNCATE TABLE` is refused while a
 vector index exists (`Msg 42232`), so reloading in place hits the same wall one step earlier.
 
@@ -238,7 +236,7 @@ only dacpac publishes to zero rows and that is correct, not a failure.
 
 ## References
 
-- [Measured runs, file listings, exit codes and provenance](references/dacpac-bacpac-contents-and-errors.md): open it when a claim above disagrees with what you are seeing, or to reproduce a measurement.
+- [File listings, exit codes and the commands behind them](references/dacpac-bacpac-contents-and-errors.md): open it when a claim above disagrees with what you are seeing, or to rerun a check.
 - [The SQL71627 pre-flight scan](references/preflight-and-sql71627.md)
 - The property reference per action, and the only authority on whether a property exists:
   [Extract](https://learn.microsoft.com/sql/tools/sqlpackage/sqlpackage-extract),

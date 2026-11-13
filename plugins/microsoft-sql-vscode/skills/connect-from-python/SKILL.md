@@ -1,24 +1,11 @@
 ---
 name: connect-from-python
-description: >-
-  Connects a Python application to Azure SQL Database, choosing between Microsoft's first-party
-  mssql-python driver and the incumbent pyodbc, and covering driver installation, the connection
-  string each one wants, connection pooling, and Microsoft Entra ID including token-based
-  authentication. Use when a user says "connect Python to Azure SQL", "mssql-python", "pyodbc",
-  "install the ODBC driver so my Python code can connect", "which Python driver for SQL Server",
-  or hits errors such as "data source name not found and no default driver specified" or a
-  container image that cannot load the driver. Also use when adding a database layer to a Python
-  service, or when it needs a passwordless connection. Covers installation, connection strings,
-  pooling and Entra ID for Python only. Encryption doctrine and transient-fault retry belong to
-  connect-to-azure-sql; Node and .NET have their own skills.
+description: "Use when connecting Python to Azure SQL Database: mssql-python or pyodbc, the ODBC driver, 'data source name not found', driver missing in a container image, Entra tokens. For SQLAlchemy, use `sqlalchemy-azure-sql`."
 ---
 # Connect from Python
 
 The Python answer changed. There are now two supported drivers, and the newer one removes the step
 that causes most Python connection failures: installing an ODBC driver into the operating system.
-
-Checked on 2026-09-03 against pyodbc 5.3.0, msodbcsql18 18.6.2.1 and unixODBC 2.3.14 on this
-machine, and the current documentation for mssql-python 1.13.0.
 
 This skill owns driver choice, installation, connection string shape, pooling and Entra ID for
 Python. Encryption doctrine, retry and the first-connect error on a paused database are the same in
@@ -44,7 +31,7 @@ pip install pyodbc              # incumbent path, plus the driver install below
 ```
 
 On Python 3.9 the first line fails with `No matching distribution found`, which reads like a network
-problem and is not one. Measured here on 3.9.6.
+problem and is not one.
 
 ## Installing the ODBC driver, for the pyodbc path only
 
@@ -140,9 +127,9 @@ except pyodbc.Error as e:
 "
 ```
 
-Measured 2026-09-03: `08001`, `Invalid value specified for connection string attribute
-'Authentication'`. Swap in `ActiveDirectoryMsi` and the same command reaches `HYT00`, login timeout,
-because that value is accepted. The keyword takes `SqlPassword`, `ActiveDirectoryIntegrated`,
+It prints `08001`, `Invalid value specified for connection string attribute 'Authentication'`.
+Swap in `ActiveDirectoryMsi` and the same command reaches `HYT00`, login timeout, because that
+value is accepted. The keyword takes `SqlPassword`, `ActiveDirectoryIntegrated`,
 `ActiveDirectoryInteractive`, `ActiveDirectoryMsi`, `ActiveDirectoryServicePrincipal` and the
 deprecated `ActiveDirectoryPassword`, and nothing else.
 
@@ -170,7 +157,7 @@ conn = pyodbc.connect(
 Three details that fail silently if missed: the attribute id is **1256**, the token is **UTF-16
 little-endian** behind a four-byte length prefix, and the connection string must contain **no**
 `UID`, `PWD`, `Authentication` or `Trusted_Connection`. Supplying both is refused as `FA005`,
-`Cannot use Access Token with any of the following options`, measured the same day.
+`Cannot use Access Token with any of the following options`.
 
 Either way the identity needs a database principal first. Creating it, and what the container does
 with no Entra configuration at all, is `entra-id-auth`.
@@ -184,11 +171,10 @@ it settles most Python connection failures:
 python3 -c "import pyodbc; print(pyodbc.version, pyodbc.drivers())"
 ```
 
-Expect `ODBC Driver 18 for SQL Server` in the list. Measured here on 2026-09-03: `5.3.0 ['ODBC
-Driver 18 for SQL Server', 'ODBC Driver 17 for SQL Server']`. An empty list means the package
-installed and the driver did not.
+Expect `ODBC Driver 18 for SQL Server` in the list, as in `5.3.0 ['ODBC Driver 18 for SQL Server',
+'ODBC Driver 17 for SQL Server']`. An empty list means the package installed and the driver did not.
 
-The two failures look nothing alike and only one is the one everybody quotes. On unixODBC 2.3.14 a
+The two failures look nothing alike and only one is the one everybody quotes. Under unixODBC a
 `Driver={...}` naming something unregistered raises `01000`, `Can't open lib '<name>' : file not
 found`. `IM002`, `Data source name not found and no default driver specified`, is a string that
 named no driver at all. Installing `msodbcsql18` answers the first and nothing about the second.

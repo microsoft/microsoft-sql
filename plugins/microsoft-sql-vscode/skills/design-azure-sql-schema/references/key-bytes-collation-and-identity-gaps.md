@@ -1,12 +1,11 @@
-# Index key bytes, collation, identity gaps: the statements that produced every number
+# Index key bytes, collation, identity gaps: checks you can run
 
-Every number and message quoted in `SKILL.md` came from a run on **2026-08-28** against a live
-engine reporting `EngineEdition` 5 and `Edition` `SQL Azure`, product version 12.0.2000.8, server
-collation `SQL_Latin1_General_CP1_CI_AS`. Output is copied verbatim.
+Each section gives the statements behind a number or message in `SKILL.md`, and the output you
+will see on the Azure SQL Database engine.
 
 ## Contents
 
-- [How to reproduce](#how-to-reproduce)
+- [Setup](#setup)
 - [Defaults a new database gets](#defaults-a-new-database-gets)
 - [Index key limits in bytes](#index-key-limits-in-bytes)
 - [What a key column may not be](#what-a-key-column-may-not-be)
@@ -19,9 +18,9 @@ collation `SQL_Latin1_General_CP1_CI_AS`. Output is copied verbatim.
 - [The json type](#the-json-type)
 - [The vector type](#the-vector-type)
 - [Boundaries](#boundaries)
-- [What did not hold](#what-did-not-hold)
+- [What does not hold](#what-does-not-hold)
 
-## How to reproduce
+## Setup
 
 Run a local Azure SQL Database container, connect as an administrative login with a password taken
 from the environment rather than written down, and confirm the engine before trusting anything
@@ -33,7 +32,7 @@ SELECT SERVERPROPERTY('EngineEdition') AS ee,      -- 5
        SERVERPROPERTY('Collation')     AS servercoll;
 ```
 
-Every statement below runs in a database created with `CREATE DATABASE schemalab;` and no other
+Run every statement below in a database created with `CREATE DATABASE schemalab;` and no other
 options, with `SET QUOTED_IDENTIFIER ON` and `SET ANSI_NULLS ON`.
 
 ## Defaults a new database gets
@@ -51,11 +50,14 @@ schemalab  SQL_Latin1_General_CP1_CI_AS  1                              170
 
 Three things follow. The default collation is case-insensitive **and** it is a SQL collation, which
 is the combination sections 2 and 3 of `SKILL.md` are about. Read committed snapshot isolation is
-on by default. The compatibility level of a new database was 170.
+on by default. The compatibility level of a new database is 170, and it can be lowered: on the
+local Azure SQL Database container, `ALTER DATABASE CURRENT SET COMPATIBILITY_LEVEL = 160` followed
+by `SELECT compatibility_level FROM sys.databases` reads 160. Take any claim tying a type to a
+compatibility level from Microsoft Learn, and check it at the level the target database runs.
 
 ## Index key limits in bytes
 
-Each statement, and what the server returned.
+Each statement, and what the server returns.
 
 | Statement | Result |
 |---|---|
@@ -92,7 +94,7 @@ Operation failed. The index entry of length 1800 bytes for the index 'ux_acct_em
 exceeds the maximum length of 1700 bytes for nonclustered indexes.
 ```
 
-And where a column was narrowed rather than over-sized, the engine refuses instead of truncating:
+And where a column is narrowed rather than over-sized, the engine refuses instead of truncating:
 
 ```sql
 INSERT INTO dbo.n450 (slug) VALUES (REPLICATE(CAST(N'a' AS NVARCHAR(MAX)), 451));
@@ -129,7 +131,7 @@ Msg 1701  Creating or altering table 'wide_fixed' failed because the minimum row
           row size of 8060 bytes.
 ```
 
-The variable-width equivalent, `NVARCHAR(4000)` plus `NVARCHAR(1000)`, was created without a
+The variable-width equivalent, `NVARCHAR(4000)` plus `NVARCHAR(1000)`, is created without a
 warning, because those columns are eligible for row overflow.
 
 ## Foreign keys must match exactly
@@ -145,8 +147,8 @@ Msg 1757  Column 'dbo.p3.k' is not of same collation as referencing column 'c3.k
           foreign key 'FK__c3__k__14270015'.
 ```
 
-A parent key of `NVARCHAR(900)`, 1800 bytes, raised the 1945 warning on its own primary key and the
-child column had to match it, so an oversized key propagates rather than staying local.
+A parent key of `NVARCHAR(900)`, 1800 bytes, raises the 1945 warning on its own primary key and the
+child column has to match it, so an oversized key propagates rather than staying local.
 
 ## Collation and uniqueness
 
@@ -165,7 +167,7 @@ Violation of PRIMARY KEY constraint 'PK__tok_ci__3BD01999B8939C9B'.
 Cannot insert duplicate key in object 'dbo.tok_ci'. The duplicate key value is (Ab1X).
 ```
 
-Final counts: `tok_cs` 2 rows, `tok_ci` 1 row.
+Afterwards `tok_cs` holds 2 rows and `tok_ci` 1 row.
 
 ## The collation retrofit that does not work
 
@@ -189,14 +191,14 @@ Cannot resolve the collation conflict between "Latin1_General_CS_AS" and
 "SQL_Latin1_General_CP1_CI_AS" in the equal to operation.
 ```
 
-`CREATE DATABASE collab COLLATE Latin1_General_100_CI_AS_SC_UTF8;` was accepted, so stating the
+`CREATE DATABASE collab COLLATE Latin1_General_100_CI_AS_SC_UTF8;` is accepted, so stating the
 collation at creation is available and is the only version of this decision that works cleanly.
-`sys.fn_helpcollations()` returned 1585 collations whose name ends in `_UTF8`.
+`sys.fn_helpcollations()` returns 1585 collations whose name ends in `_UTF8`.
 
 ## Implicit conversion and the lost seek
 
-Three tables, 20,000 identical rows of the form `u<n>@example.com`, each with a unique index on
-`email`.
+Create three tables holding the same 20,000 rows of the form `u<n>@example.com`, each with a unique
+index on `email`.
 
 ```sql
 CREATE TABLE dbo.users_v (id INT IDENTITY PRIMARY KEY, email VARCHAR(320) NOT NULL);
@@ -210,15 +212,15 @@ DECLARE @p NVARCHAR(320) = N'u12345@example.com';
 SELECT id FROM dbo.users_v WHERE email = @p;
 ```
 
-`SET STATISTICS IO ON` reported, for one row returned:
+`SET STATISTICS IO ON` shows, for one row returned:
 
 | Table | Column type and collation | Scan count | Logical reads |
 |---|---|---|---|
-| `users_v` | `VARCHAR`, `SQL_Latin1_General_CP1_CI_AS` | 1 | **80** |
-| `users_w` | `VARCHAR`, `Latin1_General_CI_AS` | 1 | 2 |
-| `users_n` | `NVARCHAR` | 0 | 2 |
-| `users_v` with a `VARCHAR` parameter | `VARCHAR`, default collation | 0 | 2 |
-| `u8` | `VARCHAR`, `Latin1_General_100_CI_AS_SC_UTF8` | 0 | 2 |
+| `users_v` | `VARCHAR`, `SQL_Latin1_General_CP1_CI_AS` | 1 | **every page of the index** |
+| `users_w` | `VARCHAR`, `Latin1_General_CI_AS` | 1 | a seek's few pages |
+| `users_n` | `NVARCHAR` | 0 | a seek's few pages |
+| `users_v` with a `VARCHAR` parameter | `VARCHAR`, default collation | 0 | a seek's few pages |
+| `u8` | `VARCHAR`, `Latin1_General_100_CI_AS_SC_UTF8` | 0 | a seek's few pages |
 
 `SET SHOWPLAN_TEXT ON` for the same three statements:
 
@@ -238,7 +240,7 @@ SELECT id FROM dbo.users_v WHERE email = @p;
 
 The conversion is applied to the **column** in the first plan, which is what removes the seek. In
 the second it is applied to the parameter and a range is derived instead. The UTF-8 collation
-behaved like the Windows collation, because it is one.
+behaves like the Windows collation, because it is one.
 
 ## Identity and sequence gaps across a restart
 
@@ -260,7 +262,7 @@ CREATE SEQUENCE dbo.seq_nocache AS BIGINT START WITH 1 INCREMENT BY 1 NO CACHE;
 | `SEQUENCE`, default cache | 2 | **51** |
 | `SEQUENCE ... NO CACHE` | 2 | 3 |
 
-The fix an agent recalls from a non-PaaS engine is refused:
+The fix remembered from a non-PaaS engine is refused:
 
 ```text
 DBCC TRACEON (272, -1);
@@ -268,14 +270,17 @@ Msg 40518, Level 16, State 5, Server SQL Azure, Line 2
 DBCC command 'traceon' is not supported in this version of SQL Server.
 ```
 
-The lever that does work, and a second restart to prove it:
+That is the container's answer. Azure SQL Database refuses the same statement, even for `dbo`,
+with `Msg 2571`, "User 'dbo' does not have permission to run DBCC TRACEON."
+
+The lever that does work, checked across a second restart:
 
 ```sql
 ALTER DATABASE SCOPED CONFIGURATION SET IDENTITY_CACHE = OFF;
 -- three inserts, MAX(id) = 3, restart, one insert
 ```
 
-`MAX(id)` afterwards was **4**, and `sys.database_scoped_configurations` still reported
+`MAX(id)` afterwards is **4**, and `sys.database_scoped_configurations` still reports
 `IDENTITY_CACHE = 0`, so the setting survives the restart.
 
 A sequence with no `START WITH`:
@@ -285,7 +290,7 @@ CREATE SEQUENCE dbo.seq_nostart AS BIGINT;
 SELECT NEXT VALUE FOR dbo.seq_nostart;   -- -9223372036854775808
 ```
 
-`sys.sequences` reported `start_value` and `minimum_value` both `-9223372036854775808`.
+`sys.sequences` reports `start_value` and `minimum_value` both `-9223372036854775808`.
 
 ## Unique indexes and NULL
 
@@ -311,7 +316,7 @@ INSERT INTO dbo.nulltest2 (code) VALUES (NULL), (NULL);
 SELECT COUNT(*) FROM dbo.nulltest2;   -- 5
 ```
 
-Creating it under a client that had not set `QUOTED_IDENTIFIER ON` failed with `Msg 1934`, naming
+Creating it under a client that has not set `QUOTED_IDENTIFIER ON` fails with `Msg 1934`, naming
 `QUOTED_IDENTIFIER` directly. Drivers set it; a command line client may not.
 
 ## The json type
@@ -351,8 +356,8 @@ CREATE TABLE dbo.emb3 (v VECTOR(1999));
 Msg 2717  The size (1999) given to the column 'v' exceeds the maximum allowed (1998).
 ```
 
-`VECTOR(1998)` was accepted. `sys.columns` reports `max_length` 6152 for a `VECTOR(1536)`, which is
-`1536 * 4 + 8`. A table carrying a `VECTOR(1536)` beside two `NVARCHAR(1000)` columns allocated a
+`VECTOR(1998)` is accepted. `sys.columns` reports `max_length` 6152 for a `VECTOR(1536)`, which is
+`1536 * 4 + 8`. A table carrying a `VECTOR(1536)` beside two `NVARCHAR(1000)` columns allocates a
 `ROW_OVERFLOW_DATA` unit, so the vector is pushed off-row once the row is wide.
 
 ## Boundaries
@@ -365,8 +370,8 @@ Reference to database and/or server name in 'otherdb.dbo.some_parent' is not sup
 in this version of SQL Server.
 ```
 
-Both databases existed on the same container, so this is the database boundary being enforced and
-not a missing object.
+This fails even when both databases exist on the same server, so it is the database boundary being
+enforced and not a missing object.
 
 ```sql
 SELECT name, type_desc FROM sys.filegroups;   -- PRIMARY, ROWS_FILEGROUP. One row.
@@ -374,22 +379,17 @@ CREATE PARTITION SCHEME ps  AS PARTITION pf TO ([PRIMARY], [SECONDARY]);  -- Msg
 CREATE PARTITION SCHEME ps2 AS PARTITION pf ALL TO ([PRIMARY]);           -- succeeds
 ```
 
-A table with no clustered index was created and accepted rows, so a heap is permitted. The belief
+A table with no clustered index can be created and accepts rows, so a heap is permitted. The belief
 that this engine requires a clustered index on every table is out of date.
 
-## What did not hold
+## What does not hold
 
-Recorded so the next author does not re-derive it.
-
-- **The catalog note said "identity against sequences" as though the choice were a style
-  preference.** It is not. The measured gap is 999 for `INT` and 9999 for `BIGINT`, and a default
-  `SEQUENCE` gapped by 49, so a sequence is only the safer choice when it is declared `NO CACHE`.
-  A sequence with the default cache is no better than an identity column.
-- **`ALTER DATABASE ... COLLATE` reads like a fix and is not one.** It was expected either to fail
-  or to work. It did neither: it succeeded and changed nothing that mattered, which is the worse of
-  the two outcomes.
-- **`DATABASEPROPERTYEX(db, 'CatalogCollation')` returned `NULL`** on this container rather than a
-  collation name, so no claim about catalog collation is made in `SKILL.md`.
-- **`ALTER DATABASE ... SET COMPATIBILITY_LEVEL = 150` did not take effect** on this container: the
-  database stayed at 170. Any claim tying a type to a compatibility level should be taken from
-  Microsoft Learn rather than measured here.
+- **"Identity against sequences" is not a style preference.** Across a restart the gap is 999 for
+  `INT` and 9999 for `BIGINT`, and a default `SEQUENCE` gaps by 49, so a sequence is only the safer
+  choice when it is declared `NO CACHE`. A sequence with the default cache is no better than an
+  identity column.
+- **`ALTER DATABASE ... COLLATE` reads like a fix and is not one.** It neither fails nor works: it
+  succeeds and changes nothing that matters, which is worse than either.
+- **`DATABASEPROPERTYEX(db, 'CatalogCollation')` can return `NULL`** rather than a collation name,
+  as it does in the local Azure SQL Database container, so `SKILL.md` makes no claim about catalog
+  collation.

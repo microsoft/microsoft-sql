@@ -19,23 +19,24 @@
 Read it when an error number needs its exact text and its actual cause, or when the plain
 `CREATE USER [<name>] FROM EXTERNAL PROVIDER` has failed and the next form has to be chosen
 deliberately. Sources are listed at the end. Numbers that are not about identity live in
-`diagnose-connection-errors`.
+`connectivity-troubleshoot`.
 
 ## The error numbers, with their real causes
 
 | Number | What the text says | What it usually is |
 |---|---|---|
-| `33134` | The principal could not be resolved | The logical server has no identity, or that identity cannot read Microsoft Graph. Only ever seen when a service principal runs the statement |
+| `33130` | The principal could not be found, or its type is not supported | The name in the brackets is wrong: an unknown address, a bare guid or a non-existent application name. See [the name to put in the brackets](#the-name-to-put-in-the-brackets) |
+| `33134` | The principal could not be resolved | The logical server has no identity, or that identity cannot read Microsoft Graph. It arises only when a service principal runs the statement |
 | `33131` | The principal has a duplicate display name | Microsoft Entra ID allows two applications to share a display name and the engine requires a unique one. Answer with `WITH OBJECT_ID` and an alias |
 | `37545` | The object id is not valid, or the caller lacks permission | The object id given to `WITH OBJECT_ID` does not exist in this tenant, or the wrong one of the two portal object ids was used |
 | `18456` | `Login failed for user '<name>'.` | The credential was evaluated and refused: the login does not exist, is disabled, or the secret is wrong |
 | `18456` naming `<token-identified principal>` | Login failed for that literal user name | The token was accepted and no matching principal exists in the database. The database user was never created, or was created in the wrong database |
-| `40530` | The `CREATE USER` statement must be the only statement in the batch | On an engine with no Microsoft Entra configuration, the refusal of `TYPE = E` and `TYPE = X`. The batch is not the cause. See below |
+| `40530` | The `CREATE USER` statement must be the only statement in the batch | On an engine with no Microsoft Entra configuration, the refusal of `TYPE = E` and `TYPE = X` (container build 18.0.310.0_253 raises `102` instead). The batch is not the cause. See below |
 | `4060` | `Cannot open database "<name>" requested by the login. The login failed.` | The login is valid and has no user in that database, or the database name is wrong. After a deployment, almost always a missing database user |
 
 `18456` and `4060` are answered here, identity-shaped or plain, because both arrive after the
 credential was evaluated. `40532` reads identically and is the gateway refusing before a database
-was reached, so it belongs to `diagnose-connection-errors`.
+was reached, so it belongs to `connectivity-troubleshoot`.
 
 ## Msg 33134 in full
 
@@ -58,10 +59,10 @@ The mechanism, quoted:
 So the same statement succeeds when a person runs it and fails from a pipeline, which is the part
 that makes it look like a permissions bug in the pipeline's own credential.
 
-Assign the identity with the commands in the skill body. **The flag is `-i`, long form
-`--assign_identity` with an underscore.** Measured 2026-09-03 on Azure CLI 2.90.0: the hyphenated
-`--assign-identity` exits with `unrecognized arguments`, so a script carrying it assigns nothing and
-the next `CREATE USER` raises `33134` again.
+Assign the identity with the commands in SKILL.md. **The flag is `-i`, long form
+`--assign_identity` with an underscore.** With Azure CLI 2.90.0 the hyphenated `--assign-identity`
+exits with `unrecognized arguments`, so a script carrying it assigns nothing and the next
+`CREATE USER` raises `33134` again.
 
 The Graph side needs a `Privileged Role Administrator` and can only be done from a script. Grant
 either the three application permissions, the least-privilege option, or the `Directory Readers`
@@ -118,18 +119,19 @@ Msg 40530, Level 16, State 1, Line 1
 The CREATE USER statement must be the only statement in the batch.
 ```
 
-Measured 2026-09-03 on an Azure SQL Database container started with no `MSSQL_AAD_` variables, `EngineEdition` `5`,
-`IsExternalAuthenticationOnly` `0`: a lone `CREATE USER [p5] WITH SID = 0x1111..., TYPE = E;` raises
-it, `TYPE = X` raises it, `EXEC (@cmd)` and `GO` separation raise it, and a lone
+On an Azure SQL Database container started with no `MSSQL_AAD_` variables
+(`IsExternalAuthenticationOnly` `0`), a lone `CREATE USER [p5] WITH SID = 0x1111..., TYPE = E;`
+raises it, `TYPE = X` raises it, `EXEC (@cmd)` and `GO` separation raise it, and a lone
 `CREATE USER [p4] WITHOUT LOGIN;` succeeds. The batch is not the cause. The engine has no Microsoft
-Entra configuration, refuses the external principal types, and reports a batch rule.
+Entra configuration, refuses the external principal types, and reports a batch rule. Container build
+18.0.310.0_253 refuses the same statements, `EXEC (@cmd)` included, with `Msg 102`, "Incorrect
+syntax near 'type'", which names the wrong cause too.
 
 **Microsoft Learn documents `40530` only as the batch rule**: the errors and events table gives
 severity 16 and the text `The %.*ls statement must be the only statement in the batch.`, with no
-documented connection to Microsoft Entra configuration. The observed behaviour does not match the
-documented meaning. That is recorded here as a disagreement rather than resolved: either the engine
-reuses a number for a cause it has no message of its own for, or the documentation is incomplete,
-and neither has been confirmed with the product team.
+documented connection to Microsoft Entra configuration. The engine's behaviour does not match the
+documented meaning, and the disagreement is unresolved: either the engine reuses a number for a
+cause it has no message of its own for, or the documentation is incomplete.
 
 ## The no-lookup form, with worked T-SQL
 
@@ -145,18 +147,22 @@ One block covers all three principals: change the id and the `TYPE`, per the tab
 DECLARE @principal_name SYSNAME = 'example-app';
 DECLARE @id UNIQUEIDENTIFIER = '<the object id, or the client id for an application>';
 DECLARE @castId NVARCHAR(MAX) = CONVERT(VARCHAR(MAX), CONVERT (VARBINARY(16), @id), 1);
-DECLARE @cmd NVARCHAR(MAX) = N'CREATE USER [' + @principal_name + '] WITH SID = ' + @castId + ', TYPE = E;';
+DECLARE @cmd NVARCHAR(MAX) = N'CREATE USER ' + QUOTENAME(@principal_name) + N' WITH SID = ' + @castId + N', TYPE = E;';
 EXEC (@cmd);
 ```
 
 **This form is cloud, or an Entra-configured engine, only.** On an Azure SQL Database container
-started without the `MSSQL_AAD_` variables it raises `Msg 40530`, above, and nothing about the
+started without the `MSSQL_AAD_` variables it raises `Msg 40530` (`Msg 102` on build
+18.0.310.0_253), above, and nothing about the
 statement can be changed to make it run.
 
 ## The name to put in the brackets
 
-The engine matches the token against this name, so a wrong one produces `Msg 33134` or `Msg 33131`
-and reads as a permissions problem.
+The engine looks this name up in Microsoft Entra ID, so a wrong one fails the statement and reads as
+a permissions problem. An unknown address, a bare guid or a non-existent application name produces
+`Msg 33130`, `Principal '<name>' could not be found or this principal type is not supported`.
+`Msg 33134` is the server identity path, above, not a wrong name, and `Msg 33131` is a display name
+that two principals in the tenant share.
 
 | Principal | The name |
 |---|---|
@@ -199,7 +205,7 @@ and Entra authentication fails until a replacement is assigned and granted.
 
 ## Verification queries
 
-The two catalogue queries live in the skill body, under "Check it worked", and run against the user
+The two catalogue queries live in SKILL.md, under "Check it worked", and run against the user
 database, never `master`. What they will not tell you:
 
 - `sid_bytes` is `16` for a contained database user, whose SID is the object or client id itself,
@@ -217,8 +223,7 @@ SELECT SERVERPROPERTY('IsExternalAuthenticationOnly');   -- 1 on, 0 off
 
 ## Sources
 
-Fetch these rather than trusting this summary when the details matter. Read on 2026-08-27, except
-the last, read 2026-09-03.
+Fetch these rather than trusting this summary when the details matter.
 
 - `/azure/azure-sql/database/authentication-aad-service-principal`: the `33134` text and the impersonation mechanism.
 - `/azure/azure-sql/database/authentication-aad-service-principal-tutorial`: the Graph permission list, and the rule that only Entra users can create Entra users.

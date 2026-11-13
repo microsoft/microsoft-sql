@@ -1,15 +1,6 @@
 ---
 name: azuresql-db-seed
-description: >-
-  Populates the local Azure SQL Database container's database (appdb) with realistic
-  sample/test data so a developer has something to build against. Use when the
-  user says "seed the database", "add test data", "populate the dev database",
-  "generate sample data", "fake data", "load fixtures", "insert test rows",
-  "write a seed script", or "bulk load a CSV". This is the Azure SQL engine
-  (EngineEdition 5), not the mssql/server SQL Server image. Distinct from
-  azuresql-db-scaffold (which does a single seed.sql step while bootstrapping an
-  app) and azuresql-db-import (which loads a .bacpac). Reach for this whenever an
-  existing appdb needs volume, fixtures, or believable rows.
+description: "Use when the local Azure SQL Database container needs sample data: seed the database, test or fake data, fixtures, realistic rows across related tables, bulk load a CSV for development."
 ---
 
 # Seed the dev database on the Azure SQL Database container
@@ -20,14 +11,6 @@ and test against. This is the **Azure SQL engine** (Private Preview), not the SQ
 Use this skill for populating data. For bootstrapping a whole new app use **azuresql-db-scaffold**;
 for restoring an existing `.bacpac` use **azuresql-db-import**.
 
-Verified on 2026-09-05 against the container image
-`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
-5, Edition `SQL Azure`, build `12.0.2000.8`. All seven executable checks behind this skill
-passed: the engine identity, `Msg 12713` for `BULK INSERT` and for `OPENROWSET(BULK ...)`
-against a local file, `Msg 547` for a child row inserted before its parent, `OUTPUT ... INTO`
-capturing generated identity values, the tally recipe fanning out 1000 rows, and `bcp`
-shipping in the image.
-
 ## Engine facts that shape seeding
 
 - USE this engine image:
@@ -36,9 +19,10 @@ shipping in the image.
 - The registry is private (Private Preview): run `docker login sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io`
   first with the pull-only credentials from https://aka.ms/sqldbcontainerpreview-signup (they may rotate).
 - Verify identity: `SELECT SERVERPROPERTY('EngineEdition')` returns **5** and
-  `SERVERPROPERTY('Edition')` returns **'SQL Azure'**.
+  `SERVERPROPERTY('Edition')` returns **'SQL Azure'**; the build reports as `12.0.2000.8`.
 - Required env when starting the container: `ACCEPT_EULA=Y` and a complex `MSSQL_SA_PASSWORD`
-  (example literal used throughout: `YourStr0ng_Passw0rd`). The engine listens on **1433**.
+  (exported in your shell; the commands below read `$MSSQL_SA_PASSWORD`, never a literal). The engine
+  listens on **1433**.
 - On a non-x64 host add `--platform linux/amd64` to `docker run`.
 - The engine does **NOT** auto-create databases. You must `CREATE DATABASE appdb` on a **master**
   connection before you seed anything.
@@ -53,7 +37,7 @@ shipping in the image.
 Seeding into a database that does not exist fails. Create appdb on a **master** connection first:
 
 ```bash
-docker exec sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "YourStr0ng_Passw0rd" -C -b \
+docker exec sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -b \
   -Q "IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;"
 ```
 
@@ -93,7 +77,7 @@ stack and need the matching runnable recipe:
 
 - **T-SQL**: multi-table seed in FK order (`dbo.author` -> `dbo.book`) run via
   `docker exec -i sqldb ... -d appdb -i seed.sql`, plus the set-based "generate 1000 rows" example.
-- **Bulk load**: `bcp` for local CSV files, and `BULK INSERT` from Azure Blob Storage (the engine does not read local files: local `BULK INSERT` fails with `Msg 12713`, Azure-parity).
+- **Bulk load**: `bcp` for local CSV files, and `BULK INSERT` from Azure Blob Storage (the engine does not read local files: local `BULK INSERT` and `OPENROWSET(BULK ...)` fail with `Msg 12713`, Azure-parity).
 - **Node**: `@faker-js/faker` generating rows, inserted with the `mssql` driver using parameters.
 - **Python**: `Faker` generating rows, inserted with `pyodbc` (ODBC Driver 18) using parameters.
 
@@ -104,7 +88,7 @@ container's self-signed certificate, `-F 2` skips the header row):
 ```bash
 docker cp authors.csv sqldb:/tmp/authors.csv
 docker exec sqldb /opt/mssql-tools18/bin/bcp dbo.author_stage in /tmp/authors.csv \
-  -S localhost -U sa -P "YourStr0ng_Passw0rd" -d appdb -u -c -t ',' -F 2
+  -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d appdb -u -c -t ',' -F 2
 ```
 
 The staging table and the follow-up insert into the real table are in
@@ -124,7 +108,7 @@ columns do not line up with the target table.
 
 ## Minimum tool versions
 
-Use only the tools needed by the selected recipe, at or above these minimum tested versions:
+Use only the tools needed by the selected recipe, at or above these minimum versions:
 
 - **`sqlcmd`**: go-sqlcmd 1.10.0
 - **`bcp`**: bcp 18.6.0002.1

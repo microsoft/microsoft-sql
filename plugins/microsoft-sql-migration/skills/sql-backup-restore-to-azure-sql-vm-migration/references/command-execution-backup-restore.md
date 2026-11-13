@@ -549,10 +549,11 @@ IF @CredentialState = 'Absent'
 BEGIN
     -- Trace flag 4675 makes a missing primary identity visible during creation.
     DBCC TRACEON(4675);
-    EXEC (
+    -- EXEC accepts only literals and variables, so build the statement first.
+    DECLARE @CreateCredentialSql nvarchar(max) =
         N'CREATE CREDENTIAL ' + QUOTENAME(@CredentialName) +
-        N' WITH IDENTITY = ''Managed Identity'';'
-    );
+        N' WITH IDENTITY = ''Managed Identity'';';
+    EXEC sys.sp_executesql @CreateCredentialSql;
 END;
 
 IF NOT EXISTS (

@@ -1,15 +1,6 @@
 ---
 name: azuresql-db-feedback
-description: >-
-  Reports a bug or files feedback about the azuresql-db-* agent skills themselves, or about the
-  Azure SQL Database container (Private Preview). Use when the user says a skill or the container
-  "did not work", hit an error, behaved unexpectedly, or is missing something; and when they say
-  "report a bug", "file an issue", "open a GitHub issue", "request a feature", "give feedback", or
-  "tell the team". Also use when you, the agent, had to deviate from an azuresql-db-* skill or work
-  around a defect in one to finish a task: that is a bug worth reporting even if the task succeeded.
-  Decides whether the problem belongs to the SKILL or to the CONTAINER, since they use different
-  issue templates, then builds a complete prefilled GitHub issue from context you already have.
-  Never submits anything without explicit confirmation from the user.
+description: "Use when an azuresql-db-* skill or the Azure SQL Database container misbehaved, lacks something, or you worked around it: report a bug, file an issue, request a feature. Drafts a GitHub issue."
 ---
 
 # Report a problem with the skills, or with the container
@@ -21,13 +12,11 @@ to the user to submit.
 
 **Repository:** `microsoft/azure-sql-database-container` (both the container and the skills live here).
 
-The claims in this skill are about issue forms in `microsoft/azure-sql-database-container`,
-not about the engine, so no engine measurement applies to them. Verified on 2026-09-05:
-`aka.ms/sql-agent-skills-feedback` still answers `301` to
+`aka.ms/sql-agent-skills-feedback` answers `301` to
 `https://github.com/microsoft/azure-sql-database-container/issues/new?template=skill_feedback.yml`
-with the query string dropped, which is exactly why a prefilled report has to use the full
-`github.com` URL. The field ids, labels and dropdown values are read from the issue form
-definitions in this repository and mirrored in
+with the query string dropped, which is why a prefilled report has to use the full
+`github.com` URL. The field ids, labels and dropdown values mirror the repository's issue form
+definitions and are listed in
 [references/issue-fields.md](references/issue-fields.md), which you open before you build any URL.
 
 ## The two rules that matter most
@@ -67,7 +56,7 @@ Only run a command if you do not already know the answer.
 
 - Which skill, by name (`azuresql-db-rag`, etc). If none loaded, say so: that is itself the bug.
 - Which agent you are (Claude Code, GitHub Copilot, Codex, Cursor). Skills behave differently across
-  harnesses and we cannot see which one the user ran.
+  agents and we cannot see which one the user ran.
 - **The instruction that was wrong or missing, quoted from the skill, and what actually worked instead.**
   This is the single most valuable field in the whole report. Without it we cannot fix the skill.
 - The prompt the user gave you.
