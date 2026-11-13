@@ -237,6 +237,7 @@ const issueFormIds = [
   "what-happened",
 ];
 const forbiddenSidecars = new Set([
+  "loader-test-fixture.md",
   "skill-contract.yml",
   "skill.spec.jsonc",
   "suppression.json",
