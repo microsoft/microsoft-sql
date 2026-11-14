@@ -3,7 +3,7 @@
 ## Contents
 
 - Create a least-privilege SQL user on the container (login + mapped user)
-- Contained user with password (cloud only; does not work on the container)
+- Contained user with password (cloud; on the container only on newer builds)
 - An Entra principal as a database user
 - Connection strings per environment
 - Managed identity in the cloud (and why not Default)
@@ -46,7 +46,7 @@ The app connects as `applogin`. Do not add `appuser` to `db_owner`. If the app
 only reads, grant just `db_datareader`. Narrower still: `GRANT SELECT, INSERT,
 UPDATE, DELETE ON SCHEMA::dbo TO appuser;` or per-object grants.
 
-## Contained user with password (cloud only; does not work on the container)
+## Contained user with password (cloud; on the container only on newer builds)
 
 In Azure SQL Database in the cloud, the norm is a **contained user** created
 directly in the database, with no server login:
@@ -61,17 +61,15 @@ ALTER ROLE db_datareader ADD MEMBER appuser;
 ALTER ROLE db_datawriter ADD MEMBER appuser;
 ```
 
-**This does not work on the container today, and you cannot turn it on.**
-`CREATE USER ... WITH PASSWORD` returns `Msg 33233` ("You can only create a user
+**On container builds through `18.0.226` this does not work, and you cannot turn it on.**
+There `CREATE USER ... WITH PASSWORD` returns `Msg 33233` ("You can only create a user
 with a password in a contained database"). `ALTER DATABASE appdb SET CONTAINMENT =
 PARTIAL` returns `Msg 12824` ("The sp_configure value 'contained database
 authentication' must be set to 1 in order to alter a contained database"), followed
 by `Msg 5069` ("ALTER DATABASE statement failed"). The setting that message asks for
 cannot be reached: `sp_configure` does not exist on this engine and returns
 `Msg 2812`, so there is no contained database authentication setting for you to
-configure. Measured 2026-09-19 on image tag `18.0.226_4_147`, `EngineEdition` 5,
-Edition `SQL Azure`, build `12.0.2000.8`; the numbers `Msg 15007` and `Msg 12844`
-printed here before that date were wrong, though the refusals themselves were not.
+configure. On image tag `18.0.302.0_248`, `CREATE USER ... WITH PASSWORD` succeeds.
 Locally, use the login-plus-user recipe above; the app code and connection string
 are identical either way (username plus password). This is the inverse of the
 cloud, where contained users are preferred and server logins are limited.

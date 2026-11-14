@@ -1,16 +1,6 @@
 ---
 name: rag-on-azure-sql
-description: >-
-  Builds retrieval augmented generation end to end on Azure SQL Database: chunking source text,
-  storing embeddings with the provenance that makes them re-runnable, retrieving with the filter
-  and the permission check inside the same query, and grounding an answer on what came back. Use
-  when someone asks to "build RAG on Azure SQL Database", "chat with my documents", "add semantic
-  search over my data", "keep embeddings in sync when rows change", "re-embed with a new model",
-  or "which chunks should I put in the prompt"; and when a retrieval pipeline returns plausible
-  but wrong context, or returns text the asking user is not allowed to read. This skill owns the
-  pipeline and the schema around it. The vector type, VECTOR_DISTANCE and the query shape are
-  vector-search-azure-sql, and the in-database embedding call is
-  embeddings-and-external-models. Offline local embedding is an application-side workflow.
+description: "Use when building a RAG pipeline end to end on Azure SQL Database: chat with my documents, semantic search over my data, keep embeddings in sync, answers worse after switching models, other tenants' chunks returned."
 ---
 
 # Retrieval augmented generation on Azure SQL Database
@@ -18,12 +8,9 @@ description: >-
 What tables exist, what is written when, what the retrieval query has to carry, and how to prove it
 worked.
 
-Verified 2026-08-28 against a live Azure SQL Database, General Purpose serverless, compatibility
-level 170, and re-run 2026-09-03, which is where `Msg 37579` comes from. Numbers not from those
-runs are from Microsoft Learn, linked at the end.
-
 Open [references/pipeline.md](references/pipeline.md) when you sit down to write the ingest or the
-re-embed: it holds the `MERGE`, the embedding loop, and what the two runs disagreed about.
+re-embed: it holds the `MERGE`, the embedding loop, and how engine builds treat a security policy
+on a vector-indexed table.
 
 ## What this owns
 
@@ -36,7 +23,7 @@ validate the production query and security behavior against Azure SQL Database b
 
 ## The correction
 
-An agent asked to build RAG here ports a vector store recipe: one table of chunk text with one
+The usual way to build RAG here ports a vector store recipe: one table of chunk text with one
 embedding column, retrieved by the application's identity, top k pasted into the prompt. It works
 on the first demo. Two things are then wrong and **neither raises an error**.
 
@@ -44,9 +31,11 @@ on the first demo. Two things are then wrong and **neither raises an error**.
 not follow the copy. Row level security on `dbo.documents` does not apply to `dbo.document_chunks`,
 and neither do its grants, its tenant column or its soft delete flag. A retrieval that is otherwise
 perfect puts text the asking user may not read into a prompt, and the model quotes it back. The
-obvious fix is refused: a security policy cannot reference a table carrying a vector index,
-`Msg 37579`, so the chunk table cannot have a predicate at all and the retrieval query's `WHERE`
-clause is the whole boundary.
+obvious fix, a security policy on the chunk table, cannot be relied on: whether a policy can sit on
+a vector-indexed table is undocumented and depends on the engine. Earlier container builds and
+SQL Server 2025 refuse the pair (`Msg 37579`, `Msg 42244`); Azure SQL Database and current container
+builds accept it and then do not use the vector index under the policy.
+Make the retrieval query's `WHERE` clause the boundary and prove it with a test.
 
 **2. Nothing records which model produced a stored vector.** A `vector(n)` column carries a
 dimension and a base type and nothing else. The two most widely used embedding models both emit
@@ -56,9 +45,10 @@ fails, and the only symptom is that answers get worse.
 
 ## 1. Fix the dimension before the schema
 
-The dimension follows the model, the ceiling is 1998, and it cannot be widened by `ALTER COLUMN`
-even on an empty table. A 3072 dimension model does not fit and has to be asked for a shorter
-vector at generation time. Write the number twice, as `vector(n)` and as the dimension
+The dimension follows the model, the ceiling is 1998 at the default `float32` (3996 at
+half-precision `float16`), and it cannot be widened by `ALTER COLUMN` even on an empty table. A 3072
+dimension model does not fit a `float32` column: ask it for a shorter vector at generation time, or
+declare `vector(3072, float16)` and accept half precision. Write the number twice, as `vector(n)` and as the dimension
 requested from the model; when they disagree the insert fails, the one loud failure here.
 
 ## 2. The schema
@@ -192,14 +182,23 @@ ORDER BY document_id, ordinal;
 - **The inner `ORDER BY` takes the distance column ascending and nothing else.** Adding
   `c.ordinal` fails with `Msg 42271` and dropping it fails with `Msg 42248`, which is why reading
   order is applied in the outer query.
-- **No policy can back that `WHERE` clause up.** `CREATE SECURITY POLICY` on a table carrying a
-  vector index is refused, `Msg 37579`, measured 2026-09-03 and documented nowhere on Microsoft
-  Learn. Keep the policy on `dbo.documents`, where it still guards direct reads, and treat the
-  filter above as security code: test that removing it changes the result. If a predicate on the
-  retrieval path is non-negotiable, the sourced ways out are to drop the vector index, since
-  `VECTOR_SEARCH` still runs as a brute force scan without one, or to split the table so the index
-  sits on an embeddings table carrying no policy and the protected text joins back, costing the
-  filter its place inside the search.
+- **Do not count on a policy backing that `WHERE` clause up.** Microsoft Learn says nothing about
+  a security policy on a vector-indexed table, and engine builds differ. Earlier container builds
+  refuse the pair in both orders: `Msg 37579` when the policy is created after the index,
+  `Msg 42244` when the index is created after the policy. Container build 18.0.310.0_253 accepts both
+  orders and holds the filter through `TOP ... WITH APPROXIMATE`, but does not use the vector index
+  under the policy: `WITH (FORCE_ANN_ONLY)` fails with `Msg 8622`, and without the hint the same
+  query returns rows from an exact search. Azure SQL Database behaves like that container build:
+  the pair is accepted, the filter holds, the index is not used under the policy. SQL Server 2025
+  refuses the pair like the earlier builds. Keep the
+  policy on `dbo.documents`, where it still guards direct reads, and treat the filter above as
+  security code: test that removing it changes the result. If a predicate on the
+  retrieval path is non-negotiable, try it on the target database and check three things: the
+  policy is created, a cross-tenant approximate query returns none of another tenant's rows, and
+  the plan still shows a `Vector Index Seek`. The sourced fallbacks are to drop the vector index,
+  since `VECTOR_SEARCH` still runs as a brute force scan without one, or to split the table so the
+  index sits on an embeddings table carrying no policy and the protected text joins back, costing
+  the filter its place inside the search.
 - **Retrieve more than you ground on** and re-rank the candidates, but never substitute a bigger k
   for a missing filter.
 
@@ -237,7 +236,7 @@ SELECT embed_model, embed_dims, COUNT(*) AS chunks,
 FROM dbo.document_chunks
 GROUP BY embed_model, embed_dims;
 
--- 2. Which tables have a predicate and which have a vector index. Never both.
+-- 2. Which tables have a predicate and which have a vector index. Keep them on different tables.
 SELECT t.name AS table_name,
        MAX(CASE WHEN sp.target_object_id IS NULL THEN 0 ELSE 1 END) AS has_policy,
        MAX(CASE WHEN vi.object_id IS NULL THEN 0 ELSE 1 END) AS has_vector_index
@@ -268,7 +267,8 @@ sqlcmd -S <server-name>.database.windows.net,1433 -d <database> -U <user> -C -b 
 Expected: check 1 returns **exactly one row** with `unembedded` `0`; two rows means two geometries
 in one column and every distance across them meaningless, and a non-zero `unembedded` means part of
 the corpus is invisible. Check 2 shows `documents` with `has_policy` `1`, and `document_chunks` with
-`has_vector_index` `1` and `has_policy` `0`; that zero is the engine's rule, not an omission to fix,
+`has_vector_index` `1` and `has_policy` `0`. That zero is the design, not an omission to fix:
+depending on the build, a policy there is refused or keeps approximate search off the vector index,
 which is why step 6's `WHERE` clause is what needs the test. Check 3 returns one row per vector
 index with `index_version` `3`; empty means every retrieval is scanning, and an older version means
 step 6's filter runs after the search rather than during it. Check 4 returns `0`; anything else
@@ -278,16 +278,17 @@ means the deduplication key is wrong and re-runs are re-embedding unchanged text
 11 and above, so `sqlcmd` exiting 0 says nothing about the four. Read the output file.
 
 **`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
-Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
-`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
-message at any `-m` value, so on that build a severity 10 message arrives with no number to read.
-Query `sys.messages` or use the ODBC build when the number matters.
+Microsoft command line utilities. With go-sqlcmd 1.x, the build `brew install sqlcmd` and
+`winget install sqlcmd` install, a severity 10 message prints no `Msg` header at any `-m` value, so
+it arrives with no number to read. Query `sys.messages` or use the ODBC build when the number
+matters.
 
 ## Do not
 
-- Do not assume the copy inherits the source's protection, and do not try to give it a policy of
-  its own: that is refused. The query's filter is the boundary and needs a test that fails without
-  it, in the database rather than in application code.
+- Do not assume the copy inherits the source's protection, and do not rely on a policy of its own:
+  depending on the build it is refused, or it is accepted and approximate search stops using the
+  vector index. The query's filter is the boundary and needs a test that fails without it, in the
+  database rather than in application code.
 - Do not store an embedding without recording which model made it, and do not mix two models'
   vectors in one column. Nothing will tell you.
 - Do not embed the question with a different model from the corpus.
@@ -300,13 +301,13 @@ Query `sys.messages` or use the ODBC build when the number matters.
 
 - [references/pipeline.md](references/pipeline.md): open it while writing step 2 onwards, or when a
   claim above disagrees with what you are seeing. It has the idempotent `MERGE`, the embedding
-  loop, the mixed corpus checks, and the `Msg 37579` disagreement in full.
+  loop, the mixed corpus checks, and the security policy and vector index behavior in full.
 - [VECTOR_SEARCH](https://learn.microsoft.com/sql/t-sql/functions/vector-search-transact-sql): read
   when a filtered retrieval returns fewer rows than asked for, for iterative versus post filtering,
   and for the `ORDER BY` rules behind `Msg 42248` and `Msg 42271`.
 - [CREATE VECTOR INDEX limitations](https://learn.microsoft.com/sql/t-sql/statements/create-vector-index-transact-sql#limitations-and-considerations):
-  read before promising a policy on an indexed table. As of 2026-09-03 it lists partitioning,
-  `TRUNCATE` and package import, and not `Msg 37579`.
+  read before promising a policy on an indexed table. Its limitations list partitioning,
+  replication, `TRUNCATE` and package import, and say nothing about security policies.
 - [Row level security](https://learn.microsoft.com/sql/relational-databases/security/row-level-security):
   read before putting a predicate on `dbo.documents`.
 - [HASHBYTES](https://learn.microsoft.com/sql/t-sql/functions/hashbytes-transact-sql): read before

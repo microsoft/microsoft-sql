@@ -1,8 +1,7 @@
-# Measured: token claims, login failures, and what the action does
+# Token claims, login failures, and what the action does
 
 ## Contents
 
-- [How these were measured](#how-these-were-measured)
 - [The subject claim, both job shapes](#the-subject-claim-both-job-shapes)
 - [Finding the prefix without running anything](#finding-the-prefix-without-running-anything)
 - [The three failure messages, in full](#the-three-failure-messages-in-full)
@@ -11,20 +10,9 @@
 - [What the hosted runner ships](#what-the-hosted-runner-ships)
 - [Environment protection rules](#environment-protection-rules)
 
-## How these were measured
-
-On 2026-08-28, on a throwaway repository with a user-assigned identity holding federated
-credentials, deleted afterwards along with its resource group. `azure/sql-action` behaviour was
-read from the source at tag `v2.4`, commit `eb1f9a80`, released 2026-07-23. The subject prefix
-survey below was re-run on 2026-09-03 across twelve repositories in one account.
-
-Three credentials were created in turn against the same workflow, and the workflow was re-run
-after each: a branch-shaped subject, the documented environment-shaped subject, and the subject
-the token actually carried.
-
 ## The subject claim, both job shapes
 
-A job requests its own token and decodes the payload. No third-party action is involved:
+A job can request its own token and decode the payload. No third-party action is involved:
 
 ```bash
 TOKEN=$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
@@ -34,7 +22,7 @@ case $(( ${#PAYLOAD} % 4 )) in 2) PAYLOAD="${PAYLOAD}==";; 3) PAYLOAD="${PAYLOAD
 echo "$PAYLOAD" | tr '_-' '/+' | base64 -d | jq -r '"sub = " + .sub, "aud = " + .aud, "iss = " + .iss'
 ```
 
-Results from one run, two jobs differing only by an `environment:` line:
+On a repository with the id-based prefix, two jobs differing only by an `environment:` line print:
 
 ```text
 sub = repo:OWNER@<ownerId>/REPO@<repoId>:ref:refs/heads/main
@@ -53,14 +41,13 @@ easy fields to get right.
 gh api repos/OWNER/REPO/actions/oidc/customization/sub
 ```
 
-Measured 2026-09-03 across twelve repositories nobody had configured. Eleven answered with the
-plain name-based prefix:
+Most repositories nobody has configured answer with the plain name-based prefix:
 
 ```json
 {"use_default":true,"use_immutable_subject":false,"sub_claim_prefix":"repo:OWNER/REPO"}
 ```
 
-The twelfth, a repository that had been renamed, answered with numeric ids and the same two flags:
+A repository that has been renamed can answer with numeric ids and the same two flags:
 
 ```json
 {"use_default":true,"use_immutable_subject":false,"sub_claim_prefix":"repo:OWNER@<ownerId>/REPO@<repoId>"}
@@ -101,9 +88,8 @@ a repository or environment name retyped in the wrong case fails here with no ot
 Double check if the 'auth-type' is correct.
 ```
 
-**A directory policy refusal**, which looks like the first message and is not. This one was
-returned once the subject matched, by a directory that requires an extra claim on tokens from
-this issuer:
+**A directory policy refusal**, which looks like the first message and is not. A directory that
+requires an extra claim on tokens from this issuer returns it once the subject matches:
 
 ```text
 ##[error]AADSTS7002381: Federated identity credentials issued by
@@ -112,7 +98,7 @@ in this tenant must contain the enterprise claim with value '<...>' but actual v
 ```
 
 The distinction matters. The first is fixed in the credential. The third cannot be fixed by
-editing the subject at all, and it is also useful evidence: reaching it proves the subject
+editing the subject at all, and it is also a useful signal: reaching it means the subject
 matched, because the subject is checked first.
 
 ## Creating the credential
@@ -147,15 +133,14 @@ PowerShell and Terraform all error on it, leaving Microsoft Graph, the portal, o
 {"claimsMatchingExpression": {"value": "claims['sub'] matches 'repo:OWNER@<ownerId>/REPO@<repoId>:*' and claims['repository_id'] eq '<repoId>'", "languageVersion": 1}}
 ```
 
-Azure CLI 2.90.0 on this host does expose `--claims-matching-expression-value`, marked preview and
-mutually exclusive with `--subject`, so the tool and the documentation disagree about whether the
-CLI can create one. That disagreement is unresolved here. Try it against your own tenant before
-building a plan on either answer.
+Azure CLI 2.90.0 does expose `--claims-matching-expression-value`, marked preview and mutually
+exclusive with `--subject`, so the tool and the documentation disagree about whether the CLI can
+create one. Try it against your own tenant before building a plan on either answer.
 
 ## What the action does, step by step
 
-Read from `src/main.ts`, `src/SqlUtils.ts`, `src/FirewallManager.ts` and `src/AzureSqlAction.ts`
-at `v2.4`:
+From `src/main.ts`, `src/SqlUtils.ts`, `src/FirewallManager.ts` and `src/AzureSqlAction.ts` at
+`v2.4`, commit `eb1f9a80`:
 
 1. Downloads a pinned `go-sqlcmd` release into the runner tool cache and puts it on `PATH`. It
    does not install the deployment tool.
@@ -179,13 +164,12 @@ name on `PATH`. On macOS it throws `This action is not supported on a Mac enviro
 
 ## What the hosted runner ships
 
-Measured on `ubuntu-latest`, which resolved to `ubuntu-24.04`, image `20260823.283.1`:
+On `ubuntu-latest`, the `ubuntu-24.04` image:
 
 | Check | Result |
 |---|---|
 | `which sqlpackage` | not found |
 | `~/.dotnet/tools` on `PATH` | yes, before the run installs anything |
-| `dotnet --version` | `10.0.400` |
 | installed SDKs | 8.0.x, 9.0.x and 10.0.x side by side |
 | after `dotnet tool install -g microsoft.sqlpackage` | resolves at `/home/runner/.dotnet/tools/sqlpackage` |
 
@@ -225,6 +209,5 @@ gh api -X POST repos/OWNER/REPO/actions/runs/<run id>/pending_deployments \
   -f state=approved -f comment="reviewed" -F "environment_ids[]=<environment id>"
 ```
 
-Observed during one run with the rule in place: the job with no environment reported `success`
-while the two jobs declaring the environment reported `waiting`, and both moved only after the
-approval was posted.
+With the rule in place, a job with no environment reports `success` while the jobs declaring the
+environment report `waiting`, and they move only after the approval is posted.

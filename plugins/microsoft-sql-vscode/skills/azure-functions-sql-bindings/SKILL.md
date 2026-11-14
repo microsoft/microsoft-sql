@@ -1,15 +1,6 @@
 ---
 name: azure-functions-sql-bindings
-description: >-
-  Wires Azure Functions to Azure SQL Database with the SQL input and output bindings and the SQL
-  trigger, including the change tracking the trigger cannot run without and the identity
-  permissions the trigger needs beyond the ones the bindings need. Use when a user asks for "a
-  serverless CRUD API over SQL", to "add a SQL input binding", "write to SQL from a function",
-  "react to inserts and updates", "SQL trigger function", "SqlTrigger", "SqlInput", "SqlOutput",
-  or says "my SQL trigger never fires and there is no error". Also use when an output binding
-  silently updated an existing row instead of inserting, which is the documented upsert behaviour.
-  This is the Azure SQL Database story. Local-container-specific setup is outside this skill;
-  connection reuse across invocations belongs to the per-language connect skills.
+description: "Use when wiring Azure Functions to Azure SQL Database: a serverless CRUD API with SQL input or output bindings, SqlTrigger on row changes, a SQL trigger that never fires, an output binding that updated instead of inserting."
 ---
 
 # Azure Functions with the Azure SQL bindings
@@ -17,9 +8,11 @@ description: >-
 Two bindings and a trigger. The bindings are straightforward. **The trigger has a prerequisite
 that fails without failing the app**, which is what this skill exists for.
 
-Every command and C# block below was measured 2026-09-03 against Core Tools 4.12.0, .NET SDK
-8.0.421 and `Microsoft.Azure.Functions.Worker.Extensions.Sql` 3.1.536. Error numbers are
-from Microsoft Learn.
+## Scope
+
+- Azure Functions against Azure SQL Database. Functions over the local Azure SQL Database container
+  are a separate workflow with its own setup, not covered here.
+- Connection reuse across invocations belongs to the per-language connect skills in the table below.
 
 ## What this skill does not own
 
@@ -36,19 +29,19 @@ function.
 
 ```bash
 func init todo-fn --worker-runtime dotnet-isolated
-cd todo-fn
+cd todo-fn || exit 1
 dotnet add package Microsoft.Azure.Functions.Worker.Extensions.Sql
 ```
 
-That resolved 3.1.536, clearing the v3.1.284 floor Learn sets for Consumption plans. Two
-things the tooling does not tell you:
+Learn sets v3.1.284 as the package floor for Consumption plans, and the current package is above
+it. Two things the tooling does not tell you:
 
-**Core Tools 4.12.0 scaffolds `net10.0`.** On .NET SDK 8.0.421 the next restore fails with
+**Core Tools 4.12 scaffolds `net10.0`.** On a .NET 8 SDK the next restore fails with
 `error NETSDK1045: The current .NET SDK does not support targeting .NET 10.0`. Set
 `<TargetFramework>` to a version your SDK has before you add the package.
 
-**`func new` cannot create the SQL functions, though `func templates list` advertises them.** The
-template name loses its spaces and is then rejected:
+**`func new` cannot create the SQL functions, though `func templates list` advertises them.** With
+Core Tools 4.12 the template name loses its spaces and is then rejected:
 
 ```bash
 func templates list | grep 'SQL Trigger'
@@ -94,10 +87,10 @@ which fails with Msg 22114.
 
 **The monitored table must have a primary key.** Without one the second statement fails with
 `Msg 4997, Cannot enable change tracking on table '<name>'. Change tracking requires a primary key
-on the table.` This skill printed Msg 22119 for that refusal until 2026-09-06, when it was measured
-on the Azure SQL Database container at 18.0.226_4_147 and came back 4997. A deployment log grepped
-for 22119 finds nothing. The cloud number is not verified here, so match on the text if you are
-reading a log from a real Azure SQL Database.
+on the table.` That is the number in the local Azure SQL Database container, not the Msg 22119 you
+may find quoted for this refusal, so a deployment log grepped for 22119 finds nothing. The cloud
+service may report a different number, so match on the text when you read a log from Azure SQL
+Database.
 
 ## Step 2: write the trigger
 
@@ -174,7 +167,7 @@ public ToDoItem ToDoItem { get; set; }
 ```
 
 **It upserts.** Learn states the output bindings use T-SQL `MERGE`, so a write whose key already
-exists updates that row rather than failing, and an agent treating the binding as an insert will
+exists updates that row rather than failing, and code that treats the binding as an insert will
 report a create that was an overwrite. `MERGE` also needs `SELECT` on the target, not only
 `INSERT`.
 

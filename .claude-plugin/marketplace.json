@@ -58,6 +58,32 @@
       "category": "Databases"
     },
     {
+      "name": "microsoft-sql-admin",
+      "displayName": "Microsoft SQL administration",
+      "source": "./plugins/microsoft-sql-admin",
+      "description": "Diagnose and administer SQL Server, Azure SQL Database, Azure SQL Managed Instance, and Fabric SQL databases, including performance and wait analysis, Query Store and execution plans, blocking and deadlocks, backup and recovery, high availability and disaster recovery, security, schema health, and SQL Server Agent jobs.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Microsoft"
+      },
+      "repository": "https://github.com/microsoft/microsoft-sql",
+      "keywords": [
+        "microsoft-sql",
+        "sql-server",
+        "azure-sql",
+        "database-administration",
+        "dba",
+        "ssms",
+        "performance-tuning",
+        "query-store",
+        "blocking",
+        "backup",
+        "high-availability",
+        "diagnostics"
+      ],
+      "category": "Databases"
+    },
+    {
       "name": "microsoft-sql-fdh",
       "displayName": "Microsoft SQL for Fabric Database Hub",
       "source": "./plugins/microsoft-sql-fdh",
@@ -111,7 +137,7 @@
       "name": "microsoft-sql-vscode",
       "displayName": "Microsoft SQL for Visual Studio Code",
       "source": "./plugins/microsoft-sql-vscode",
-      "description": "Build and manage Azure SQL Database applications in Visual Studio Code with the MSSQL extension, including connections, schema and ORM workflows, deployment, diagnostics, security, data movement, recovery, T-SQL, vector search, and database projects. Data API Builder guidance is excluded where it would duplicate tools provided by the extension.",
+      "description": "Build and manage Azure SQL Database applications in Visual Studio Code with the MSSQL extension, including connections, schema and ORM workflows, deployment, diagnostics, security, data movement, recovery, T-SQL, vector search, and database projects. Data API Builder configuration guidance is excluded where it would duplicate tools provided by the extension; hosting Data API Builder in Azure and connecting remote MCP clients are included.",
       "version": "1.0.0",
       "author": {
         "name": "Microsoft"

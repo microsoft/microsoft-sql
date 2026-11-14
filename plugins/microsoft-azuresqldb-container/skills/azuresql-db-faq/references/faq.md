@@ -28,10 +28,10 @@ Database in the cloud; you do not run this container there.
 
 ## Backups and recovery
 
-**Can I back up a database?** No. On the container, `BACKUP DATABASE` and
-`RESTORE DATABASE` return `Msg 40510` ("not supported in this version of SQL Server")
-in every session (verified live: the statement errors from both a `master` and a
-user-database connection). Azure SQL Database in the cloud likewise does not support
+**Can I back up a database?** No. The container refuses `BACKUP DATABASE` and
+`RESTORE DATABASE` with `Msg 40510` ("not supported in this version of SQL Server")
+in every session: the statement errors from both a `master` and a user-database
+connection. Azure SQL Database in the cloud likewise does not support
 these statements, because backups there are a managed platform service, not something
 you run with `BACKUP`.
 
@@ -61,15 +61,16 @@ current limitation. Public Preview plans a default startup database (for example
 
 ## Vectors / AI
 
-**Why can't I `CREATE VECTOR INDEX`?** You probably can. The Known limitations page
-still lists vector index DDL as an active issue, and the engine disagrees: measured on
-this image, the DiskANN index builds and `VECTOR_SEARCH` returns ranked results against
-it. Say so, and give the reader the two things that actually stop the statement:
+**Why can't I `CREATE VECTOR INDEX`?** You probably can. The DiskANN index builds and
+`VECTOR_SEARCH` returns ranked results against it, and the Known limitations page lists it
+as working, with restrictions. Give the reader the two things that actually stop the
+statement:
 
 1. `SET QUOTED_IDENTIFIER ON` is required and is off by default in a `sqlcmd` session.
-   Without it the statement fails with `Msg 1934`, whose text lists indexed views,
-   computed columns, filtered indexes, query notifications, XML methods and spatial
-   indexes, and never names the session setting that caused it.
+   Without it the statement fails with `Msg 1934`, which names `'QUOTED_IDENTIFIER'`
+   inside a long list of index features (indexed views, computed columns, filtered
+   indexes, query notifications, XML methods, spatial indexes), so it reads like an
+   index problem rather than a session setting.
 2. The table needs at least **100 rows with non-null vectors**. Below that it is
    `Msg 42266`, which does name the rule and the actual count.
 
@@ -134,26 +135,25 @@ once before declaring readiness; the `azuresql-db-local-to-cloud` skill can prov
 a target database for a one-shot validation pass.
 
 **How do I create a least-privilege app user, and why does `CREATE USER ... WITH
-PASSWORD` fail?** On the container, a SQL **contained** user
-(`CREATE USER appuser WITH PASSWORD = '...'`) fails with **Msg 33233**, "You can
-only create a user with a password in a contained database", and you cannot turn
-containment on. `ALTER DATABASE appdb SET CONTAINMENT = PARTIAL` fails with
+PASSWORD` fail?** It depends on the image build. Image tags through `18.0.226_4_147`
+refuse a SQL **contained** user (`CREATE USER appuser WITH PASSWORD = '...'`) with
+**Msg 33233**, "You can only create a user with a password in a contained database";
+builds `18.0.302.0_248` and `18.0.310.0_253` accept it, as Azure SQL Database does. On
+no build can you turn containment on. `ALTER DATABASE appdb SET CONTAINMENT = PARTIAL` fails with
 **Msg 12824**, "The sp_configure value 'contained database authentication' must be
 set to 1 in order to alter a contained database", followed by **Msg 5069**, "ALTER
 DATABASE statement failed". The setting it names cannot be reached, because
 `sp_configure` does not exist on this engine and returns **Msg 2812**, so there is
-nothing to configure. Measured 2026-09-19 on image tag `18.0.226_4_147`,
-`EngineEdition` 5, Edition `SQL Azure`, build `12.0.2000.8`; the numbers
-**Msg 15007** and **Msg 12844** printed here before that date were wrong, though the
-refusals themselves were not.
-Create the app identity as a **server login mapped to a database
-user** instead: `CREATE LOGIN applogin WITH PASSWORD = '...'` on a `master`
-connection, then `CREATE USER appuser FOR LOGIN applogin` plus role grants
-(`db_datareader` / `db_datawriter`) on the `appdb` connection. This is the inverse
-of Azure SQL Database in the cloud, where a contained user is preferred and server
-logins are limited; the app code and connection string are identical either way.
+nothing to configure.
+A **server login mapped to a database user** works on every build:
+`CREATE LOGIN applogin WITH PASSWORD = '...'` on a `master` connection, then
+`CREATE USER appuser FOR LOGIN applogin` plus role grants (`db_datareader` /
+`db_datawriter`) on the `appdb` connection. On a build that refuses the contained user
+this is the only SQL-authentication path, the inverse of Azure SQL Database in the
+cloud, where a contained user is preferred and server logins are limited; the app code
+and connection string are identical either way.
 Microsoft Entra contained users (`CREATE USER [name] FROM EXTERNAL PROVIDER`) do
-work on the container once Entra is enabled. Full recipes: the `azuresql-db-auth` skill.
+work once the container has Entra enabled. Full recipes: the `azuresql-db-auth` skill.
 
 **Why does `BULK INSERT` (or `OPENROWSET(BULK ...)`) fail with Msg 12713 on a local file?**
 Because the engine reads bulk data only from **Azure Blob Storage**, not the local filesystem,
@@ -182,4 +182,5 @@ hyperscale, serverless auto-pause, or DTU/vCore limits?** Those are properties o
 cloud service tiers, not the engine, so the container does not have them (and does not
 throttle on them). **Auditing:** audit-to-file works; audit to Log Analytics or Storage
 is a cloud target and is not applicable locally. **Always Encrypted:** basic
-functionality works; secure enclaves require host TEE support and are not validated here.
+functionality works; secure enclaves require host TEE support and are not validated for the
+container.

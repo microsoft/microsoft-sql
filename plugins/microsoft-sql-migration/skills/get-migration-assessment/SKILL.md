@@ -6,8 +6,8 @@ allowed-tools: Bash(az:*, curl:*) PowerShell Grep View
 
 # Get Migration Assessment
 
-These claims were checked on 2026-09-15 against the bundled `skill-contract.yml`, Azure Resource
-Graph query contract, response schema, and assessment output contract.
+The bundled references define the Azure Resource Graph query contract, response schema,
+and assessment output contract.
 
 ## When to Use
 

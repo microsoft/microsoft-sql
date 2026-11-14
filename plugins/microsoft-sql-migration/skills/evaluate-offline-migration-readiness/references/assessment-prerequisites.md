@@ -15,12 +15,17 @@ Common prerequisites for any skill that runs local/on-prem operations using the 
 
 **Windows (PowerShell):**
 ```powershell
+$ErrorActionPreference = 'Stop'
 $minimumCliVersion = [version]"2.75.0"
-$cliVersionText = az version --query '"azure-cli"' -o tsv 2>$null
-if ($LASTEXITCODE -ne 0 -or -not $cliVersionText) {
-  throw "Azure CLI is not installed."
+Get-Command az -ErrorAction Stop | Out-Null
+$cliOutput = az version --output json
+if ($LASTEXITCODE -ne 0) {
+  throw "Azure CLI version command failed (exit $LASTEXITCODE)."
 }
-$cliVersion = [version]$cliVersionText
+$cliVersion = [version](($cliOutput -join "`n" | ConvertFrom-Json).'azure-cli')
+if ($null -eq $cliVersion) {
+  throw "Azure CLI version JSON is missing azure-cli."
+}
 if ($cliVersion -lt $minimumCliVersion) {
   Write-Host "Azure CLI $cliVersion must be upgraded to $minimumCliVersion or later."
   return
@@ -28,6 +33,10 @@ if ($cliVersion -lt $minimumCliVersion) {
 az extension show --name datamigration --query version -o tsv 2>$null
 if ($LASTEXITCODE -ne 0) { Write-Host "datamigration extension NOT INSTALLED" }
 ```
+
+Let PowerShell report command, JSON and version-conversion errors directly.
+Inspect the result before continuing; a failed check does not mean the CLI is
+outdated.
 
 ### If Azure CLI is missing:
 
@@ -57,6 +66,16 @@ Re-verify after install:
 ```bash
 az extension show --name datamigration --query version -o tsv
 ```
+
+## Native Report APIs
+
+Use the native-tool preparation in [command execution](command-execution.md)
+before running local assessment. A supported Azure CLI can still have an older
+cached SqlAssessment executable without the new APIs. Do not equate these checks
+or silently use an older reporting experience.
+Default package preparation verifies remote freshness and the cached ZIP's
+SHA-256, then extracts a clean executable. Invalid packages receive one fresh
+download attempt; explicit executable paths are validated but never replaced.
 
 ## OS Detection
 

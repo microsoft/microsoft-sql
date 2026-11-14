@@ -44,7 +44,13 @@ This skill is about getting data INTO the container, so you will mostly use
 
 ## Full import command and useful flags
 
-Always provision `appdb` on a master connection first (see SKILL.md Step 0), then:
+Wait for the container to be ready (see SKILL.md Step 0), then target `appdb`.
+SqlPackage can create it during import if the authenticated user has
+create-database permissions. Pre-creation is optional; an existing target must
+contain no user-defined schema objects.
+Leave `/p:DatabaseEdition` and `/p:DatabaseServiceObjective` unset for the
+container; use its default service tier rather than requesting an Azure service
+tier.
 
 ```bash
 SqlPackage @<(printf '%s\n' \
@@ -90,8 +96,19 @@ Then run SqlPackage from a machine that has it, targeting `localhost,$HOST_PORT`
 
 - **"Could not connect" / login timeout**: the engine was not ready, or the wrong
   port. Re-run the readiness retry loop; confirm `localhost,$HOST_PORT`.
-- **Target database does not exist**: provision it on master first
-  (`IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;`). Import does not create it.
+- **Target database does not exist / creation fails**: Import can create the
+  database. Check the target name, connectivity to master, and the authenticated
+  user's create-database permissions. Alternatively, have an authorized user
+  pre-create an empty target on master
+  (`IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name = N'appdb') CREATE DATABASE appdb;`).
+- **Target database is not empty**: Import requires an existing target to contain
+  no user-defined schema objects. Choose a new database name or a verified empty
+  target; do not delete objects from an existing database to force the import.
+- **DatabaseEdition / DatabaseServiceObjective unsupported, or service-tier
+  mismatch**: remove `/p:DatabaseEdition` and `/p:DatabaseServiceObjective` from
+  the container import command. Pre-creating a database is not required for
+  Import; leaving these service-tier options unset allows the container's
+  defaults to apply.
 - **Msg 40508 (`USE` statement not supported)**: a script tried `USE <db>`.
   Avoid `USE` to switch databases. In a user-database session (the
   Azure-faithful context where you develop), `USE` returns `Msg 40508`, exactly as

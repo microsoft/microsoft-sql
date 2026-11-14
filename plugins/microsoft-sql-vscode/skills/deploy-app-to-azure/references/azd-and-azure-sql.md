@@ -11,15 +11,13 @@
 
 ## Templates that actually exist for Azure SQL Database
 
-Verified 2026-09-03 against the Azure Developer CLI 1.32.0 by listing the gallery, which returned
-315 entries, 17 of them tagged `azuresql`. Re-listed 2026-09-18: 303 entries, and the `todo-` family
-gone. Names, tags and repositories move, so confirm before generating a project:
+Names, tags and repositories in the gallery move, so list them before generating a project:
 
 ```bash
 azd template list -f azuresql --output json | grep -B2 '"msft"'
 ```
 
-The Microsoft-published ones that use Azure SQL Database, as listed 2026-09-18:
+The Microsoft-published ones that use Azure SQL Database:
 
 | Repository | What it is |
 |---|---|
@@ -29,7 +27,7 @@ The Microsoft-published ones that use Azure SQL Database, as listed 2026-09-18:
 | `Azure-Samples/azure-sql-db-session-recommender-v2` | Vector search and retrieval over Azure SQL Database |
 | `Azure-Samples/nlp-sql-in-a-box` | Natural language over Azure SQL Database |
 
-**The tag is not a reliable filter in either direction**, measured 2026-09-03.
+**The tag is not a reliable filter in either direction.**
 `Azure-Samples/blazor-azure-sql-vector-search` is Microsoft-published, uses Azure SQL Database, and
 carries only `msft` and `ai`, so the filter misses it. `Azure-Samples/spring-petclinic-java-mysql`
 carries `azuresql` and is MySQL by name. Read the repository, not the tag.
@@ -38,27 +36,27 @@ Anything else in that filtered list is community-published rather than Microsoft
 worth saying to a user before it becomes the starting point for their project.
 
 **No Microsoft-published web application blueprint for Azure SQL Database is in the gallery any
-more.** `Azure-Samples/todo-csharp-sql` (React front end, C# API) was archived on 2026-09-04, its
-README now opening "This repository is archived and no longer maintained", and removed from the
-gallery by Azure/awesome-azd pull request 1006 on 2026-09-08. It is not gone: `azd init -t
-todo-csharp-sql` still initializes it on 1.32.0, measured 2026-09-18, and the Microsoft Learn page
-"Full-stack deployment templates for Azure Developer CLI" still lists it. That is how users keep
-arriving with it, so the evidence below still applies.
+more.** `Azure-Samples/todo-csharp-sql` (React front end, C# API) is archived, its README opening
+"This repository is archived and no longer maintained", and was removed from the gallery by
+Azure/awesome-azd pull request 1006. It is not gone: `azd init -t todo-csharp-sql` still
+initializes it, and the Microsoft Learn page "Full-stack deployment templates for Azure Developer
+CLI" still lists it. That is how users keep arriving with it, so what follows still applies.
 
 The App Service tutorial on Microsoft Learn initializes `Azure-Samples/dotnet-app-service-sqldb-infra`,
-which is not in the gallery. Read on 2026-09-18, its `infra/resources.bicep` sets
-`administratorLoginPassword` and turns public network access off, so it is password-based too.
+which is not in the gallery. Its `infra/resources.bicep` sets `administratorLoginPassword` and
+turns public network access off, so it is password-based too.
 
 ## The naming trap in the sample family
 
-The archived blueprint samples are named `todo-<language>-<database>`. Nine were in the gallery on
-2026-09-03. **Only one uses Azure SQL Database**, and it is the C# one. Every other entry in the
-family is MongoDB or Cosmos DB.
+The archived blueprint samples are named `todo-<language>-<database>`. Nine were in the gallery
+before the family was archived. **Only one uses Azure SQL Database**, and it is the C# one. Every
+other entry in the family is MongoDB or Cosmos DB.
 
 Two specific mistakes follow from this, and both look reasonable:
 
-- **`todo-nodejs-sql` and `todo-python-sql` never existed.** GitHub returns 404 for both. An agent extrapolating from the family's
-  naming will produce a template name that fails at initialization. There is no first-party
+- **`todo-nodejs-sql` and `todo-python-sql` never existed.** GitHub returns 404 for both.
+  Extrapolating from the family's naming produces a template name that fails at initialization.
+  There is no first-party
   blueprint sample pairing Node.js or Python with Azure SQL Database. The serverless quickstarts
   above are the closest first-party starting points for those languages.
 - **`todo-csharp-cosmos-sql` is not an Azure SQL Database template.** The `sql` in that name is
@@ -67,8 +65,8 @@ Two specific mistakes follow from this, and both look reasonable:
 
 ## What the first-party templates really do about identity
 
-SKILL.md carries the headline. This is the per-template evidence behind it, gathered by reading each
-`infra` directory on 2026-09-03, because the two generations of template differ completely.
+SKILL.md carries the headline. This is what each template's `infra` directory does, because the two
+generations of template differ completely.
 
 **The archived blueprint sample is password-based.** `infra/app/db-avm.bicep` provisions the logical server
 with `administratorLogin` and a password. A deployment script then creates the application's
@@ -106,10 +104,10 @@ the ones to copy. The range is not in the module's own documented examples, so i
 samples rather than with the module. SKILL.md carries the rest of the argument and the commands
 that narrow it.
 
-### Where it is, verified 2026-09-03
+### Where it is
 
-All four files were fetched from `main` and read on that date. SKILL.md carries the one-liner that
-reproduces this.
+All four files are on each repository's `main` branch. SKILL.md carries the one-liner that checks
+them.
 
 | Template | File | Condition |
 |---|---|---|
@@ -189,7 +187,7 @@ sqlcmd -S "$AZURE_SQL_SERVER_NAME" -d "$AZURE_SQL_DATABASE_NAME" \
   -i ./infra/scripts/grant-app-identity.sql
 ```
 
-`--authentication-method` and `-v` are both in `sqlcmd -?` on 1.10.0.
+With go-sqlcmd 1.10.0, `--authentication-method` and `-v` are both in `sqlcmd -?`.
 `ActiveDirectoryAzureDeveloperCli` reuses the credential the deployment is already running under,
 where `-G` alone falls back to `ActiveDirectoryDefault` and can pick a different signed-in identity.
 Run the hook on its own while developing it with `azd hooks run postprovision`.

@@ -11,8 +11,7 @@
 - [Runtime keys worth setting](#runtime-keys-worth-setting)
 - [The other endpoints on the same host](#the-other-endpoints-on-the-same-host)
 
-All of this is verified against Data API builder 2.0.9 and the Microsoft Learn REST reference on
-2026-08-27. Paths and query parameters are case sensitive.
+All of this applies to Data API builder 2.0. Paths and query parameters are case sensitive.
 
 ## Endpoint shapes
 

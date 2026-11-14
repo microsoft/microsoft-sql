@@ -1,16 +1,6 @@
 ---
 name: prisma-azure-sql
-description: >-
-  Uses Prisma ORM against Azure SQL Database on JavaScript and TypeScript, inside the connector's
-  real limits: no Json type, no enums, no scalar lists, a default string length that quietly
-  breaks keys, a connection URL that moved out of the schema file in Prisma 7, and a migration
-  workflow that succeeds locally and is refused in the cloud. Use when a user says "Prisma with
-  Azure SQL", "prisma migrate dev", "prisma db push", "schema.prisma", "prisma.config.ts",
-  "driver adapter", or pastes "P3020", "the automatic creation of shadow databases is disabled",
-  "the current connector does not support the Json type", or "the datasource property url is no
-  longer supported". Also use when Prisma migrations work locally and fail against Azure. Covers
-  schema, type mapping, migrations and identity for Prisma only. Drivers and pooling are
-  connect-from-typescript-and-node, retry connect-to-azure-sql.
+description: "Use when using Prisma with Azure SQL Database: schema.prisma, prisma migrate failing in Azure (P3020, shadow database), no Json type or enums, url unsupported in Prisma 7, driver adapter."
 ---
 
 # Prisma on Azure SQL Database
@@ -19,24 +9,23 @@ Prisma's support for this database is real, narrower than its PostgreSQL support
 Prisma 7. A schema written from PostgreSQL habits fails validation, and a migration workflow proved
 against a local database is refused in the cloud.
 
-Measured on 2026-09-03 against `prisma` 7.9.1 and 7.10.0, `@prisma/adapter-mssql` 7.9.1 and `prisma`
-8.0.0-rc.12, all installed from the package index. The P3020 result below was measured on 2026-08-27
-against an Azure SQL Database engine reporting `EngineEdition` 5.
-
 The datasource provider is the literal string `sqlserver`. **That is a connector identifier, not the
 name of the product**, whose limits are not SQL Server's: everywhere else it is Azure SQL Database.
 
 ## Pin the version, because the newest has no connector at all
 
 ```bash
-npm view prisma dist-tags          # latest: 8.0.0-rc.12   prev: 7.10.0
+npm view prisma dist-tags
 npm install prisma@7 @prisma/client@7 @prisma/adapter-mssql@7
 ```
 
-`latest` is a release candidate for the next major, so a bare `npm install prisma` installs it. The
-string `sqlserver` appears nowhere in that package, only `postgresql`, and its command surface is a
-different product: no `validate`, no `db push`, no `migrate`, and `migrate diff` replaced by a
-`migration` group. Pin to 7 and keep `prisma` and `@prisma/client` equal.
+The `latest` tag of `prisma` can point at a prerelease of the next major, a release candidate or
+a dev build, so a bare `npm install prisma` installs it. `@prisma/client`'s `latest` can still be
+a 7.x release at the same time, so a bare install of both can mix majors. The tags move; read them before
+installing. A Prisma 8 prerelease such as 8.0.0-rc.12 has no `sqlserver` connector, only
+`postgresql`, and its command surface is a different product: no `validate`, no `db push`, no
+`migrate`, and `migrate diff` replaced by a `migration` group. Pin to 7 and keep `prisma` and
+`@prisma/client` equal.
 
 ## The connection URL is JDBC style, not a URI
 
@@ -90,7 +79,7 @@ driver `connect-from-typescript-and-node` owns.
 ./node_modules/.bin/prisma validate
 ```
 
-Three field kinds are rejected outright, all three reproduced on 7.9.1:
+Prisma 7 rejects three field kinds outright:
 
 ```
 error: Field `payload` in model `Thing` can't be of type Json. The current connector does not support the Json type.
@@ -207,8 +196,8 @@ a change is safe for a live database at all is `schema-migrations-safely`.
 
 ## Getting an identity to the client
 
-The adapter supports Microsoft Entra ID and the Prisma documentation does not mention it, so an agent
-working from the docs alone concludes it is impossible. Read out of the installed 7.9.1 package, the
+The adapter supports Microsoft Entra ID although the Prisma documentation does not mention it, so
+the docs alone make it look impossible. In the `@prisma/adapter-mssql` 7.9 package source, the
 connection string accepts `authentication=DefaultAzureCredential`,
 `authentication=ActiveDirectoryManagedIdentity` with an optional client id, and
 `authentication=ActiveDirectoryServicePrincipal`; the object form is
@@ -242,7 +231,7 @@ foreign key is a migration that warns and an insert that fails later.
 **Nothing already migrated is over the limit.** Against the migrated database:
 
 ```bash
-sqlcmd -S <server-name>.database.windows.net,1433 -d <database> -U <user> -C -b -m-1 -Q \
+sqlcmd -S <server-name>.database.windows.net,1433 -d <database> -U <user> -b -m-1 -Q \
   "SELECT t.name AS tbl, i.name AS ix, i.type_desc, SUM(c.max_length) AS key_bytes
    FROM sys.indexes AS i
    JOIN sys.index_columns AS ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
@@ -257,10 +246,10 @@ Expect zero rows. Each row is an index over its limit, `key_bytes` 2000 being th
 Keep `-m-1`: without it the create-time warning carries no `Msg` number, which is how these ship.
 
 **`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
-Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
-`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
-message at any `-m` value, so on that build the 1945 warning `prisma migrate deploy` provokes stays
-unnumbered and the migration still reads as clean. Run the migration through the ODBC build when the
+Microsoft command line utilities. go-sqlcmd, the 1.x build `brew install sqlcmd` and
+`winget install sqlcmd` install, prints no `Msg` header on a severity 10 message at any `-m`
+value, so on that build the 1945 warning `prisma migrate deploy` provokes stays unnumbered and the
+migration still reads as clean. Run the migration through the ODBC build when the
 number is what you are grepping for.
 
 ## Do not

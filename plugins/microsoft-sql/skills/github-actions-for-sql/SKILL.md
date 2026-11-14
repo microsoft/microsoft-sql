@@ -1,16 +1,6 @@
 ---
 name: github-actions-for-sql
-description: >-
-  Ships schema changes to Azure SQL Database from a GitHub Actions workflow with
-  `azure/sql-action`: building the database project or publishing a prebuilt dacpac, federating
-  the workflow's token so no database password or client secret is stored, getting a runner with
-  a changing address through the server firewall, and gating the deployment on an environment.
-  Use when a user asks to "deploy my database project from GitHub Actions", "publish a dacpac on
-  merge", "set up OIDC login to Azure for my pipeline", "stop storing a SQL password in secrets",
-  or "require an approval before the schema deploys", and when a run fails with "no matching
-  federated identity record found for presented assertion subject", a login error naming
-  `auth-type`, or "unable to detect client IP address". sql-database-projects owns the project
-  and publish options, entra-id-auth the database user and its grant.
+description: "Use when deploying schema to Azure SQL Database from GitHub Actions: azure/sql-action, dacpac publish, OIDC with no stored password, login failing after adding an environment, client IP or firewall errors."
 ---
 
 # Deploy schema to Azure SQL Database from GitHub Actions
@@ -19,8 +9,7 @@ description: >-
 (`sql-database-projects`), the sequencing of a schema change (`schema-migrations-safely`), the
 database-side grant (`entra-id-auth`), or the application (`deploy-app-to-azure`).
 
-Checked 2026-09-03 against `azure/sql-action` at tag `v2.4`, commit `eb1f9a80`, still the newest
-tag; SqlPackage 170.4.83.3; sqlcmd 1.10.0; Azure CLI 2.90.0.
+The action's behaviour below is that of `azure/sql-action` at tag `v2.4`, commit `eb1f9a80`.
 
 ## The action is three commands. Run them yourself first
 
@@ -96,8 +85,8 @@ repository what prefix it presents instead:
 gh api repos/OWNER/REPO/actions/oidc/customization/sub
 ```
 
-Measured 2026-09-03 across twelve repositories in one account: eleven answered with the plain
-name-based prefix, and the twelfth, one that had been renamed, answered with numeric ids in it:
+Most repositories answer with the plain name-based prefix. One that has been renamed can answer
+with numeric ids in it:
 
 ```json
 {"use_default":true,"use_immutable_subject":false,"sub_claim_prefix":"repo:OWNER@<ownerId>/REPO@<repoId>"}
@@ -108,8 +97,8 @@ reference explains why: repositories created, renamed or transferred after 15 Ju
 immutable default subject built from owner and repository ids, and `use_immutable_subject` reports
 only the separate opt-in, not the shape. Learn covers the Azure side under
 [immutable subjects](https://learn.microsoft.com/entra/workload-id/workload-identities-github-immutable-subjects).
-So a template works on eleven repositories and silently fails on the twelfth, which is worse than
-failing everywhere.
+So a template works on most repositories and silently fails on the renamed or newer ones, which is
+worse than failing everywhere.
 
 Take `sub_claim_prefix` and append the job segment: `:ref:refs/heads/<branch>`,
 `:ref:refs/tags/<tag>`, `:environment:<name>`, or `:pull_request`. A job naming an environment
@@ -129,8 +118,9 @@ case-sensitive in September 2024, so a name typed in the wrong case fails with n
 
 A flexible federated identity credential can cover several job shapes at once by wildcard-matching
 `sub` alongside `repository_id` or `repository_owner_id`. Learn calls it preview, application
-objects only, and says Azure CLI errors on it, while Azure CLI 2.90.0 here exposes
-`--claims-matching-expression-value`. The two disagree, so measure before planning around it.
+objects only, and says Azure CLI errors on it, while Azure CLI 2.90.0 exposes
+`--claims-matching-expression-value`. The two disagree, so try it against your own tenant before
+planning around it.
 
 ### The error names the wrong thing
 
@@ -144,8 +134,8 @@ after it is the misleading one:
 Double check if the 'auth-type' is correct.
 ```
 
-`auth-type` is an input of the login step and is not the problem. An agent reading only the last
-error changes it, or reaches for a client secret to go green, throwing away the point of
+`auth-type` is an input of the login step and is not the problem. Reading only the last error
+leads to changing it, or to reaching for a client secret to go green, throwing away the point of
 federating. Read upward to the AADSTS line and read its number: a directory can also refuse on
 policy grounds, and that refusal is not fixable in the subject at all.
 
@@ -264,20 +254,18 @@ Expect `0`. A publish that landed leaves the next deploy report nothing to do, a
 zero names an object the run did not apply. `/OutputPath` is the DeployReport parameter;
 `/DeployReportPath` belongs to Publish, so the wrong flag writes no report at all, which is what
 the `test -f` is for: a missing report makes the count `0` as well, and without that line the check
-reports a clean deployment when it measured nothing.
+reports a clean deployment when it checked nothing.
 
-**`|| true` is not decoration, and it is the reason this check used to fail on success.** `grep -c`
-prints `0` and **exits 1** when it selects no lines. A GitHub Actions `run:` block is `bash -e`, so
-the step goes red on precisely the outcome you want. Measured 2026-09-05 against a real logical
-server: after a clean publish the report was
-`<DeploymentReport ...><Alerts /></DeploymentReport>`, `grep -c` printed `0`, and the exit code was
-`1`.
+**`|| true` is not decoration.** `grep -c` prints `0` and **exits 1** when it selects no lines. A
+GitHub Actions `run:` block is `bash -e`, so without it the step goes red on precisely the outcome
+you want: after a clean publish the report is `<DeploymentReport ...><Alerts /></DeploymentReport>`,
+`grep -c` prints `0`, and the exit code is `1`.
 
-**Expect it to be slow, and do not read slow as hung.** On a Basic tier database, measured the same
-day, publishing a single three-column table took **3 minutes 16 seconds** and the DeployReport
-after it took **2 minutes 50 seconds**. DacFx compares the whole model, so the floor is set by the
-tier rather than by the size of the change. While it runs, `sys.dm_exec_sessions` shows a
-`DacFx Deploy` session, which is how to tell a working deployment from a stalled one.
+**Expect it to be slow, and do not read slow as hung.** On a Basic tier database, publishing even a
+single three-column table takes **minutes**, and so does the DeployReport after it. DacFx compares
+the whole model, so the floor is set by the tier rather than by the size of the change. While it
+runs, `sys.dm_exec_sessions` shows a `DacFx Deploy` session, which is how to tell a working
+deployment from a stalled one.
 
 **One line in a successful publish reads like a failure.** Between `Updating database (Start)` and
 `Creating Table`, a project built from the default template prints

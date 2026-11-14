@@ -1,1 +1,7 @@
 * text=auto eol=lf
+
+# PowerShell scripts are published with an Authenticode signature. The signature covers the exact
+# bytes and its comment block uses CRLF line endings, so git must not convert these files.
+*.ps1 -text
+*.psm1 -text
+*.psd1 -text

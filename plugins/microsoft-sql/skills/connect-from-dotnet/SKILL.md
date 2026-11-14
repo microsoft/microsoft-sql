@@ -1,16 +1,6 @@
 ---
 name: connect-from-dotnet
-description: >-
-  Connects a .NET application to Azure SQL Database with Microsoft.Data.SqlClient: which package
-  references are required, the encryption defaults and what changed, connection pooling and the
-  keys that split a pool, and managed identity or other Microsoft Entra ID modes. Use when a user
-  says "connect .NET to Azure SQL", "Microsoft.Data.SqlClient", "SqlConnection", "passwordless
-  access for my .NET app", "managed identity for my API", "Active Directory Default", "Max Pool
-  Size", "Encrypt=Strict", or asks whether "Microsoft.Data.SqlClient.Extensions.Azure" is needed.
-  Also use when an app authenticates with a password locally and must use an identity in Azure.
-  Covers packages, connection string keywords, pooling and Entra ID for .NET only; the ORM path is
-  ef-core-azure-sql, and encryption doctrine plus transient-fault retry belong to
-  connect-to-azure-sql.
+description: "Use when connecting a .NET app to Azure SQL Database with Microsoft.Data.SqlClient: packages, connection string, pooling, managed identity or Active Directory Default failing. For EF Core, use `ef-core-azure-sql`."
 ---
 
 # Connect from .NET
@@ -18,9 +8,6 @@ description: >-
 The driver is `Microsoft.Data.SqlClient`, encryption is on by default, pooling is automatic, and
 since version 7.0 Microsoft Entra authentication needs a **second package reference** that nothing
 in the connection string hints at.
-
-Measured 2026-09-03 on `Microsoft.Data.SqlClient` 7.0.2, `Microsoft.Data.SqlClient.Extensions.Azure`
-7.0.2 and .NET SDK 8.0.421, with the commands in **Check it worked**.
 
 Encryption doctrine, retry and pool sizing are the same in every language and live in
 `connect-to-azure-sql`. Entity Framework Core is `ef-core-azure-sql`.
@@ -66,12 +53,12 @@ Re-run both commands. The graph now lists `Azure.Identity`, `Azure.Core` and
 SQL authentication, and applications that supply their own token through `AccessToken` or
 `AccessTokenCallback`, keep the lighter graph.
 
-**The local container is not where that exception reproduces.** The provider is looked up during
+**The local container does not raise that exception.** The provider is looked up during
 the login exchange, so the `ArgumentException` needs a server offering Microsoft Entra
 authentication. Against the Azure SQL Database container, which has no Entra configuration,
 `Authentication=Active Directory Default` fails earlier and differently, as `Msg 18456`,
 `Login failed for user ''`, naming neither a provider nor a package; that one is
-`diagnose-connection-errors`. Decide the package from the graph and the mode, never from whether a
+`connectivity-troubleshoot`. Decide the package from the graph and the mode, never from whether a
 local connection happened to succeed.
 
 ## Encryption defaults, and the version that changed them
@@ -92,8 +79,8 @@ await using var connection = new SqlConnection(connectionString);
 await connection.OpenAsync(cancellationToken);
 ```
 
-Four things decide whether pooling actually helps, with every default below read out of
-`SqlConnectionStringBuilder` on 7.0.2:
+Four things decide whether pooling actually helps, with every default below as
+`SqlConnectionStringBuilder` reports it on 7.0:
 
 - **The pool key is the whole connection string.** Two strings differing in any way, including a
   per-tenant `Application Name` or a rearranged keyword, get two pools that both count against the
@@ -151,8 +138,7 @@ dotnet list package --include-transitive | grep -cE '> (Azure\.Identity|Azure\.C
 ```
 
 Expect `3` on a project that uses any `Active Directory *` mode, and `0` on one that does not.
-Measured 2026-09-03 on 7.0.2 with the extension package: `Azure.Identity` 1.18.0, `Azure.Core`
-1.51.1, `Microsoft.Identity.Client` 4.84.2. Without it, all three absent.
+Without the extension package, all three are absent.
 
 **Two: the driver has a provider for the mode you set.** Run the `GetProvider` snippet above. Expect
 `Microsoft.Data.SqlClient.ActiveDirectoryAuthenticationProvider`; `NONE` means the extension package
@@ -209,7 +195,7 @@ substitute: `CONNECTIONPROPERTY` carries `net_transport`, `protocol_type` and `a
 
 - Open `references/entra-modes-and-connection-keywords.md` when the mode you need is not one of the
   three above, or before setting a keyword this body does not list: every `Authentication` value
-  with the driver version it arrived in, and the encryption and pooling defaults read off 7.0.2.
+  with the driver version it arrived in, and the encryption and pooling defaults on 7.0.
 - [Entra authentication with
   SqlClient](https://learn.microsoft.com/sql/connect/ado-net/sql/azure-active-directory-authentication):
   every mode, the version it arrived in, and the 7.0 migration steps. Read before choosing a mode or

@@ -1,39 +1,30 @@
-# Measured behaviour of the external model surface, 2026-08-28
+# The external model surface: error matrices and checks you can run
 
 ## Contents
 
-- [How this was run](#how-this-was-run)
+- [What the checks need](#what-the-checks-need)
 - [What the DDL accepts without complaint](#what-the-ddl-accepts-without-complaint)
 - [The credential naming matrix](#the-credential-naming-matrix)
 - [Managed identity](#managed-identity)
 - [The permission matrix](#the-permission-matrix)
-- [The cloud allowlist, probed host by host](#the-cloud-allowlist-probed-host-by-host)
-- [Outbound rules measured on the container](#outbound-rules-measured-on-the-container)
+- [The cloud allowlist, host by host](#the-cloud-allowlist-host-by-host)
+- [Outbound rules in the container](#outbound-rules-in-the-container)
 - [AI_GENERATE_CHUNKS](#ai_generate_chunks)
 - [AI_GENERATE_EMBEDDINGS](#ai_generate_embeddings)
-- [Cost and concurrency](#cost-and-concurrency)
-- [Claims that did not hold](#claims-that-did-not-hold)
-- [Reproducing this](#reproducing-this)
+- [Cost: one round trip per row](#cost-one-round-trip-per-row)
+- [Claims that do not hold](#claims-that-do-not-hold)
 
-## How this was run
+## What the checks need
 
-Two engines, the same statements, on the same day.
-
-- **Cloud.** An Azure SQL Database provisioned for the run: General Purpose serverless, two vCores,
-  compatibility level 170, Microsoft Entra authentication only, `SERVERPROPERTY('EngineEdition')`
-  returning 5. Deleted after the run.
-- **Local.** The Azure SQL Database container, product version 12.0.2000.8, also reporting
-  `EngineEdition` 5.
-
-An Azure OpenAI resource with a `text-embedding-3-small` deployment was created for the run and
-deleted after it, so the embedding calls below are real calls that returned real vectors, not
-placeholder failures.
-
-Where the two engines agreed, the result is stated once. Every disagreement is called out.
+The statements below behave the same on Azure SQL Database at compatibility level 170 and on the
+Azure SQL Database container, both reporting `SERVERPROPERTY('EngineEdition')` 5, unless a table
+separates them. The embedding calls need a real Azure OpenAI resource with a
+`text-embedding-3-small` deployment, so that a call returns a real vector rather than a placeholder
+failure.
 
 ## What the DDL accepts without complaint
 
-All of these `CREATE EXTERNAL MODEL` statements **succeeded** on both engines and appeared in
+All of these `CREATE EXTERNAL MODEL` statements **succeed** on both engines and appear in
 `sys.external_models`. None of them can ever produce an embedding.
 
 | Statement | Why it can never work |
@@ -59,7 +50,7 @@ and a `parameters` column of type `json`, so everything above is readable back w
 
 ## The credential naming matrix
 
-Everything else held constant: a real endpoint, a real key, a real deployment.
+Hold everything else constant: a real endpoint, a real key, a real deployment.
 
 | Credential name | Model `LOCATION` | Result |
 |---|---|---|
@@ -75,7 +66,11 @@ The last two rows are what makes the rule testable. A wrong **name** never reach
 gives `Msg 31630`. A wrong **key** reaches the network and gives a 401. If the message is 31630 the
 key is irrelevant.
 
-`CREATE MASTER KEY ENCRYPTION BY PASSWORD` was required once per database before the first
+The cheapest check is two credentials over one endpoint: one named for the endpoint URL and one
+named anything else, both holding the same key. The first returns a vector and the second returns
+`Msg 31630`.
+
+`CREATE MASTER KEY ENCRYPTION BY PASSWORD` is required once per database before the first
 credential on both engines.
 
 ## Managed identity
@@ -86,7 +81,7 @@ credential on both engines.
 | `IDENTITY = 'Managed Identity'`, `SECRET = '{"resourceid":"https://cognitiveservices.azure.com"}'` | **Embedding returned** | `Msg 31644, Server Managed Identity is disabled for this instance of SQL Server. Use sp_configure 'allow server scoped db credentials' to enable it` |
 | The `sp_configure` the container's message names | not applicable | `Msg 40510, Statement 'CONFIG' is not supported in this version of SQL Server` |
 
-The cloud path additionally needed a system assigned identity on the logical server and a role
+The cloud path additionally needs a system assigned identity on the logical server and a role
 assignment for that identity on the target resource. Without the role the failure is an HTTP 401,
 not a credential error, which is the same symptom as a wrong key.
 
@@ -94,61 +89,76 @@ The container row is a hard parity break: the error names a remedy the container
 
 ## The permission matrix
 
-Tested with a login and a database user holding `db_datareader` and `db_datawriter` and nothing
-else, then re-tested after each grant.
+Start from a login and a database user holding `db_datareader` and `db_datawriter` and nothing
+else, and repeat each action after each grant.
 
 | Action | Without the permission | Permission that fixes it |
 |---|---|---|
 | `CREATE EXTERNAL MODEL` | `Msg 262, CREATE EXTERNAL MODEL permission denied in database '<db>'` | `GRANT CREATE EXTERNAL MODEL TO <user>` |
 | `AI_GENERATE_EMBEDDINGS ... USE MODEL m` | `Msg 15151, Cannot find the external model 'm', because it does not exist or you do not have permission` | `GRANT EXECUTE ON EXTERNAL MODEL::m TO <user>` |
 | `sp_invoke_external_rest_endpoint` | `Msg 8189, You do not have permission to run 'sys.sp_invoke_external_rest_endpoint'` | `GRANT EXECUTE ANY EXTERNAL ENDPOINT TO <user>` |
-| `AI_GENERATE_CHUNKS` | ran successfully with no grant at all | none |
+| `AI_GENERATE_CHUNKS` | runs with no grant at all | none |
 
 `sys.fn_builtin_permissions(DEFAULT)` lists `CREATE EXTERNAL MODEL`, `ALTER ANY EXTERNAL MODEL` and
 `EXECUTE ANY EXTERNAL ENDPOINT` as database permissions.
 `sys.fn_builtin_permissions('EXTERNAL MODEL')` lists `VIEW DEFINITION`, `ALTER`, `TAKE OWNERSHIP`,
 `EXECUTE` and `CONTROL` as the object level set.
 
-After the grants, `sys.database_permissions` showed `CREATE EXTERNAL MODEL` and
+After the grants, `sys.database_permissions` shows `CREATE EXTERNAL MODEL` and
 `EXECUTE ANY EXTERNAL ENDPOINT` at class `DATABASE` and `EXECUTE` at class `EXTERNAL_MODEL`.
 
-## The cloud allowlist, probed host by host
+## The cloud allowlist, host by host
 
-Method: call `sp_invoke_external_rest_endpoint` against `https://zzz-not-real.<domain>/`. A domain
-on the allowlist gets far enough to attempt a DNS lookup and fails with
+Call `sp_invoke_external_rest_endpoint` against `https://zzz-not-real.<domain>/`. A domain on the
+allowlist gets far enough to attempt a DNS lookup and fails with
 `Msg 31625, DNS resolution of the hostname has failed with windows sockets error 11001`. A domain
 that is not on it fails earlier with `Msg 31612`.
 
-| Domain probed | Cloud result |
+| Domain | Cloud result |
 |---|---|
-| `openai.azure.com` | allowed, reached DNS |
-| `cognitiveservices.azure.com` | allowed, reached DNS |
-| `services.ai.azure.com` | allowed, reached DNS |
-| `inference.ai.azure.com` | allowed, reached DNS |
-| `search.windows.net` | allowed, reached DNS |
-| `vault.azure.net` | allowed, reached DNS |
-| `blob.core.windows.net` | allowed, reached DNS |
-| `queue.core.windows.net` | allowed, reached DNS |
-| `table.core.windows.net` | allowed, reached DNS |
-| `servicebus.windows.net` | allowed, reached DNS |
-| `eventgrid.azure.net` | allowed, reached DNS |
-| `azure-api.net` | allowed, reached DNS |
-| `azurewebsites.net` | allowed, reached DNS |
+| `openai.azure.com` | allowed, reaches DNS |
+| `cognitiveservices.azure.com` | allowed, reaches DNS |
+| `services.ai.azure.com` | allowed, reaches DNS |
+| `inference.ai.azure.com` | allowed, reaches DNS |
+| `search.windows.net` | allowed, reaches DNS |
+| `vault.azure.net` | allowed, reaches DNS |
+| `blob.core.windows.net` | allowed, reaches DNS |
+| `queue.core.windows.net` | allowed, reaches DNS |
+| `table.core.windows.net` | allowed, reaches DNS |
+| `servicebus.windows.net` | allowed, reaches DNS |
+| `eventgrid.azure.net` | allowed, reaches DNS |
+| `azure-api.net` | allowed, reaches DNS |
+| `azurewebsites.net` | allowed, reaches DNS |
 | `documents.azure.com` | **`Msg 31612`** |
 | `management.azure.com` | **`Msg 31612`** |
 | `azureml.ms` | **`Msg 31612`** |
 | `api.github.com` | **`Msg 31612`** |
 
 Reaching DNS is evidence the domain is permitted, not evidence a real host under it will answer.
-Treat this table as a snapshot of a policy that is expected to change, and re-probe rather than
-quoting it.
+Treat this table as a snapshot of a policy that is expected to change, and probe rather than
+quoting it. The probe is the cheapest check here and the one most likely to have moved:
 
-## Outbound rules measured on the container
+```sql
+DECLARE @response NVARCHAR(MAX), @return INT;
+BEGIN TRY
+    EXEC @return = sp_invoke_external_rest_endpoint
+         @url = 'https://zzz-not-real.openai.azure.com/', @method = 'GET',
+         @response = @response OUTPUT;
+    SELECT 'reached the network' AS verdict;
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS error_number, ERROR_MESSAGE() AS message;
+END CATCH;
+```
 
-The same probes on the container behave differently, and the difference is not a subset
+`31625` means the domain is permitted. `31612` means it is not. Swap the host and repeat.
+
+## Outbound rules in the container
+
+The same calls in the container behave differently, and the difference is not a subset
 relationship.
 
-| Probe | Container result |
+| Call | Container result |
 |---|---|
 | `sp_invoke_external_rest_endpoint` to `https://api.github.com/rate_limit` | **HTTP 200 with the full response body.** No allowlist |
 | A `200` response whose body is not JSON | `Msg 11558, The @result JSON string could not be parsed` |
@@ -160,12 +170,11 @@ relationship.
 | An expired certificate | `Msg 31608, HRESULT 0x80070020` |
 | A valid publicly trusted certificate | the call completes |
 
-The certificate row was pinned down rather than assumed. A private certificate authority was
-generated, installed into the container's operating system trust store with that distribution's own
-tooling, and confirmed accepted by a command line client running inside the same container. The
-engine still returned `Msg 31608`, before and after a restart. **The engine does not use the
-container's trust store**, so there is no supported way to point an external model at a locally
-hosted endpoint.
+A private certificate authority does not help. Install it into the container's operating system
+trust store with that distribution's own tooling, and a command line client inside the same
+container accepts the endpoint, but the engine still returns `Msg 31608`, before and after a
+restart. **The engine does not use the container's trust store**, so there is no supported way to
+point an external model at a locally hosted endpoint.
 
 ## AI_GENERATE_CHUNKS
 
@@ -185,11 +194,13 @@ FROM AI_GENERATE_CHUNKS(source = N'The quick brown fox jumps over the lazy dog. 
 
 - `chunk_type = N'FIXED'` quoted: `Msg 102, Incorrect syntax near 'FIXED'`.
 - `SENTENCE`, `PARAGRAPH`, `RECURSIVE`, `SEMANTIC`, `TOKEN`, `WORD`: all `Msg 102` on both engines.
-- Sizes and overlap are characters. Word boundaries are not respected.
+- `chunk_size` is characters. `overlap` is a percentage of `chunk_size`, a whole number from 0 to
+  50, default 0: `overlap = 10` at `chunk_size = 40` is 4 characters, which is why the second chunk
+  starts at offset 37. Word boundaries are not respected.
 
 ## AI_GENERATE_EMBEDDINGS
 
-Against the real deployment, both engines returned a vector.
+Against a real deployment, both engines return a vector.
 
 | Input | Result |
 |---|---|
@@ -201,58 +212,29 @@ Against the real deployment, both engines returned a vector.
 | `N''` | a real vector |
 | a 768 dimension result assigned to `VECTOR(1536)` | `Msg 42204, The vector dimensions 1536 and 768 do not match` |
 
-The cloud and container vectors for the same input agreed to roughly four decimal places, which is
+Cloud and container vectors for the same input agree closely but not exactly. The difference is
 the embedding service's own non-determinism rather than an engine difference.
 
-## Cost and concurrency
+## Cost: one round trip per row
 
-Measured on the container against the real endpoint, with `SET STATISTICS TIME ON`.
+Run the batched `UPDATE` from `SKILL.md` step 6 with `SET STATISTICS TIME ON`. Its elapsed time is
+the single call time repeated once per row, and its CPU time is a small fraction of that. There is
+no batching and no parallelism inside the statement, so a one million row corpus in one statement
+is a single transaction lasting days. Batch it, and drive the batches from a filtered index on the
+unembedded rows.
 
-| Statement | Elapsed | CPU |
-|---|---|---|
-| One `AI_GENERATE_EMBEDDINGS` call | 295 ms | 7 ms |
-| `UPDATE` embedding 25 rows in one statement | 8963 ms | 235 ms |
+## Claims that do not hold
 
-25 rows at 358 ms each is the single call time repeated. There is no batching and no parallelism
-inside the statement, so a one million row corpus is roughly one hundred hours in a single
-transaction. Batch it, and drive the batches from a filtered index on the unembedded rows.
-
-## Claims that did not hold
-
-1. **The catalog note said this surface was cloud only and unavailable in the container.** Wrong on
-   every count. All four objects exist locally, and a real embedding call completed from inside a
-   container.
+1. **This surface is not cloud only.** All four objects exist in the container, and an embedding
+   call to a real deployment completes from inside a container.
 2. **The natural reading of `Msg 31630` is that the secret is broken.** It is almost always the
    credential's name not being a URL prefix of the location. That distinction is not in the message.
-3. **The natural reading of `Msg 33047` is a database master key problem.** Measured, it is a
-   managed identity credential missing its `resourceid` secret, and the master key was present and
-   working for other credentials in the same database.
+3. **The natural reading of `Msg 33047` is a database master key problem.** It is a managed
+   identity credential missing its `resourceid` secret, and it is raised even while the master key
+   is present and working for other credentials in the same database.
 4. **The natural reading of `Msg 15151` is that the model was never created.** It is also what a
    missing `EXECUTE` grant looks like, and the object is right there in `sys.external_models`.
 5. **"Azure endpoints are allowed" is not the rule.** The resource manager and Cosmos DB endpoints
    are refused, and something outside `azure.com` entirely is allowed.
 6. **The container is not a subset of the cloud here.** It permits outbound calls the cloud refuses
    and refuses an identity the cloud accepts.
-
-## Reproducing this
-
-The allowlist probe is the cheapest of these to re-run and the one most likely to have moved:
-
-```sql
-DECLARE @response NVARCHAR(MAX), @return INT;
-BEGIN TRY
-    EXEC @return = sp_invoke_external_rest_endpoint
-         @url = 'https://zzz-not-real.openai.azure.com/', @method = 'GET',
-         @response = @response OUTPUT;
-    SELECT 'reached the network' AS verdict;
-END TRY
-BEGIN CATCH
-    SELECT ERROR_NUMBER() AS error_number, ERROR_MESSAGE() AS message;
-END CATCH;
-```
-
-`31625` means the domain is permitted. `31612` means it is not. Swap the host and repeat.
-
-The credential naming rule reproduces with two credentials over one endpoint: one named for the
-endpoint URL and one named anything else, both holding the same key. The first returns a vector and
-the second returns `Msg 31630`.

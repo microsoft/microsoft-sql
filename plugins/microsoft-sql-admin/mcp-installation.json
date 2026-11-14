@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "scope": "nuget-tool-package; executed by dnx from the client host's .NET SDK 10 or later, which downloads the exact version from its NuGet sources at first start; no eval isolation claim",
+  "servers": [
+    {
+      "role": "sql-tools",
+      "serverId": "sql-tools-mcp",
+      "definitionSha256": "ca0e4fa564d4d536354205144a623dd26472b3e1efc27ed48edf4bc6f1689f57",
+      "kind": "nuget",
+      "package": {
+        "id": "Microsoft.SqlServer.SQLtools.MCPserver",
+        "version": "1.0.0",
+        "source": "the client host's NuGet sources",
+        "development": false
+      },
+      "configuration": {
+        "SQLTOOLS__CONNECTIONPROVIDER": "EnvVar",
+        "SQLTOOLS__INCLUDEPREVIEWFEATURES": "Disabled",
+        "SQLTOOLS__SKILLCONTENTPROVIDER": "External"
+      },
+      "requiredEnv": [
+        "CONNECTION_STRING"
+      ]
+    }
+  ]
+}

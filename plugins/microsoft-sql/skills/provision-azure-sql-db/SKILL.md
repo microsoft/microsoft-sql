@@ -1,14 +1,6 @@
 ---
 name: provision-azure-sql-db
-description: >-
-  Creates an Azure SQL Database and returns a connection string that actually works, covering the
-  free offer and paid tiers, the firewall rule, and Microsoft Entra-only administration. Use when a
-  user asks to "create an Azure SQL database", "set up a free SQL database in Azure", "provision
-  SQL for this app", "give me a connection string", or when an application needs a cloud database
-  and none exists yet. Also use when a provisioning attempt succeeded but nothing can connect,
-  which is almost always the missing firewall rule. Covers how many free databases a subscription
-  actually gets and the exhaustion behavior value the CLI accepts, which is not the one its own help
-  text describes.
+description: "Use when creating an Azure SQL Database: a free SQL database in Azure, provision SQL for this app, give me a connection string, firewall rule, Entra-only admin, or created but nothing connects."
 ---
 
 # Provision an Azure SQL Database
@@ -16,8 +8,8 @@ description: >-
 Creating the database is the easy part. Three things go wrong: **nothing can reach it**, **the free
 offer is configured with a value the CLI rejects**, and **the free offer runs out saying nothing**.
 
-Verified against Azure CLI **2.90.0** on 2026-09-03: every flag below was read from that CLI's own
-`--help`, and the free offer numbers from the product documentation the same day.
+The flags below, and the help text quoted for them, are those of Azure CLI **2.90.0**. The free
+offer numbers are the product documentation's.
 
 ## The shape of a working provision
 
@@ -51,8 +43,8 @@ az sql db create --help | grep -ci firewall     # 0
 ```
 
 A plan that stops after step 3 produces a database that exists, bills, and refuses every connection
-with a login timeout. It is the most common way an agent-generated provision fails, because the
-failure surfaces at connect time and looks like a credentials problem.
+with a login timeout. It is the most common way a generated provision fails, because the failure
+surfaces at connect time and looks like a credentials problem.
 
 To let other Azure services reach the server, use a rule from `0.0.0.0` to `0.0.0.0`. Both address
 flags say so in their own help: "Use value '0.0.0.0' to represent all Azure-internal IP
@@ -65,6 +57,11 @@ az sql server firewall-rule create -g <rg> -s <server> -n allow-azure-services \
 
 That is not an internet wildcard. `0.0.0.0` to `255.255.255.255` is what a wildcard would be, and
 it is wrong.
+
+It is still broad. Microsoft warns that this rule admits any Azure resource with outbound
+connectivity, **including resources in other customers' subscriptions**, which leaves the logins as
+the only barrier. Prefer a private endpoint, a virtual network rule, or rules for your app's specific
+outbound IP addresses, and add the `0.0.0.0` rule only when the user accepts that trade-off.
 
 ## Gotcha: the free offer's exhaustion value is not what the help text says
 
@@ -94,12 +91,12 @@ ERROR: az sql db create: 'BillForUsage' is not a valid value for
 free database cannot be created by restoring an existing one.
 
 **The CLI help for `--use-free-limit` says "Allowed on one database in a subscription".** That is
-the second wrong statement in this command's own help, and it is wrong in the direction that makes
-an agent refuse work it could do.
+the second wrong statement in this command's own help, and it is wrong in the direction that leads
+to refusing work that could be done.
 
-Neither number is a client-side gate. Measured with Azure Resource Graph on 2026-09-03: 47
-free-limit databases across two subscriptions, one holding 39. **When free capacity is refused the
-create call returns a bare HTTP 500 with no quota message**, documented nowhere on Microsoft Learn.
+The CLI does not check either number before it sends the request; plan for the documented cap,
+**up to 10 free databases per subscription**. **When free capacity is refused the create call
+returns a bare HTTP 500 with no quota message**, documented nowhere on Microsoft Learn.
 Read that 500 as "no free slot": drop `--use-free-limit` for an ordinary billed database, or free
 one and wait, because **a deleted slot takes up to an hour** to come back.
 
@@ -113,7 +110,7 @@ az sql server create -g <rg> -n <server> -l <region> \
   --enable-ad-only-auth \
   --external-admin-principal-type User \
   --external-admin-name "<display name>" \
-  --external-admin-sid $(az ad signed-in-user show --query id -o tsv)
+  --external-admin-sid "$(az ad signed-in-user show --query id -o tsv)"
 ```
 
 With `--enable-ad-only-auth`, `--admin-user` and `--admin-password` are not used and SQL
@@ -159,8 +156,8 @@ az sql db show -g <rg> -s <server> -n <database> -o yamlc \
 ```
 
 Expect `slo: GP_S_Gen5_2` for the plan above, and `free: true` only if the free offer was asked
-for. `status: Paused` is **not** a failure: serverless auto-pauses, and 46 of the 47 free-limit
-databases visible on 2026-09-03 read `Paused`.
+for. `status: Paused` is **not** a failure: serverless auto-pauses, and most idle free-limit
+databases read `Paused`.
 
 **Two: the firewall rule is on the server.**
 
@@ -185,7 +182,7 @@ Database, and `db` equal to your database and never `master`.
 Read the two failures apart. A login **timeout** with no message number is check two: the firewall
 rule is missing. **`Msg 40613`**, the database is not currently available, is a paused serverless
 database resuming and usually clears inside a minute, so retry. The application-side retry policy is
-`connect-to-azure-sql`'s; any other number is `diagnose-connection-errors`'.
+`connect-to-azure-sql`'s; any other number is `connectivity-troubleshoot`'.
 
 ## Checklist before reporting success
 

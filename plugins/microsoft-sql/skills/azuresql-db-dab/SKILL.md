@@ -1,17 +1,6 @@
 ---
 name: azuresql-db-dab
-description: >-
-  Stands up an instant no-code REST + GraphQL API over the local Azure SQL
-  Database container using Microsoft Data API Builder (DAB). Use when a user wants to
-  "expose my table as an API", "add a REST API over the database", "generate a
-  GraphQL API", "put an API in front of SQL", "CRUD API without writing code",
-  or "dab init / dab-config.json". Also the way to serve a built-in MCP endpoint
-  FROM the database via DAB (an API surface DAB provides, not a separate SQL MCP
-  server). Prefer this over hand-writing a controller/ORM API when the user just
-  needs REST or GraphQL over existing tables. Triggers include "Data API
-  Builder", "dab start", "instant API over Azure SQL", "expose entities as
-  REST/GraphQL". Reach for this even when the user only says "give me an API for
-  this database".
+description: "Use when asked for an API over existing tables ('give me an API for this database', REST and GraphQL without code), or to run a local Data API builder endpoint on the Azure SQL Database container."
 ---
 
 # Instant REST + GraphQL API on the Azure SQL Database container with Data API Builder
@@ -23,13 +12,17 @@ Microsoft's first-party open-source engine. You describe tables as entities in
 with a plain connection string, so **no change tracking or special engine
 feature is needed.**
 
-Verified on 2026-09-05 against the container image
-`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
-5, Edition `SQL Azure`, build `12.0.2000.8`. All eight executable checks behind this skill
-passed against Data API builder 2.0.9, including the generated `dab-config.json` keeping the
-environment-variable indirection rather than the password, the `/api` and `/graphql` prefixes
-and the `/mcp` endpoint arriving as defaults, and both REST and GraphQL returning the same
-rows from a table in the container.
+The generated `dab-config.json` keeps the environment-variable indirection rather than the
+password, the `/api` and `/graphql` prefixes and the `/mcp` endpoint are defaults, and REST and
+GraphQL return the same rows from a table in the container.
+
+## Scope
+
+- Prefer this over hand-writing a controller or ORM API when the user only needs REST or GraphQL
+  over existing tables, even when they just say "give me an API for this database".
+- The MCP endpoint is an API surface DAB serves from the database, not a separate SQL MCP server.
+- What a configuration publishes and to whom (roles, row policies, generated entities, a managed
+  identity in Azure) is `dab-rest-and-graphql`.
 
 ## Load-bearing facts (inlined; full engine detail in azuresql-db-container)
 
@@ -60,12 +53,13 @@ into a compose stack. Open [references/dab-snippets.md](references/dab-snippets.
 that compose service rather than the CLI.
 
 ```bash
-# CLI (.NET 8 required): installs the `dab` command
-dotnet tool install --global Microsoft.DataApiBuilder
-# update later with: dotnet tool update --global Microsoft.DataApiBuilder
+# CLI (.NET 8 required): installs the `dab` command. 2.1.5 is the release this skill and its siblings
+# (dab-rest-and-graphql, dab-mcp-endpoint, deploy-dab-to-azure) were checked on; move all four together.
+dotnet tool install --global Microsoft.DataApiBuilder --version 2.1.5
+# later: dotnet tool update --global Microsoft.DataApiBuilder --version <new>
 
 # Container image (alternative):
-#   mcr.microsoft.com/azure-databases/data-api-builder:latest
+#   mcr.microsoft.com/azure-databases/data-api-builder:2.1.5
 ```
 
 ## Step 2: point DAB at the container over one env var
@@ -87,6 +81,20 @@ export SQL_CONNECTION_STRING
 ```
 
 `TrustServerCertificate=true` is required for the container's self-signed cert.
+
+`appdb` must exist before `dab start`, and this engine does not create it on connect. Create it on a
+**master** connection, idempotently, in the same script that starts DAB, after the engine answers:
+
+```bash
+for i in $(seq 1 60); do
+  sqlcmd -S "localhost,$HOST_PORT" -U sa -P "$MSSQL_SA_PASSWORD" -C -d master -Q "SELECT 1" >/dev/null 2>&1 && break
+  sleep 2
+done
+sqlcmd -S "localhost,$HOST_PORT" -U sa -P "$MSSQL_SA_PASSWORD" -C -d master \n  -Q "IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;"
+```
+
+Without this, `dab start` logs `Cannot open database "appdb" requested by the login` and exits. A readiness
+check alone does not fix that; the database has to be created.
 
 ## Step 3: init, add entities, start
 
@@ -138,14 +146,17 @@ relationship or changing permissions, policies, or API options.
 
 ## MCP endpoint (a DAB feature, not a separate SQL MCP server)
 
-DAB (version 1.7+; use the latest 2.x) **also serves a built-in MCP endpoint
+DAB 2.x (checked on 2.1.5) **also serves a built-in MCP endpoint
 from the same `dab-config.json`**, at `http://localhost:5000/mcp` by default,
 enabled by default. This is an additional API surface Data API Builder provides
 over your configured entities - it is not, and should not be presented as, a
 standalone "MSSQL MCP server." How to point an MCP client at it and how to
 scope the exposed tools is in [references/dab-mcp.md](references/dab-mcp.md); open it when a user
 asks to point an MCP client at DAB, or to narrow which entities it exposes.
-REST, GraphQL, and MCP use the same entity permissions.
+REST, GraphQL, and MCP use the same entity permissions. Once the endpoint is
+hosted rather than on loopback, connecting a remote client, its authentication
+and tool curation belong to **dab-mcp-endpoint**, and hosting DAB in Azure to
+**deploy-dab-to-azure**.
 
 ## Validation rules
 
@@ -173,6 +184,7 @@ REST, GraphQL, and MCP use the same entity permissions.
 
 - Do not use the SQL Server image `mcr.microsoft.com/mssql/server`; this is the Azure SQL engine.
 - Do not expect DAB to create `appdb`; provision it on a master connection first.
+- Do not recommend removing or recreating the SQL container to get a clean state; create `appdb` idempotently on a master connection instead, and say plainly when a step destroys data.
 - Do not hardcode the connection string (or the SA password) into `dab-config.json`; use `@env('SQL_CONNECTION_STRING')`.
 - Do not make `anonymous:*` remotely reachable. A shared service requires token
   validation or an authenticating gateway that blocks direct DAB access, with
@@ -191,7 +203,7 @@ REST, GraphQL, and MCP use the same entity permissions.
 Authoritative, version-pinned references for the tools this skill uses (read the one you need):
 
 - [Data API Builder configuration reference](https://learn.microsoft.com/en-us/azure/data-api-builder/configuration/): every config key (data-source, runtime, entities, autoentities), with examples.
-- [DAB config JSON schema (pinned v2.0.12)](https://github.com/Azure/data-api-builder/releases/download/v2.0.12/dab.draft.schema.json): the machine-readable schema dab validate checks against. v2.0.12 is the current stable release; bump this URL when you upgrade the CLI.
+- [DAB config JSON schema (pinned v2.1.5)](https://github.com/Azure/data-api-builder/releases/download/v2.1.5/dab.draft.schema.json): the machine-readable schema `dab validate` checks against, and the one `dab init` 2.1.5 writes into `dab-config.json`. Bump this URL together with the CLI version above.
 - [Data API Builder built-in MCP endpoint](https://learn.microsoft.com/en-us/azure/data-api-builder/mcp/overview): the built-in MCP endpoint, DML tools, transports, and RBAC.
 
 If the **Microsoft Learn MCP** server is configured, use `mcp__microsoft-learn__microsoft_docs_search` or `mcp__microsoft-learn__microsoft_docs_fetch` to fetch the current version of any of these on demand. It is optional; when it is unavailable, the references above are authoritative.

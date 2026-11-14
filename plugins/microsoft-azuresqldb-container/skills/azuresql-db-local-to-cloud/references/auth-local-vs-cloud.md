@@ -44,7 +44,7 @@ fine on localhost; it is not what you ship to the cloud.
 The `sa` login is a bootstrap and provisioning identity. Use it to create
 `appdb` and the schema; your application does its real work against `appdb`.
 
-Microsoft Entra ID authentication also works on the container. Configure it with
+Microsoft Entra ID authentication also works in the container. Configure it with
 the `MSSQL_AAD_*` variables and a mounted certificate (see the
 `azuresql-db-container` skill, `references/entra-auth.md`). For cloud parity,
 create a contained user in `appdb` (same pattern as in the cloud):

@@ -4,7 +4,7 @@
 
 - [How to Collect Connection Info](#how-to-collect-connection-info)
 - [Open-Ended Prompt (ask only for what's missing)](#open-ended-prompt-ask-only-for-whats-missing)
-- [⚠️ Security: Warn Before a Password Is Typed - but Never Refuse to Proceed](#-security-warn-before-a-password-is-typed--but-never-refuse-to-proceed)
+- [⚠️ Security: Warn Before a Password Is Typed, Then Respect the User's Choice](#-security-warn-before-a-password-is-typed-then-respect-the-users-choice)
 - [Build Connection String](#build-connection-string)
 - [Config File Path](#config-file-path)
 - [Error Handling](#error-handling)
@@ -56,7 +56,7 @@ Rules:
 
 ---
 
-## ⚠️ Security: Warn Before a Password Is Typed — but Never Refuse to Proceed
+## ⚠️ Security: Warn Before a Password Is Typed, Then Respect the User's Choice
 
 **This is a warning to show up front, not a hard block.** When a password could be involved (SQL Login or a connection string containing `Password=...`), **recommend** one of the secure options below *before* the user answers, so they can avoid typing a plaintext password into chat.
 
@@ -153,7 +153,7 @@ $plainPassword = $cred.GetNetworkCredential().Password
 $connectionString = "Server={server};Initial Catalog=master;User Id=$($cred.UserName);Password=$plainPassword;TrustServerCertificate=True;Encrypt=True;"
 ```
 ### If user types a plaintext password in chat:
-- **Do NOT refuse to proceed** — the user has made their choice. Use it to complete the task.
+- **Continue with the task** — the user has made an informed choice, so use the credentials they supplied.
 - Warn them (briefly, once): "⚠️ This password is now in chat history. I'd recommend rotating it after this session."
 - Do NOT echo the password back in your response or repeat it unnecessarily.
 - In any command output shown to the user, mask it: `Password=<masked>`.
@@ -174,23 +174,24 @@ $connectionString = "Server={server};Initial Catalog=master;User Id=$($cred.User
 - Named instance: `Server=SQLAGVM15\INST01`
 - Custom port: `Server=SQLAGVM15,1444`
 
-Return the completed `$connectionString` to the invoking skill.
+Keep the completed `$connectionString` in the local PowerShell session for the
+invoking workflow; never return its value through model-visible tool output.
 
 ---
 
 ## Config File Path
 
-If the user provides a config file path, use it directly — no connection string needed:
-```bash
-az datamigration get-assessment --config-file-path "{path}"
-```
+If the user provides a config file path, read its connection details locally.
+Follow [command execution](command-execution.md) to create a private temporary
+copy with the selected native action and isolated output folder. Do not modify
+the user's file or run a second CLI assessment outside that workflow.
 
 If the user wants to **create** a config file, share the format shown in Option 1 of the Security section above.
 
 | Field | Required | Description |
 |---|---|---|
 | `action` | ✅ Yes | Must be `"Assess"` |
-| `sqlConnectionStrings` | ✅ Yes | Array of connection strings (supports multiple servers) |
+| `sqlConnectionStrings` | ✅ Yes | Array with one selected instance's connection string per run |
 | `outputFolder` | No | Where to save report (defaults to OS-specific path) |
 | `overwrite` | No | `"True"` to overwrite existing reports |
 

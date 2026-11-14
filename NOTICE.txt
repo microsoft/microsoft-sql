@@ -5,3 +5,7 @@ Microsoft SQL agent skills does not bundle third-party software or pre-built dep
 The documentation and skills may refer to separately distributed tools, libraries, agent hosts,
 and Microsoft services. Those products are not included in this repository and remain subject to
 their own license terms and privacy statements.
+
+The microsoft-sql-admin plugin includes configuration that lets an agent host download and run
+Microsoft.SqlServer.SQLtools.MCPserver from NuGet. That package is distributed separately under
+its own Microsoft software license terms; the repository's MIT license does not license it.

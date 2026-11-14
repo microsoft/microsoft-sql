@@ -1,18 +1,6 @@
 ---
 name: azuresql-db-from-sql-server
-description: >-
-  Migrates a local SQL Server setup to the Azure SQL Database container for Azure-faithful
-  local development. Use when a project already uses
-  mcr.microsoft.com/mssql/server, mssql/server, an sqlcmd plus SA password
-  docker setup, a "SQL Server in docker" or "local mssql container", or a
-  docker-compose with the mssql/server image; and use when the user asks for
-  "SQL Server locally", "run mssql in Docker", "spin up a local SQL database",
-  or "test against SQL Server" but actually wants the Azure SQL Database engine
-  (EngineEdition 5). Detects the SQL Server image, rewrites it to the Azure
-  SQL Database container, adds --platform on non-x64 hosts, keeps the SA login, flags SQL
-  Server-only features (SQL Agent, FILESTREAM, full Service Broker,
-  cross-server distributed transactions, Windows Auth), and re-points
-  connection strings from master to a provisioned user database.
+description: "Use when a project runs mcr.microsoft.com/mssql/server in Docker or compose and local dev should behave like Azure SQL Database: switch to its container, flag SQL Server-only features."
 ---
 
 # Migrate from the SQL Server image to the Azure SQL Database container
@@ -31,14 +19,6 @@ local dev matches Azure SQL Database behavior. The two are not the same engine:
 If a project is using the SQL Server image but wants Azure-faithful local dev, **stop
 and switch to the container.** This skill is self-contained;
 for full container detail see the **azuresql-db-container** skill.
-
-Verified on 2026-09-05 against the container image
-`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
-5, Edition `SQL Azure`, build `12.0.2000.8`. All nine executable checks behind this skill
-passed, including `Msg 40508` for `USE`, `Msg 40510` for `BACKUP`, `Msg 2812` for
-`sp_configure` (absent rather than refused), `Msg 40517` for `ALTER DATABASE ... SET
-RECOVERY`, the single-database model, `/docker-entrypoint-initdb.d` not being auto-run, and
-`sqlcmd` at `/opt/mssql-tools18/bin/sqlcmd`.
 
 ## When to use
 
@@ -178,8 +158,8 @@ Expect `EngineEdition = 5` and `Edition = SQL Azure`.
 The Azure SQL Database engine has a native `VECTOR(n)` type and
 `VECTOR_DISTANCE('cosine', a, b)`. Insert with `CAST(CAST(? AS NVARCHAR(MAX)) AS VECTOR(n))` where **n
 is a LITERAL, never a bind parameter** (a parameter dimension fails with
-"Incorrect syntax near '@P3'"). `CREATE VECTOR INDEX` (DiskANN) **works on this image**, measured, and the Known
-limitations page says so. It needs `SET QUOTED_IDENTIFIER ON` and at
+"Incorrect syntax near '@P3'"). `CREATE VECTOR INDEX` (DiskANN) **works on this image**, as the
+Known limitations page says. It needs `SET QUOTED_IDENTIFIER ON` and at
 least 100 rows with non-null vectors (`Msg 42266` below that). Full-scan top-k
 stays exact and stays the right choice for a small table. The `azuresql-db-rag`
 skill carries the rules the index imposes.
@@ -197,7 +177,7 @@ skill carries the rules the index imposes.
 
 ## Minimum tool versions
 
-Use only the tools needed by the selected recipe, at or above these minimum tested versions:
+Use only the tools needed by the selected recipe, at or above these minimum versions:
 
 - **`sqlpackage`**: SqlPackage 170.4.83.3
 - **`dotnet`**: .NET SDK 8.0.421

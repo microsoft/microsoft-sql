@@ -38,7 +38,7 @@ docker run -d --name sqldb -e "ACCEPT_EULA=Y" -e MSSQL_SA_PASSWORD \
 **Do not trust the container status here.** With a password that fails the policy,
 the container reports `Up` while the engine inside it never starts. Every
 connection then fails with a login timeout or "server is not found", which looks
-like a networking problem and is not one. Verified on the preview image.
+like a networking problem and is not one.
 
 The log is the source of truth:
 

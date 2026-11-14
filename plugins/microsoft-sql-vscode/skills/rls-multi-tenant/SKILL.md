@@ -1,16 +1,6 @@
 ---
 name: rls-multi-tenant
-description: >-
-  Builds tenant isolation on Azure SQL Database that a test can prove, with a row level security
-  policy whose filter predicate and block predicate are written together, because a filter alone
-  still accepts a cross-tenant write and hides the row from the app that made it. Use when asked
-  to add row level security, isolate tenants in a shared table, write a security policy or
-  predicate function, set the current tenant through SESSION_CONTEXT or a database user per
-  tenant, or prove one tenant cannot read another; and when a multi-tenant app returns the wrong
-  tenant's rows under load, retrieval returns another tenant's chunk, a policy is in place and
-  all rows are still visible, or error 33504 appears on an insert or update. Covers pooling
-  against a session-scoped tenant id, who can turn a policy off, and the isolation test. Identity
-  is entra-id-auth, the table design design-azure-sql-schema.
+description: "Use when isolating tenants in a shared Azure SQL Database or checking isolation: row level security, SESSION_CONTEXT, rows leaking or vanishing. Has verified behavior common answers miss, e.g. a filter predicate alone lets a tenant write into another."
 ---
 
 # Tenant isolation that holds, and the test that proves it
@@ -19,27 +9,27 @@ description: >-
 isolation breaks, because every way it breaks here is silent: no error, no warning, no log line,
 and a catalog view that still reports the policy enabled.
 
-Measured 2026-08-28 against a live engine reporting `EngineEdition` `5` and `Edition` `SQL Azure`.
-Open [the measured runs](references/block-predicates-pooling-and-bypass.md) when you need the
-statement behind a count or a message number below, or before changing one.
+The behavior below is the Azure SQL Database engine's; section 6 notes where it depends on the
+build. Open [the runnable checks](references/block-predicates-pooling-and-bypass.md) when you need
+the statement behind a message number below, or before changing one.
 
 ## 1. A filter predicate is not the boundary
 
 Microsoft Learn states it plainly: the application can `INSERT` rows, even if they will be filtered
-during any other operation. Measured as a low-privilege user holding tenant id 1, filter predicate
+during any other operation. For a low-privilege user holding tenant id 1, under a filter predicate
 only:
 
-| Statement | Result | What it cost |
+| Statement | Result | What it costs |
 |---|---|---|
-| `INSERT` a row stamped `tenant_id = 2` | **succeeded** | the row exists, invisible to its author, visible to tenant 2 |
-| `UPDATE` one of my own rows to `tenant_id = 2` | **succeeded** | my row moved into another tenant, silently |
+| `INSERT` a row stamped `tenant_id = 2` | **succeeds** | the row exists, invisible to its author, visible to tenant 2 |
+| `UPDATE` one of its own rows to `tenant_id = 2` | **succeeds** | the row moves into another tenant, silently |
 | `UPDATE` a row of tenant 2 | 0 rows affected | the filter protects the read behind a write |
 | `DELETE` a row of tenant 2 | 0 rows affected | same |
 | `INSERT` a key that already exists in tenant 2 | `Msg 2627` | the key space of another tenant is probeable |
 
 The first two rows are the leak. The application that wrote them can never read them back and never
-delete them, because the filter now hides them from their own author. Recovery meant disabling the
-policy.
+delete them, because the filter now hides them from their own author. Recovering them means
+disabling the policy.
 
 The last row is separate and smaller. A filter predicate hides rows, not their existence: `Msg 2627`
 on a duplicate key and success on a free one let a caller enumerate another tenant's keys one
@@ -48,18 +38,18 @@ attempt at a time. Use identifiers with no guessable ordering.
 ## 2. The block predicate, and why it is two predicates
 
 Learn defines four block operations: `AFTER INSERT`, `AFTER UPDATE`, `BEFORE UPDATE` and
-`BEFORE DELETE`. Adding the first two turned both cross-tenant writes into:
+`BEFORE DELETE`. Adding the first two turns both cross-tenant writes into:
 
 ```text
 Msg 33504: The attempted operation failed because the target object '<db>.<schema>.<table>'
 has a block predicate that conflicts with this operation.
 ```
 
-The legitimate write into the caller's own tenant still succeeded.
+The legitimate write into the caller's own tenant still succeeds.
 
-**`AFTER UPDATE` is the one people leave out.** Measured: with the filter predicate and
-`AFTER INSERT` in place but no `AFTER UPDATE`, the cross-tenant insert was refused and the
-tenant-move update **still succeeded**. One row left the tenant with no error.
+**`AFTER UPDATE` is the one people leave out.** With the filter predicate and `AFTER INSERT` in
+place but no `AFTER UPDATE`, the cross-tenant insert is refused and the tenant-move update **still
+succeeds**. The row leaves the tenant with no error.
 
 ```sql
 CREATE FUNCTION sec.fn_tenant(@tenant_id int)
@@ -81,22 +71,56 @@ GO
 DENY UPDATE ON dbo.orders(tenant_id) TO app_user;
 ```
 
+If the policy already exists with only a filter predicate, add the block predicates to it in one
+statement. Do not drop and recreate the policy on a live database: between the `DROP` and the
+`CREATE`, every session reads and writes the table unfiltered.
+
+```sql
+ALTER SECURITY POLICY sec.p_orders
+    ADD BLOCK PREDICATE sec.fn_tenant(tenant_id) ON dbo.orders AFTER INSERT,
+    ADD BLOCK PREDICATE sec.fn_tenant(tenant_id) ON dbo.orders AFTER UPDATE;
+```
+
 Learn adds two things. The optimizer skips an `AFTER UPDATE` block predicate when the update changed
 no column the predicate reads, so ordinary updates pay nothing for it. And Learn's middle-tier
 example omits `AFTER UPDATE` only because it denies `UPDATE` on the tenant column instead. Take
 both. `BEFORE UPDATE` and `BEFORE DELETE` are redundant while a filter predicate is present, since
 the filter has already removed the other tenant's rows from the statement.
 
+### Moving rows that already left their tenant
+
+Rows written before the block predicates existed stay invisible to the tenant that owns them, and
+the policy now refuses to move them back. With the session set to the row's current `tenant_id`, an
+`UPDATE` to the right tenant fails with `Msg 33504`. Do not switch the policy off on a live database
+to fix this, and do not add an exemption to the predicate. Run the repair as one transaction, as a
+principal no application connects as, holding the two permissions in section 4:
+
+```sql
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+    ALTER SECURITY POLICY sec.p_orders WITH (STATE = OFF);
+    UPDATE dbo.orders SET tenant_id = 42 WHERE id IN (1001, 1002);  -- the reviewed list
+    ALTER SECURITY POLICY sec.p_orders WITH (STATE = ON);
+COMMIT;
+```
+
+While the transaction is open the engine holds a schema-modification lock on the policy. Every other
+statement against the protected tables waits, including `NOLOCK` readers and cached plans, and none of
+them sees unfiltered rows. Any error rolls the batch back and leaves the policy on. The cost is that
+application traffic on those tables stalls for as long as the transaction runs. So decide each
+row's owner from the audit trail beforehand, update an explicit list of keys rather than a broad
+predicate, and keep the transaction short. Afterwards `sys.security_policies.is_enabled` is 1 and
+the catalog sweep in section 5 comes back empty.
+
 ## 3. How the tenant reaches the predicate, and what pooling does to it
 
-Two designs, and the difference is measurable rather than stylistic.
+Two designs, and the difference is in behavior, not style.
 
 ### `SESSION_CONTEXT` is a variable, not an identity
 
-Learn is explicit that any user can set a session context for their session, and the measurement
-matches: a user granted only `CONNECT` plus `SELECT`, `INSERT`, `UPDATE` and `DELETE` on one table
-set its own tenant id to 2 and read tenant 2's rows. No grant was needed, and none can be revoked
-to stop it.
+Learn is explicit that any user can set a session context for their session: a user granted only
+`CONNECT` plus `SELECT`, `INSERT`, `UPDATE` and `DELETE` on one table can set its own tenant id to 2
+and read tenant 2's rows. No grant is needed, and none can be revoked to stop it.
 
 So a `SESSION_CONTEXT` design is exactly as strong as the guarantee that nothing
 attacker-influenced ever reaches that connection as SQL. `prevent-sql-injection` owns that:
@@ -105,30 +129,30 @@ parameter, because under this design a successful injection rewrites the tenant 
 
 ### The failure that reaches production
 
-The tenant id outlives the request, because the connection does. Measured over a five connection
-pool, 200 concurrent requests alternating between two tenants:
+The tenant id outlives the request, because the connection does. With a small pool serving
+concurrent requests that alternate between two tenants:
 
-| Application shape | Cross-tenant reads in 200 requests |
+| Application shape | Cross-tenant reads |
 |---|---|
-| Set the context in one pooled request, run the query in another | **103**, then **91** on a repeat |
-| Set the context and run the query on one acquired connection | 0 |
-| A database user per tenant, one pool per tenant, no session context | 0 |
+| Set the context in one pooled request, run the query in another | **a large share of requests** |
+| Set the context and run the query on one acquired connection | none |
+| A database user per tenant, one pool per tenant, no session context | none |
 
-Half the requests returned another tenant's rows and **no caller saw an error**. The application set
-the tenant on every request; it handed the set and the query to the pool separately, and the pool
-gave them different connections. Two rules follow:
+**No caller sees an error.** The rate in a real application depends on its pool and its load; the
+point is that the failure is silent. An application can set the tenant on every request and still
+leak, when it hands the set and the query to the pool separately and the pool gives them different
+connections. Two rules follow:
 
 1. **Set the tenant and read on the same acquired connection**, in one batch, one transaction, or
    one explicitly held connection. Not two calls to a pool.
 2. **Never leave the tenant set when a connection returns to the pool.** That failure is open, not
    closed: the next caller that forgets reads the previous tenant's rows.
 
-`@read_only = 1` looks like the fix, and here the documentation and the measurement point different
-ways. Learn presents it as preventing the value changing again until the connection returns to the
-pool, which is exactly what it does. Measured on a reused pooled connection, the next tenant's
-**correct** attempt to claim its own id was refused with `Msg 15664` while the request that forgot
-to set anything still read the previous rows. It is safe only where the connection ends with the
-request.
+`@read_only = 1` looks like the fix, and the documentation reads as if it were. Learn presents it as
+preventing the value changing again until the connection returns to the pool, which is exactly what
+it does. On a reused pooled connection, though, the next tenant's **correct** attempt to claim its
+own id is refused with `Msg 15664`, while a request that forgets to set anything still reads the
+previous rows. It is safe only where the connection ends with the request.
 
 ### A database user per tenant
 
@@ -144,9 +168,9 @@ RETURN SELECT 1 AS ok FROM sec.tenant_map m
        WHERE m.db_user = USER_NAME() AND m.tenant_id = @tenant_id;
 ```
 
-Measured: setting `SESSION_CONTEXT` under this predicate changed nothing, and borrowing another
-tenant's identity with `EXECUTE AS USER` was refused with `Msg 15517`, since impersonation is a
-permission the tenant does not hold. Connection pools are keyed by connection string, so each
+Setting `SESSION_CONTEXT` under this predicate changes nothing, and borrowing another tenant's
+identity with `EXECUTE AS USER` is refused with `Msg 15517`, since impersonation is a permission the
+tenant does not hold. Connection pools are keyed by connection string, so each
 tenant gets its own pool and there is no shared connection to leak through.
 
 The cost is one login, one database user, one connection string and one pool per tenant, which fits
@@ -165,13 +189,13 @@ application bug rather than depend on its absence.
 | Both of the above together | no | yes, in one statement, then reads every row |
 
 **Ownership is not a read-through.** Learn says a `dbo` user, a `db_owner` member and the table
-owner are all filtered or blocked as the policy defines, and all three returned zero rows with no
-tenant set. What they hold is the ability to disable, a separate and auditable statement.
+owner are all filtered or blocked as the policy defines, and all three get zero rows with no tenant
+set. What they hold is the ability to disable, a separate and auditable statement.
 
 **`ALTER ANY SECURITY POLICY` alone is not enough.** Learn splits the requirement, altering a policy
-against that permission and creating or dropping one against `ALTER` on the schema. Measured,
-disabling one needed both: either alone failed with `Msg 33268`, reported as a missing object rather
-than a permission failure. Grant them as a pair, to a principal no application connects as.
+against that permission and creating or dropping one against `ALTER` on the schema. Disabling one
+needs both: either alone fails with `Msg 33268`, reported as a missing object rather than a
+permission failure. Grant them as a pair, to a principal no application connects as.
 
 ## 5. A policy can be present and not enforcing, in three ways
 
@@ -183,9 +207,9 @@ All three look healthy from the application: rows come back, nothing errors.
 | A predicate that returns a row when the tenant is unset | every tenant's rows, to a session that set nothing | nothing in any catalog view; `is_enabled` is still 1 |
 | A second tenant-scoped table nobody added to the policy | that table unfiltered, while the covered table is correct | no predicate rows for that object |
 
-A predicate of the form `WHERE @tenant_id = <context> OR <context> IS NULL` returned all four rows
-to a session with no tenant set, while every catalog view reported a healthy enabled policy. **Predicates fail closed or they are not predicates.** Never add
-an escape clause for administrative sessions.
+A predicate of the form `WHERE @tenant_id = <context> OR <context> IS NULL` returns every row to a
+session with no tenant set, while every catalog view reports a healthy enabled policy. **Predicates
+fail closed or they are not predicates.** Never add an escape clause for administrative sessions.
 
 The third is a sweep, not a review. Run it after every migration that adds a table:
 
@@ -208,31 +232,40 @@ HAVING SUM(CASE WHEN sp.predicate_type = 1 THEN 1 ELSE 0 END) < 2
 `predicate_type` is `0` for filter and `1` for block, read back from `sys.security_predicates`
 rather than recalled. Read the list rather than count it: a tenant mapping table carries a
 `tenant_id` column, legitimately has no predicate, and is dismissed once. Anything else in it is a
-tenant table that is not isolated. Verified by planting a failure: drop one block predicate from a
-correct table and that table appears.
+tenant table that is not isolated. To see the sweep work, plant a failure: drop one block predicate
+from a correct table and that table appears.
 
-One shape the sweep misses, documented by Learn rather than measured here: predicates are not
-replicated to a system-versioned table's history table, which needs its own predicate by name.
+One shape the sweep misses, per Learn: predicates are not replicated to a system-versioned table's
+history table, which needs its own predicate by name.
 
-## 6. The local rehearsal gap for retrieval
+## 6. A security policy beside a vector index depends on the build
 
-A tenant predicate on a chunk table is the cheapest defence against a retrieval answering one
-tenant with another tenant's text, and **on the Azure SQL Database container it cannot be rehearsed
-on an indexed table**. Reproduced on 300 rows with a real vector index, in both orders: index first
-then `CREATE SECURITY POLICY` gives `Msg 37579`, policy first then `CREATE VECTOR INDEX` gives
-`Msg 42244`. On Azure SQL Database the two coexist. So the isolation control is exactly the part of a
-retrieval design that never runs locally beside the index it will meet in production.
+A tenant predicate on a chunk table looks like the cheapest defence against a retrieval answering
+one tenant with another tenant's text, but **whether a security policy and a vector index can share
+a table is not documented** (Microsoft Learn's CREATE VECTOR INDEX, VECTOR_SEARCH and row-level
+security pages are silent on it) **and differs between engine builds**:
 
-What does work locally: the filter predicate applies correctly to exact search over
-`VECTOR_DISTANCE` with no vector index, and two tenants over 300 chunks each got back only their own
-rows. Rehearse the predicate unindexed, keep index creation out of the local path, and run the
-isolation test again once the index exists on the cloud database. The same local/cloud pair was
-measured for both outcomes.
+| Engine | Policy after the index | Index after the policy | Approximate search under the policy |
+|---|---|---|---|
+| Earlier builds of the Azure SQL Database container image | `Msg 37579` | `Msg 42244` | not reachable |
+| SQL Server 2025 (with `PREVIEW_FEATURES = ON`, which `CREATE VECTOR INDEX` needs there) | `Msg 37579` | `Msg 42244` | not reachable |
+| Azure SQL Database, Fabric SQL database, and container image build 18.0.310.0_253 | created | created | the filter holds (no cross-tenant rows) and a block predicate refuses a cross-tenant insert (`Msg 33504`), but the vector index is not used: `WITH (FORCE_ANN_ONLY)` fails with `Msg 8622` |
+
+So a policy on the chunk table protects it where the engine accepts the pair, but it turns every
+approximate search into an exact scan, and on SQL Server 2025 it cannot be created at all. Make the
+retrieval query's own tenant filter the boundary, keep the index, and keep a test that fails when
+that filter is removed. If you also put a policy on the chunk table, check on the target database
+that it is created, that a cross-tenant approximate query returns none of the other tenant's rows,
+and whether the plan still shows a `Vector Index Seek`; expect the fall back to an exact scan.
+
+What does work: the filter predicate applies correctly to exact search over `VECTOR_DISTANCE` with
+no vector index, and each tenant gets back only its own rows.
 
 ## Check it worked
 
-Three checks, cheapest first, against the reference fixture: `dbo.orders` holding four rows, two
-each for tenants 1 and 2, and `app_user` granted only `CONNECT` and the four table permissions.
+Three checks, cheapest first, against the reference file's setup script: `dbo.orders` holding four
+rows, two each for tenants 1 and 2, and `app_user` granted only `CONNECT` and the four table
+permissions.
 
 **One: the filtered count is smaller than the table, and the administrator is not exempt.** Run it
 on an administrative connection, which is the only one that can impersonate:
@@ -329,30 +362,31 @@ Expect exit `0`, `tenant isolation: ALL PASS` in the file, and no output from `g
 severity 16, above the severity 10 `-b` ignores, so a failed assertion does set a non-zero exit;
 `-m-1` puts every message in the file, including the `PRINT` naming which assertion went red.
 
-**`-m-1` is an ODBC `sqlcmd` instruction**, the 18.x build from `mssql-tools18`. Measured
-2026-09-05, go-sqlcmd 1.10.0 prints no `Msg` header on a severity 10 message at any `-m` value, so
-there the `PRINT` lines arrive with no number.
+**`-m-1` is an ODBC `sqlcmd` instruction**, the 18.x build from `mssql-tools18`. With go-sqlcmd
+1.10.0, no `Msg` header is printed on a severity 10 message at any `-m` value, so there the `PRINT`
+lines arrive with no number.
 
-**Each failure was planted and watched going red**, which is the only evidence an assertion asserts
+**Plant each failure and watch the test go red**, which is the only evidence an assertion asserts
 anything:
 
-| Planted | What went red |
+| Plant | Assertions that fail |
 |---|---|
-| Dropped the `AFTER INSERT` block predicate | 3 |
-| Dropped the `AFTER UPDATE` block predicate | 4 |
+| Drop the `AFTER INSERT` block predicate | 3 |
+| Drop the `AFTER UPDATE` block predicate | 4 |
 | `WITH (STATE = OFF)` | 1, 2, 4, 5 |
-| Swapped in the predicate that returns rows when the tenant is unset | 5 |
+| Swap in the predicate that returns rows when the tenant is unset | 5 |
 
 Assertions 1 and 2 are the same claim from two angles: 2 catches a predicate that filters a direct
 scan and not an aggregate. Add the pooling case in application test code, because no single
 connection reproduces it: issue concurrent requests for two tenants against one pool and assert
-every response carries only its own tenant, the shape that measured 103 wrong answers in 200.
+every response carries only its own tenant, the shape that in section 3 returns another tenant's
+rows for a large share of requests.
 
 ## Do not
 
 - Do not ship a filter predicate on its own. A cross-tenant insert succeeds under it and the row is
   then unreadable and undeletable by the application that wrote it.
-- Do not add `AFTER INSERT` and stop. The tenant-move update was measured succeeding with that block
+- Do not add `AFTER INSERT` and stop. The tenant-move update still succeeds with only that block
   predicate in place.
 - Do not set the tenant in one pooled call and query in another, and do not reach for
   `@read_only = 1` to make that safe. It refuses the correct caller and leaves the forgetful one
@@ -365,15 +399,17 @@ every response carries only its own tenant, the shape that measured 103 wrong an
   policy's schema it is a full read of every protected table, in one statement.
 - Do not read `is_enabled = 1` as proof of isolation. A fail-open predicate and an uncovered table
   both leave it at 1.
-- Do not conclude row level security is unavailable because the container refuses it beside a vector
-  index. The refusal is about the index, not about the policy.
+- Do not conclude row level security is unavailable because an engine build refuses it beside a
+  vector index. The refusal is about the index, not about the policy.
 - Do not leave the tenant column nullable. A row that arrives with no tenant is invisible to every
   tenant and belongs to none.
+- Do not repair misplaced rows by turning the policy off outside a transaction. Until it is back
+  on, every connection reads every tenant's rows.
 
 ## References
 
-- Open [the measured runs](references/block-predicates-pooling-and-bypass.md) when a number above
-  is disputed, before changing one, or to reproduce the pooling harness and the four planted
+- Open [the runnable checks](references/block-predicates-pooling-and-bypass.md) when a message
+  number above is disputed, before changing one, or to rerun the pooling check and the four planted
   failures.
 - Read [Row-level security](https://learn.microsoft.com/sql/relational-databases/security/row-level-security)
   before designing a predicate more complex than one column, for the block operations, the

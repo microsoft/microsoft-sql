@@ -1,16 +1,6 @@
 ---
 name: skill-feedback
-description: >-
-  Turns a defect in a Microsoft SQL agent skill, plugin, or marketplace into a
-  redacted, prefilled GitHub issue the user reviews and submits. Use when a skill gave wrong or
-  missing instructions, the wrong skill fired or none did, a skill would not install, or a
-  description or routing in the marketplace is wrong; also when the agent worked around a defect in
-  the skill it was following even though the task succeeded. Triggers on "file a bug", "report
-  this", "open an issue", "give feedback on this skill". Not for an ordinary Azure SQL Database
-  or T-SQL failure where the skill's guidance was correct and only the service or the query is
-  misbehaving; that belongs to the skill owning the topic, such as diagnose-connection-errors.
-  Strips connection strings, passwords, tokens, server names, subscription and tenant ids and
-  email addresses, and never submits without confirmation.
+description: "Use when a Microsoft SQL skill, plugin or marketplace was wrong: bad steps, wrong skill fired, install failed, or you worked around it. Files a redacted bug report. The azuresql-db-* skills have their own feedback skill."
 ---
 
 
@@ -21,9 +11,19 @@ engine or the query is what misbehaved, that belongs to the skill that owns the 
 said the wrong thing, said nothing when it should have, or the wrong skill fired at all, this builds
 the report.
 
-Measured 2026-09-22 against the public `skill_feedback.yml` form in
-`microsoft/microsoft-sql`. The permission and error-code claims are GitHub's own, from
-"Creating an issue from a URL query".
+Reports go to the public `skill_feedback.yml` form in `microsoft/microsoft-sql`. The
+permission and error-code behavior is GitHub's own, documented in "Creating an issue from a URL
+query".
+
+## Scope
+
+- Defects in a Microsoft SQL agent skill, plugin or marketplace, including a defect the agent
+  worked around while the task still succeeded.
+- A defect in an `azuresql-db-*` skill or in the Azure SQL Database container belongs in that
+  product's own repository, `microsoft/azure-sql-database-container`, through its own feedback
+  skill when that is installed.
+- Not an ordinary Azure SQL Database or T-SQL failure where the skill's guidance was correct; that
+  belongs to the skill owning the topic, such as `connectivity-troubleshoot`.
 
 ## Use the public Microsoft SQL form
 
@@ -33,8 +33,9 @@ Verify the public repository is reachable before drafting anything:
 gh api repos/microsoft/microsoft-sql --jq '.full_name + " reachable"'
 ```
 
-Every command below uses `microsoft/microsoft-sql`, the public distribution for all five plugins
-and all seventy unique skills. If it is not reachable, say so rather than handing over a dead link.
+Every command below uses `microsoft/microsoft-sql`, the public distribution for every plugin in the
+marketplace and every skill they ship. If it is not reachable, say so rather than handing over a
+dead link.
 
 **`https://aka.ms/sql-agent-skills-feedback` is not a substitute.** It 301s to the container
 repository's empty form and drops the whole query string on the way:
@@ -57,12 +58,13 @@ question filed here reaches the wrong queue.
 ## Step 2: gather, then redact, before any URL exists
 
 Take what the conversation already shows and ask only for the rest: the plugin id, the skill's
-exact id, the agent harness, how the plugin was installed, relevant versions, the prompt, and above
+exact id, the agent in use, how the plugin was installed, relevant versions, the prompt, and above
 all **the instruction that was wrong or missing, quoted, with what actually worked instead**, the
 one field maintainers are otherwise blind to. Write each long field to a file, so newlines survive:
 
 ```bash
-mkdir -p report && cd report
+mkdir -p report
+cd report || exit 1
 cat > skill-said.txt <<'EOF'
 The skill said:       port: 1433, hardcoded in the sample.
 What actually worked: reading the port from the connection string.
@@ -76,7 +78,7 @@ tenant id becomes `00000000-0000-0000-0000-000000000000`, a server becomes
 truncated one can be enough to use. Then let a gate disagree with you:
 
 ```bash
-grep -nEi 'password=[^*;]|pwd=[^*;]|(bearer|token|apikey|accountkey)[=: ][A-Za-z0-9._-]{16,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' *.txt
+grep -nEi 'password=[^*;]|pwd=[^*;]|(bearer|token|apikey|accountkey)[=: ][A-Za-z0-9._-]{16,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' ./*.txt
 ```
 
 No output and exit 1 is the pass; any hit is a secret still in the draft. The gate is a net, not a
@@ -142,7 +144,7 @@ posts a plain issue that skips the form, so no field id and no template label ap
 Three things, none of them "the command exited 0".
 
 **The form loaded with the fields filled.** GitHub documents prefilling an issue form's *text*
-fields from query parameters and does not document prefilling a dropdown, so treat those four as
+fields from query parameters and does not document prefilling a dropdown, so treat those five as
 unproven and ask the user to read them back; a blank one did not carry and they pick it by hand. A
 404 instead of a form means the repository is out of reach, or a parameter needed a permission they
 do not have.

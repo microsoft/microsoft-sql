@@ -6,8 +6,7 @@ allowed-tools: Bash(az:*, curl:*) PowerShell Grep View
 
 # Analyze Readiness at Scale
 
-These claims were checked on 2026-09-15 against the bundled `skill-contract.yml` and referenced
-Azure Resource Graph query and output contracts.
+The bundled references define the Azure Resource Graph query and output contracts.
 
 ## When to Use
 
