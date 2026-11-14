@@ -1,6 +1,6 @@
 # Query identity, cache and history lookup
 
-Adapted from SqlCopilot `plan-cache-qds-bridge` at `4b4f62e8`. These are
+These are
 bounded query patterns, not instructions to run every query. Bind or safely quote
 user values, use the connected database, and retain ambiguity in the answer.
 All examples are read-only; none executes the user's workload.

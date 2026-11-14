@@ -81,6 +81,15 @@ tools in GitHub Copilot for SQL Server Management Studio or another MSSQL MCP se
 [`sqlcmd`](https://learn.microsoft.com/sql/tools/sqlcmd/sqlcmd-utility) from a terminal, and when
 no SQL tool is available they give you the T-SQL to run and interpret the results you paste back.
 
+The server sends telemetry to Microsoft by default. To turn it off, set
+`SQLTOOLS__TELEMETRYENABLED=false` for the server process, in the same place as `CONNECTION_STRING`.
+
+Hosts ask for your approval before they run one of the server's tools. For scripted or
+non-interactive use, allow the `sql-tools` server's tools in the host's own permission settings,
+for example `default_tools_approval_mode = "approve"` under `[mcp_servers.sql-tools]` in Codex's
+`config.toml`, or `"permissions": {"allow": ["Mcp(sql-tools:*)"]}` in `.cursor/cli.json` for
+Cursor's command-line agent.
+
 Install `microsoft-sql` alongside this plugin for application development. That plugin does not
 declare a second MCP server; its skills can use the administration plugin's connected server.
 

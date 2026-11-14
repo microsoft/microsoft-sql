@@ -12,6 +12,10 @@ remove the administration plugin. To prevent workflow network requests, do not a
 call external services. Configure or disable telemetry for the agent host and external tools
 using their product documentation.
 
+The SQL Tools MCP server sends telemetry to Microsoft by default. To turn it off, set the
+environment variable `SQLTOOLS__TELEMETRYENABLED=false` for the server process; the
+microsoft-sql-admin README says where to set the server's environment.
+
 ## Microsoft data collection notice
 
 Data Collection. The software may collect information about you and your use of the software and send it to

@@ -75,7 +75,7 @@ operations against that scope. Read each reference before issuing its calls.
 | Azure Monitor mirrored-catalog onboarding and business-impact correlation | an Azure Monitor mirrored-catalog skill |
 
 The named sibling skills are capability owners from the source collection and
-may not be installed in every AgentSkills bundle. If the owning sibling is not
+may not be installed with this plugin. If the owning sibling is not
 available, explain the boundary and stop; do not make Database Hub perform that
 sibling's work.
 
