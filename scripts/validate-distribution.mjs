@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const errors = [];
 const allowDevelopmentMcp = process.argv.includes("--allow-development-mcp");
+// The published repository requires signed PowerShell scripts; a layout that has not been signed yet does not.
+const requireSignedScripts = process.argv.includes("--require-signed-scripts");
 
 const expectedSkills = {
   "microsoft-azuresqldb-container": [
@@ -269,6 +271,13 @@ const sourceHeaderPrefixes = new Map([
   [".ts", "//"],
   [".tsx", "//"],
 ]);
+// Authenticode signs a PowerShell script by appending a comment block with CRLF line endings. PowerShell
+// treats a script as unsigned once those line endings are rewritten, so signed scripts are published byte for byte.
+const signableScriptExtensions = [".ps1", ".psm1", ".psd1"];
+const signatureBlock =
+  /\r\n# SIG # Begin signature block\r\n(?:#[^\r\n]*\r\n)+# SIG # End signature block(?:\r\n)?$/u;
+const rewrittenSignatureBlock =
+  /\n# SIG # Begin signature block\r?\n(?:#[^\r\n]*\r?\n)+# SIG # End signature block\r?\n?$/u;
 const forbiddenBinaryExtensions = new Set([
   ".a",
   ".bin",
@@ -725,6 +734,36 @@ for (const file of allFiles) {
     if (pattern.test(contents)) {
       fail(`${relative(file)}: contains ${description}`);
     }
+  }
+}
+
+const gitAttributes = await readFile(path.join(root, ".gitattributes"), "utf8").catch(() => "");
+const untouchedByGit = new Set(
+  gitAttributes
+    .split(/\r?\n/u)
+    .map((line) => line.trim().split(/\s+/u))
+    .filter(([pattern, ...attributes]) => pattern.startsWith("*.") && attributes.includes("-text"))
+    .map(([pattern]) => pattern.slice(1).toLowerCase()),
+);
+for (const extension of signableScriptExtensions) {
+  if (!untouchedByGit.has(extension)) {
+    fail(`.gitattributes: *${extension} must be marked -text so that git never rewrites a signed script`);
+  }
+}
+if (requireSignedScripts) {
+  for (const file of allFiles) {
+    if (!signableScriptExtensions.includes(path.extname(file).toLowerCase())) {
+      continue;
+    }
+    const contents = (await readFile(file)).toString("latin1");
+    if (signatureBlock.test(contents)) {
+      continue;
+    }
+    fail(
+      rewrittenSignatureBlock.test(contents)
+        ? `${relative(file)}: the line endings of the Authenticode signature block were rewritten; publish the signed file byte for byte`
+        : `${relative(file)}: PowerShell script carries no Authenticode signature block; publish scripts from a signed build`,
+    );
   }
 }
 
