@@ -6,8 +6,8 @@ allowed-tools: Grep View
 
 # Run Migration Assessment
 
-These claims were checked on 2026-09-15 against the bundled `skill-contract.yml` and the routing
-contracts for Azure, local readiness, and local SKU sizing.
+The bundled references define the routing contracts for Azure, local readiness, and local SKU
+sizing.
 
 ## When to Use
 

@@ -1,9 +1,9 @@
 # Microsoft SQL agent skills
 
 Installable agent plugins from the Microsoft SQL product team for developing applications,
-operating Azure SQL Database, running local container workflows, planning migrations, and
-exploring database estates in Fabric Database Hub. Each plugin packages focused guidance and
-references for supported agent hosts.
+operating Azure SQL Database, administering SQL Server and Azure SQL, running local container
+workflows, planning migrations, and exploring database estates in Fabric Database Hub. Each
+plugin packages focused guidance and references for supported agent hosts.
 
 [![Documentation](https://img.shields.io/badge/Documentation-blue)](https://learn.microsoft.com/sql/)
 [![Agent Plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-8A2BE2)](https://agent-plugins.org/specification)
@@ -28,6 +28,7 @@ The marketplace name is `microsoft-sql`. Install coordinates use
 | [`microsoft-sql`](plugins/microsoft-sql/) | `microsoft-sql@microsoft-sql` | Broad Azure SQL Database application development and operations, including local container workflows |
 | [`microsoft-azuresqldb-container`](plugins/microsoft-azuresqldb-container/) | `microsoft-azuresqldb-container@microsoft-sql` | Local development and CI with the Azure SQL Database container |
 | [`microsoft-sql-vscode`](plugins/microsoft-sql-vscode/) | `microsoft-sql-vscode@microsoft-sql` | Azure SQL application development and database lifecycle work in Visual Studio Code |
+| [`microsoft-sql-admin`](plugins/microsoft-sql-admin/) | `microsoft-sql-admin@microsoft-sql` | Database administration and diagnostics for SQL Server and Azure SQL, including in SSMS |
 | [`microsoft-sql-migration`](plugins/microsoft-sql-migration/) | `microsoft-sql-migration@microsoft-sql` | SQL Server to Azure assessment, planning, migration, and validation |
 | [`microsoft-sql-fdh`](plugins/microsoft-sql-fdh/) | `microsoft-sql-fdh@microsoft-sql` | Read-only Fabric Database Hub inventory, performance, and security posture |
 
@@ -35,15 +36,17 @@ The marketplace name is `microsoft-sql`. Install coordinates use
 Normally install **one** of those two:
 
 - Choose `microsoft-sql` for a general-purpose terminal or coding agent.
-- Choose `microsoft-sql-vscode` for the MSSQL extension. It omits Data API Builder skills that
-  overlap with agent tools supplied by the extension.
+- Choose `microsoft-sql-vscode` for the MSSQL extension. It omits the Data API Builder
+  configuration skills that overlap with agent tools supplied by the extension.
 
 `microsoft-azuresqldb-container` focuses on local development. Its capabilities are already
 included in `microsoft-sql`, so do not install those two together when testing routing. It can be
 installed alongside the VS Code plugin when that host also needs container workflows.
 
-`microsoft-sql-migration` and `microsoft-sql-fdh` are separate workflow plugins and can be
-installed alongside any Azure SQL bundle.
+Install `microsoft-sql-admin` alongside `microsoft-sql` for the full application and administration
+workflow. The VS Code plugin already includes a subset of the administration skills and uses the
+MSSQL extension's SQL tools; installing it alongside `microsoft-sql-admin` duplicates those skills.
+`microsoft-sql-migration` and `microsoft-sql-fdh` can be installed alongside either Azure SQL bundle.
 
 ### `microsoft-sql`: complete Azure SQL workflow
 
@@ -54,13 +57,18 @@ The complete plugin covers:
 - schema design, Entity Framework Core, Prisma, SQLAlchemy, database projects, and safe
   migrations;
 - T-SQL correctness, JSON, safe upserts, SQL injection prevention, and row-level security;
-- Azure Functions, Data API Builder, application deployment, GitHub Actions, and CI;
+- Azure Functions, Data API Builder (configuration, Azure hosting, and MCP clients), application
+  deployment, GitHub Actions, and CI;
 - vectors, embeddings, LangChain, LlamaIndex, and retrieval-augmented generation;
-- Query Store, execution plans, blocking, deadlocks, Extended Events, and resource pressure;
+- execution-plan reading and application performance guidance;
 - bulk loading, SqlPackage import/export, restore, and recovery; and
 - the full Azure SQL Database container workflow.
 
 [Browse the included guidance](plugins/microsoft-sql/README.md).
+
+For live Query Store investigations, blocking, deadlocks, Extended Events, and server resource
+diagnostics, also install `microsoft-sql-admin`. These workflows now live in the administration
+plugin.
 
 ### `microsoft-azuresqldb-container`: local Azure SQL Database
 
@@ -93,14 +101,42 @@ The VS Code plugin covers application development and database lifecycle work:
 - application deployment and GitHub Actions;
 - vectors, embeddings, RAG, LangChain, and LlamaIndex;
 - Azure Functions SQL bindings;
+- hosting a Data API Builder configuration in Azure Container Apps, and connecting remote MCP
+  clients to its SQL MCP Server endpoint;
 - dev-container templates and safe schema migrations; and
 - skill feedback.
 
-It deliberately excludes `dab-rest-and-graphql`, `azuresql-db-dab`, and the broad
-`build-app-on-azure-sql` router so the plugin does not compete with tools already supplied by
-the MSSQL extension.
+It deliberately excludes the Data API Builder configuration skills (`dab-rest-and-graphql` and
+`azuresql-db-dab`) and the broad `build-app-on-azure-sql` router so the plugin does not compete
+with tools already supplied by the MSSQL extension. The two Data API Builder skills it includes,
+`deploy-dab-to-azure` and `dab-mcp-endpoint`, hand entity, permission and local-run work to the
+extension's Data API builder designer and cover only what it does not.
 
 [Browse the VS Code guidance](plugins/microsoft-sql-vscode/README.md).
+
+### `microsoft-sql-admin`: database administration
+
+The administration plugin diagnoses a connected SQL Server, Azure SQL Database, Azure SQL
+Managed Instance, or Fabric SQL database:
+
+- wait categories and CPU, memory, data IO, and log IO pressure;
+- Query Store, plan cache, execution plans, missing indexes, statistics, query hints, and
+  query rewrites;
+- live blocking, blocking root causes, deadlocks, and Extended Events sessions;
+- active connections, connectivity, and authentication;
+- backup strategy and history, high availability, and geo-disaster recovery;
+- health audits, database settings, table health, partitioning, and schema design;
+- Always Encrypted and ledger tables;
+- SQL Server Agent job failures; and
+- Azure migration assessment results.
+
+It includes the configuration for the separately distributed **SQL Tools MCP server**. Hosts that
+load plugin MCP servers launch its pinned NuGet package using `dnx` from the .NET SDK 10 or later.
+Configure a database connection as described in the
+[administration requirements](plugins/microsoft-sql-admin/README.md#requirements). The skills
+can also use the host's existing SQL tools, `sqlcmd`, or results supplied by the user.
+
+[Browse the administration guidance](plugins/microsoft-sql-admin/README.md).
 
 ### `microsoft-sql-migration`: SQL Server to Azure
 
@@ -183,9 +219,10 @@ Enable Agent Plugins and add this repository to `chat.plugins.marketplaces`:
 }
 ```
 
-Then run **Chat: Open Customizations** from the Command Palette, open **Plugins**, select
-**Browse Marketplace**, and install the plugin. You can also search for `@agentPlugins` in the
-Extensions view. For the MSSQL extension, start with `microsoft-sql-vscode`.
+Then run **Chat: Open Customizations** from the Command Palette. Select **Browse** and choose
+the plugin marketplace, or use **Plugins > Browse Marketplace** if the unified Browse page is
+unavailable. Review and install the plugin in the intended agent harness. For the MSSQL extension,
+start with `microsoft-sql-vscode`. See the [VS Code plugin guide](https://code.visualstudio.com/docs/agent-customization/agent-plugins).
 
 ### Cursor
 
@@ -211,12 +248,36 @@ Grok Build accepts this repository's Claude-compatible marketplace index:
 
 ```bash
 grok plugin marketplace add microsoft/microsoft-sql
-grok plugin install microsoft-sql --trust
+grok
 ```
 
-Inside Grok, use `/plugins` and `/skills` to inspect what loaded. For a persistent installation,
-use the marketplace workflow above; `--plugin-dir` is intended for testing an unpublished local
-plugin.
+Inside Grok, open `/plugins`, use the Marketplace tab to install a plugin, and use `/skills` to
+inspect what loaded. For a direct command-line installation after reviewing the plugin:
+
+```bash
+grok plugin install 'microsoft/microsoft-sql#plugins/microsoft-sql' --trust
+```
+
+Substitute the selected plugin's directory after `#`. The CLI install command accepts a Git source
+or local path; `--trust` records trust in that plugin. `--plugin-dir` is intended for testing an
+unpublished local plugin. See [Grok's plugin guide](https://docs.x.ai/build/features/skills-plugins-marketplaces).
+
+### GitHub Copilot in SQL Server Management Studio
+
+SSMS 22.7 or later discovers Agent Skills rather than installing the marketplace directly. Install
+the **AI Assistance** workload, enable Agent mode, and copy the contents of
+`plugins/microsoft-sql/skills/` or `plugins/microsoft-sql-admin/skills/` to one documented skill
+root:
+
+- workspace: `.github/skills/`, `.claude/skills/`, or `.agents/skills/`;
+- personal: `~/.copilot/skills/`, `~/.claude/skills/`, or `~/.agents/skills/`.
+
+Use only one location to avoid duplicates. Open **Tools > Skills** in Copilot Chat and confirm the
+copied skills are visible. Use `microsoft-sql-admin` for database administration and diagnostics
+against the connected server.
+
+Copying only `skills/` does not install the companion MCP server. SSMS can use its own connected
+SQL tools; the `sql-tools-mcp-setup` skill describes standalone server setup when needed.
 
 ### Local development and other Agent Skills clients
 
@@ -254,6 +315,10 @@ Add vector search to this table and make the query use the vector index.
 ```
 
 ```text
+Find the head blocker on this server and explain why sessions are waiting.
+```
+
+```text
 Interview me to choose a SQL Server to Azure migration target and method.
 ```
 
@@ -269,7 +334,8 @@ product. Local development guidance targets the Azure SQL Database container, wh
 `SERVERPROPERTY('EngineEdition')` returns `5`.
 
 The local Azure SQL Database container is owned by `microsoft-azuresqldb-container` and is also
-included in the complete `microsoft-sql` bundle. SQL Server appears as a migration source in
+included in the complete `microsoft-sql` bundle. SQL Server administration and diagnostics are
+owned by `microsoft-sql-admin`, and SQL Server appears as a migration source in
 `microsoft-sql-migration`. Fabric Database Hub is owned by `microsoft-sql-fdh`. When a request
 crosses a product boundary, the skills route to the owning capability or state that it is not
 installed rather than inventing support.
@@ -289,6 +355,7 @@ plugins/
   microsoft-sql/
   microsoft-azuresqldb-container/
   microsoft-sql-vscode/
+  microsoft-sql-admin/
   microsoft-sql-migration/
   microsoft-sql-fdh/
 ```
@@ -334,8 +401,10 @@ Microsoft services used by a workflow may have their own data collection behavio
 
 ## License
 
-This project is released under the [MIT License](LICENSE). See [NOTICE.txt](NOTICE.txt) for
-information about third-party software.
+The content in this repository is released under the [MIT License](LICENSE). The SQL Tools MCP
+NuGet package is downloaded separately and has its own Microsoft software license terms; see
+the [administration plugin](plugins/microsoft-sql-admin/README.md#sql-tools-mcp-server).
+See [NOTICE.txt](NOTICE.txt) for information about separately distributed software.
 
 ## Trademarks
 

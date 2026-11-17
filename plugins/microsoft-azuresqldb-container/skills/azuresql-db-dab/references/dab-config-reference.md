@@ -48,8 +48,10 @@ not the secret, in the file. DAB resolves `@env('NAME')` from the environment at
 `dab start`. Keep the value in `SQL_CONNECTION_STRING`:
 
 ```
-Server=localhost,1433;Database=appdb;User Id=sa;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true
+Server=localhost,1433;Database=appdb;User Id=sa;Password=<sa-password>;TrustServerCertificate=true
 ```
+
+`<sa-password>` is the container's `MSSQL_SA_PASSWORD`, set in the environment, not in the file.
 
 `database-type` is `mssql` for the Azure SQL engine (the same value used for
 Azure SQL Database in the cloud - parity is the point).
@@ -86,8 +88,7 @@ Azure SQL Database in the cloud - parity is the point).
 
 ## Relationships (`dab update --relationship`)
 
-Declare relationships so REST/GraphQL can navigate between entities. The flags
-(confirmed in the DAB CLI reference):
+Declare relationships so REST/GraphQL can navigate between entities.
 
 One-to-many / one-to-one (direct FK), giving DAB the field mapping
 `sourceField:targetField`:

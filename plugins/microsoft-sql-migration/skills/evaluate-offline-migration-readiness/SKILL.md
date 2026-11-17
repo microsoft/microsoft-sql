@@ -6,13 +6,13 @@ allowed-tools: Bash(az:*) PowerShell Grep View
 
 # Evaluate Offline Migration Readiness
 
-These claims were checked on 2026-09-15 against the bundled `skill-contract.yml`, Azure CLI
-`datamigration` command contract, and readiness output contract.
+The bundled references define local readiness,
+default configuration-based sizing, and native combined reporting.
 
 ## When to Use
 
 Use directly or from `run-migration-assessment` for local/on-premises readiness
-assessment without performance-based SKU sizing. Invoke after the server is
+assessment, with configuration-based sizing by default. Invoke after the server is
 confirmed Local. Route Azure identifiers and unresolved servers through
 `run-migration-assessment`.
 
@@ -62,22 +62,30 @@ This is a hard output contract:
 - The user's later SKU-duration choice must not replace or shorten the
   readiness response already required by this step.
 
-### Step 6: Offer SKU Sizing
+### Step 6: Choose SKU Sizing
 
 Immediately after rendering readiness, ask:
 
-> "How long should I collect performance data for a right-sized Azure SQL SKU
-> recommendation?"
+> "How would you like to size the Azure SQL recommendations?"
 
-Present selectable options:
+Always present selectable options with the first choice preselected:
 
-- 2 hours
-- 24 hours (Recommended)
+- Configuration-based sizing (Default, Recommended; no performance collection)
+- Collect 2 hours of performance data
+- Collect 24 hours of performance data
 - I don't want a SKU recommendation
 
-Allow a custom duration through the free-form answer. Convert the selected
-duration to seconds and delegate to `recommend-sku-sizing`. If the user declines,
-finish after readiness. Present the duration choices directly after readiness.
+Accepting the picker without changing its selection, or submitting an empty
+sizing answer, selects configuration-based sizing. Wait for the picker response;
+do not treat an unanswered question as permission to collect performance data.
+Allow a custom collection duration through the free-form answer. Preserve any
+explicit sizing preference already in context as the selection.
+
+Delegate to `recommend-sku-sizing` with the selected mode, instance, output folder,
+native executable path, and exact readiness JSON path. For performance collection,
+also pass the selected duration in seconds. If the user declines, finish with the
+native readiness-only report already generated; identify unavailable SKU data
+rather than inventing recommendations.
 
 ## Check it worked
 
@@ -93,8 +101,8 @@ finish after readiness. Present the duration choices directly after readiness.
 - Prefer an exact instance-tagged report. If the CLI generates
   `SqlAssessmentReport-*.json` instead, use it only from the confirmed
   per-instance output folder.
-- Include the generated report path. Prefer HTML when present; otherwise link
-  the JSON report.
+- Include the generated native `AssessmentReport-*.html` path. Missing combined
+  HTML is a report-generation failure, not a successful JSON-only fallback.
 
 ## Error Handling
 

@@ -1,16 +1,6 @@
 ---
 name: dab-rest-and-graphql
-description: >-
-  Decides what a Data API builder configuration on Azure SQL Database actually publishes and to
-  whom, at the version 2.0 model: entities generated from patterns, roles that inherit upward,
-  row-filtering policies, relationships, and the passwordless connection a hosted run needs. Use
-  when Data API builder is already in play and the question is about "autoentities", "dab
-  auto-config", "my dab-config.json has hundreds of entities", "why can anonymous read this
-  entity", "restrict which rows a caller can see", "add a relationship to my config", or moving a
-  working configuration to Azure SQL Database with a managed identity. Also use when a
-  configuration reviews cleanly but serves more of the database than the author asked for, the
-  default include pattern plus the Unauthenticated provider dab init writes. Standing a first
-  endpoint up belongs to azuresql-db-dab.
+description: "Use when a Data API builder config may expose more than intended, or to set roles and inheritance, row policies, relationships, a passwordless Azure SQL connection, or autoentities patterns that replace hundreds of hand-written entities in dab-config.json."
 ---
 
 # What a Data API builder configuration publishes on Azure SQL Database
@@ -18,8 +8,6 @@ description: >-
 Generating endpoints is the easy part, and another skill owns it. What goes wrong later is that
 **the configuration publishes more of the database than the author asked for**, and that **the
 patterns generating it are not the syntax people write**.
-
-Verified on 2026-09-03 against Data API builder 2.0.9 (`dab --version`) and Microsoft Learn.
 
 ## The boundary
 
@@ -31,21 +19,24 @@ answering.
 | Question | Skill |
 |---|---|
 | A first endpoint, or any run against the local Azure SQL Database container | `azuresql-db-dab` |
-| Pointing an agent at the extra endpoint the same config serves at `/mcp` | `azuresql-db-dab`, which carries that reference |
+| Pointing an agent at the extra endpoint the same config serves at `/mcp` | `dab-mcp-endpoint` |
+| Hosting the configuration in Azure: image, identity, health roles, the MCP host allowlist | `deploy-dab-to-azure` |
 | Serverless handlers and change-driven code instead of an API | `azure-functions-sql-bindings` |
 | Getting an application identity to a working passwordless connection | `entra-id-auth` |
 | Creating the server, database and firewall rule | `provision-azure-sql-db` |
 
 ## The four facts that changed at version 2.0
 
-Version 2.0 is stable from 2.0.8 (28 May 2026). A model that learned 1.x gets all four wrong.
+Version 2.0 is stable from 2.0.8 (28 May 2026). Guidance written for 1.x gets all four wrong.
 
 1. **`dab init` writes `"provider": "Unauthenticated"` and `"mode": "production"`.** Every request
    is evaluated as `anonymous`. No token is inspected, even if something in front authenticated the
    caller.
 2. **Roles inherit upward**: a named role inherits from `authenticated`, which inherits from
-   `anonymous`. A single `anonymous:read` is therefore read access for every role, including named
-   roles that appear nowhere in the file.
+   `anonymous`. A single `anonymous:read` is therefore read access for every role not configured on
+   that entity, including named roles that appear nowhere in the file. A role that is configured on
+   the entity gets only its own actions: on 2.1.5, `authenticated` granted `create` kept `create`
+   alone and did not inherit `anonymous` read.
 3. **Entities can be generated from patterns** (`autoentities`) instead of written one by one. The
    patterns are **T-SQL `LIKE`**, not regular expressions, and the default `include` is `%.%`,
    every object in every schema.
@@ -151,8 +142,8 @@ caller's token, and the operators are `eq`, `ne`, `gt`, `ge`, `lt`, `le`, `and`,
 **Policies are supported on `read`, `update` and `delete` only.** An `INSERT` takes no `WHERE`
 clause and a stored procedure takes no predicate, so `create` and `execute` are not supported.
 **The CLI does not stop you anyway.** Run the same command with `--permissions "consumer:create"`
-and 2.0.9 writes the policy into the config and exits 0, saying nothing. A policy is therefore not
-a way to stop a caller inserting a row they should not own. Validate that on the way in, or push it
+and Data API builder 2.0.9 writes the policy into the config and exits 0, saying nothing. A
+policy is therefore not a way to stop a caller inserting a row they should not own. Validate that on the way in, or push it
 into a check constraint.
 
 ## Run against Azure SQL Database on an identity
@@ -189,9 +180,9 @@ dab validate; echo "exit=$?"
 
 `0` is the pass. Anything else means one of five ordered stages failed: schema, config properties,
 permissions, database connection, entity metadata. Later stages are skipped, so fix the first.
-Measured on 2.0.9 on 2026-09-03: a failure printed only `fail: Config is invalid.` and exited 255,
-naming no stage and no reason, and a debug log level added nothing. Learn documents a named error
-on that line, so walk the five stages yourself rather than waiting to be told.
+With 2.0.9 a failure can print only `fail: Config is invalid.` and exit 255, naming no stage and no
+reason, and a debug log level adds nothing. Learn documents a named error on that line, so walk
+the five stages yourself rather than waiting to be told.
 
 ```bash
 dab auto-config-simulate --output matched.csv
@@ -207,7 +198,7 @@ database is not a validation failure.
 dab configure --show-effective-permissions
 ```
 
-For an entity granted only `anonymous:read`, 2.0.9 printed exactly this on 2026-09-03:
+For an entity granted only `anonymous:read`, the output is:
 
 ```text
 info: Entity: Book
@@ -219,14 +210,18 @@ info:   Any unconfigured named role inherits from: anonymous
 A role here that you never wrote is the finding. No entity should reach `anonymous` unless the user
 asked for public access.
 
+To prove the matrix with live requests, send writes only to a disposable copy of the database.
+An allowed `create`, `update` or `delete` really changes the data behind the endpoint. Against a
+shared or production database, use reads and the effective-permissions output above.
+
 ## Do not
 
 - Do not write `autoentities` patterns as regular expressions. The CLI's own help calls them
   "T-SQL LIKE pattern(s)", and a regular expression fails silently by matching nothing.
 - Do not omit `patterns.include` on the assumption that it defaults to something conservative.
 - Do not reason about a role by reading its own permission block. Read the effective permissions.
-- Do not use `anonymous` while developing and plan to tighten it later. Every other role keeps
-  whatever `anonymous` was given.
+- Do not use `anonymous` while developing and plan to tighten it later. Every role not configured on
+  the entity keeps whatever `anonymous` was given.
 - Do not treat a `dab validate` exit of 0 as evidence that the right objects are published.
 - Do not assume disabling REST hides an entity. GraphQL and `/mcp` are separate switches on it.
 - Do not expect a database policy on `create` to hold. It is unsupported and accepted silently.
@@ -241,5 +236,5 @@ asked for public access.
   fetch it before writing a pattern you have not simulated. Every pattern and template key with its
   default.
 - [`validate` command](https://learn.microsoft.com/azure/data-api-builder/command-line/dab-validate):
-  fetch it when `dab validate` fails without naming a reason, which is what it did here. The five
-  stages and what each rejects.
+  fetch it when `dab validate` fails without naming a reason. The five stages and what each
+  rejects.

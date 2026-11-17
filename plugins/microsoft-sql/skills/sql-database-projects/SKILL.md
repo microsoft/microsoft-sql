@@ -1,16 +1,6 @@
 ---
 name: sql-database-projects
-description: >-
-  Builds and publishes a SQL database project against Azure SQL Database: the SDK-style
-  `.sqlproj` on `Microsoft.Build.Sql`, the target platform that decides what the build actually
-  validates, pre and post deployment scripts, the refactorlog, and code analysis. Use when a user
-  asks to "create a SQL database project", "build a dacpac", "publish a dacpac to Azure SQL",
-  "add a post-deployment script", "rename a column without losing its data", or "turn on code
-  analysis", and reports "the build passed but the publish failed", "the deploy said success and
-  the data is gone", or "the post-deployment script failed and the table already changed". Covers
-  what `dotnet build` does not check, what SqlPackage does with a mismatched target platform, and
-  which publish options change data rather than schema. github-actions-for-sql owns the pipeline,
-  schema-migrations-safely the change doctrine.
+description: "Use when building or publishing a SQL database project (.sqlproj, dacpac) for Azure SQL Database: build passes but publish fails, a renamed column lost data, deployment scripts, target platform."
 ---
 
 # Build and publish a SQL database project
@@ -20,10 +10,6 @@ own how to sequence a schema change (`schema-migrations-safely`), running the pu
 pipeline (`github-actions-for-sql`), or deploying the application beside it
 (`deploy-app-to-azure`). Open `sqlpackage-import-export` when the job is moving a whole database
 rather than building one, or when the artifact is a bacpac.
-
-Verified 2026-09-03 with the .NET SDK 8.0.421 on macOS, `Microsoft.Build.Sql` 2.2.0,
-`Microsoft.Build.Sql.Templates` 2.2.0 and SqlPackage 170.4.83.3, publishing into the Azure SQL
-Database container reporting `EngineEdition` 5, `SQL Azure`, `12.0.2000.8`.
 
 ## The build runs anywhere, and SqlPackage is a separate install
 
@@ -40,8 +26,9 @@ on a hosted build image by default, and every publish below needs it.
 
 ## The template's default target is not Azure SQL Database
 
-`dotnet new sqlproj --help` lists ten platforms and defaults to `Sql170`, the box product. The
-choice lands in the project file as one property, and nothing in the build output announces it:
+With `Microsoft.Build.Sql.Templates` 2.2.0, `dotnet new sqlproj --help` lists ten platforms and
+defaults to `Sql170`, the box product. The choice lands in the project file as one property, and
+nothing in the build output announces it:
 
 ```xml
 <DSP>Microsoft.Data.Tools.Schema.Sql.Sql170DatabaseSchemaProvider</DSP>      <!-- the default -->
@@ -101,7 +88,7 @@ runs. Answer each one, or escalate the whole class:
 dotnet build ShopDb -t:Rebuild -p:TreatTSqlWarningsAsErrors=true
 ```
 
-Measured: every `SQL71502` becomes `Build error SQL71502` and the build fails. Where one warning
+Every `SQL71502` becomes `Build error SQL71502` and the build fails. Where one warning
 is genuinely fine, `SuppressTSqlWarnings` takes a comma-separated list of numbers.
 
 ## Deployment scripts ride in the dacpac and are read by nothing
@@ -153,8 +140,7 @@ To a schema comparison a column rename is a drop and an add. The refactorlog tur
 rename, and it is the easiest thing here to leave half-wired, because the file existing is not the
 file being used.
 
-
-Measured on a `Product` table holding two rows:
+Renaming a column of a `Product` table that holds rows:
 
 | What the project has | Publish result |
 |---|---|
@@ -174,7 +160,7 @@ sqlpackage /Action:DeployReport /SourceFile:After/bin/Debug/After.dacpac \
   /TargetFile:Before/bin/Debug/Before.dacpac /TargetDatabaseName:ShopDb /OutputPath:plan.xml
 ```
 
-Measured 2026-09-03, the same rename twice. Without the refactorlog declared:
+The same rename, without the refactorlog declared:
 
 ```xml
 <Alerts><Alert Name="DataIssue"><Issue Value="The column [dbo].[Product].[Name] is being dropped,
@@ -194,9 +180,9 @@ without it makes an already-applied rename look outstanding.
 
 ## The database is not the project
 
-`/p:DropObjectsNotInSource` defaults to **False**. Measured: a table and a procedure created by
-hand in the target both survive a publish of a project that contains neither, and the publish
-reports success. Turning it on drops them and keeps `__RefactorLog`:
+`/p:DropObjectsNotInSource` defaults to **False**. A table and a procedure created by hand in the
+target both survive a publish of a project that contains neither, and the publish reports
+success. Turning it on drops them and keeps `__RefactorLog`:
 
 ```text
 Dropping Table [dbo].[Legacy]...
@@ -213,15 +199,16 @@ reading a plan first.
 <RunSqlCodeAnalysis>true</RunSqlCodeAnalysis>
 ```
 
-Measured on a procedure using `SELECT *` and `@@IDENTITY`: `StaticCodeAnalysis warning SR0001`,
-`SR0008`, and `Build succeeded. 0 Error(s), 2 Warning(s)`. Warnings in a log nobody reads are not
-a gate. Escalate one rule with `+!`, which fails the build:
+On a procedure using `SELECT *` and `@@IDENTITY` the build prints
+`StaticCodeAnalysis warning SR0001`, `SR0008`, and `Build succeeded. 0 Error(s), 2 Warning(s)`.
+Warnings in a log nobody reads are not a gate. Escalate one rule with `+!`, which fails the build:
 
 ```bash
 dotnet build ShopDb -t:Rebuild -p:SqlCodeAnalysisRules='+!Microsoft.Rules.Data.SR0001'
 ```
 
-Measured: `StaticCodeAnalysis error SR0001`, 1 error and 1 warning, `Build FAILED`. Two traps. The
+The build prints `StaticCodeAnalysis error SR0001`, 1 error and 1 warning, `Build FAILED`. Two
+traps. The
 `sqlcodeanalysis` template does **not** turn analysis on: it scaffolds a C# project for writing a
 custom rule, which then has to be packaged and referenced. And `dotnet build` skips analysis
 entirely on a project that is up to date, so a rerun reporting zero warnings may have analysed
@@ -251,10 +238,12 @@ sqlpackage /Action:Script /SourceFile:ShopDb/bin/Debug/ShopDb.dacpac \
 `github-actions-for-sql` owns that trap and the pipeline around it.
 
 `/Action:Publish` does not create the logical server, and in Azure that has to exist first.
-**It does create the database.** Measured against the container reporting `EngineEdition` 5:
-publishing a dacpac at a database name that did not exist printed `Creating database <name>...`,
-then created the table, and the row count in `sys.databases` went from 0 to 1. Do not add a create
-step before a publish on the assumption that it is required.
+**It does create the database.** Publishing a dacpac at a database name that does not exist
+prints `Creating database <name>...`, then creates the table, and the database appears in
+`sys.databases`. Do not add a create step before a publish on the assumption that it is required.
+On a logical server this needs a login allowed to create databases: the server admin, or a member
+of the `dbmanager` role in `master`. A login without that permission can publish only to a
+database that already exists.
 
 ## Check it worked
 
@@ -277,9 +266,9 @@ unzip -l ShopDb/bin/Debug/ShopDb.dacpac
 ```
 
 Expect `refactor.xml` if this release carries a rename, `postdeploy.sql` if it carries a
-post-deployment script, and `predeploy.sql` if it carries a pre-deployment one. Measured
-2026-09-03: undeclared, the dacpac holds four entries and no `refactor.xml`; declared, five. A
-missing entry means the item was never declared, and the build did not complain.
+post-deployment script, and `predeploy.sql` if it carries a pre-deployment one. Undeclared, the
+refactorlog leaves no `refactor.xml` in the dacpac; declared, it adds one. A missing entry means
+the item was never declared, and the build did not complain.
 
 Then, after the publish, ask the target whether anything is left:
 
@@ -294,9 +283,10 @@ deploy report nothing to do, so any count above zero names an object the run did
 
 ## References
 
-- Open [target-platform-and-refactorlog-runs.md](references/target-platform-and-refactorlog-runs.md) when a
-  table above needs reproducing, when a build or publish message you are seeing does not match one
-  quoted here, or to look up a property or SqlPackage option this body only names in passing.
+- Open [target-platform-and-refactorlog-runs.md](references/target-platform-and-refactorlog-runs.md)
+  to rerun the check behind a table above, when a build or publish message you are seeing does not
+  match one quoted here, or to look up a property or SqlPackage option this body only names in
+  passing.
 - `sdk/Sdk.props` and `sdk/Sdk.targets` inside the `Microsoft.Build.Sql` package in the local
   NuGet cache: read them when a file is sitting in the project directory and is not in the build.
 - Microsoft Learn is the authority on whether a property or item type exists. Open

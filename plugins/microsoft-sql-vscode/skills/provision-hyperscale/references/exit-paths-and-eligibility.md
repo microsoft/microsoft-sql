@@ -1,4 +1,4 @@
-# Leaving Hyperscale: eligibility, backups, and what was actually run
+# Leaving Hyperscale: eligibility, backups, and what each step returns
 
 ## Contents
 
@@ -7,7 +7,7 @@
 - [What the service says when it refuses](#what-the-service-says-when-it-refuses)
 - [What happens to backups across repeated moves](#what-happens-to-backups-across-repeated-moves)
 - [The bacpac fallback, and its real limits](#the-bacpac-fallback-and-its-real-limits)
-- [Verified transcript](#verified-transcript)
+- [What each step returns](#what-each-step-returns)
 - [Sources](#sources)
 
 ## How to use this file
@@ -41,7 +41,7 @@ progresses. Final cutover is a few minutes of downtime.
 
 ## What the service says when it refuses
 
-Verbatim, from a live attempt on 2026-08-28:
+Verbatim:
 
 ```
 ERROR: (ProvisioningDisabled) Hyperscale database '<database>' is ineligible for reverse migration.
@@ -52,7 +52,7 @@ The database name is the only thing elided. The message names the reason, which 
 rather than retrying. "Created as brand-new Hyperscale application" is the origin rule, and no wait,
 flag or support request changes it.
 
-The free offer refusal, from the same session, is a different message with a similar shape:
+The free offer refusal is a different message with a similar shape:
 
 ```
 ERROR: (ProvisioningDisabled) Provisioning of free limit database is not supported for provided
@@ -99,27 +99,27 @@ Other data movement paths exist, bulk copy and pipeline tooling among them, and 
 realistic answer for a large database. None of them is a tier change, and all of them mean a new
 database and a cutover of their own. Plan for that rather than discovering it.
 
-## Verified transcript
+## What each step returns
 
-Run on 2026-08-28 with Azure CLI 2.89.1 against a throwaway logical server, then deleted. Summarised
-rather than pasted, because the values were environment specific.
+The sequence below walks both exits on a disposable logical server. Names and sizes in the results
+depend on the server.
 
 | Step | Command | Result |
 |---|---|---|
 | Create General Purpose serverless | `az sql db create ... --edition GeneralPurpose --compute-model Serverless --family Gen5 --capacity 2` | Online, `GP_S_Gen5_2`, max size 32 GB |
-| Convert with manual cutover | `az sql db update ... --edition Hyperscale --service-objective HS_Gen5_2 --manual-cutover` | Operation `InProgress` at 50 percent, `currentServiceObjectiveName` still `GP_S_Gen5_2`, `sku` already `HS_Gen5` |
+| Convert with manual cutover | `az sql db update ... --edition Hyperscale --service-objective HS_Gen5_2 --manual-cutover` | Operation `InProgress`, `currentServiceObjectiveName` still `GP_S_Gen5_2`, `sku` already `HS_Gen5` |
 | Cut over | `az sql db update ... --perform-cutover` | `HS_Gen5_2`, `highAvailabilityReplicaCount` 1, `readScale` Enabled, `maxSizeBytes` -1 |
 | Try the free limit on it | `az sql db update ... --use-free-limit true` | Refused, `ProvisioningDisabled` |
-| Try to disable read scale-out | `az sql db update ... --read-scale Disabled` | Accepted, and `readScale` stayed `Enabled` |
-| Remove the replica | `az sql db update ... --ha-replicas 0` | `readScale` became `Disabled` on its own |
-| Reverse migrate | `az sql db update ... --edition GeneralPurpose --service-objective GP_Gen5_2 --compute-model Provisioned` | Succeeded in about nine minutes, max size back to 1 TB |
-| Create one directly as Hyperscale | `az sql db create ... --edition Hyperscale --family Gen5 --capacity 2` | Online in about six minutes, replica count 1, max size -1 |
-| Reverse migrate that one | same update command | Refused in about two seconds |
-| Premium-series family | `--family PRMS` rejected client side, `--family 8IM` created `HS_PRMS_2` | The help text's `Gen4, Gen5` is not the whole list |
+| Try to disable read scale-out | `az sql db update ... --read-scale Disabled` | Accepted, and `readScale` stays `Enabled` |
+| Remove the replica | `az sql db update ... --ha-replicas 0` | `readScale` becomes `Disabled` on its own |
+| Reverse migrate | `az sql db update ... --edition GeneralPurpose --service-objective GP_Gen5_2 --compute-model Provisioned` | Succeeds after minutes, max size back to 1 TB |
+| Create one directly as Hyperscale | `az sql db create ... --edition Hyperscale --family Gen5 --capacity 2` | Online after minutes, replica count 1, max size -1 |
+| Reverse migrate that one | same update command | Refused at once |
+| Premium-series family | `--family PRMS` rejected client side, `--family 8IM` creates `HS_PRMS_2` | The help text's `Gen4, Gen5` is not the whole list |
 
 ## Sources
 
-Fetch these rather than trusting the summary above, which carries a verification date for a reason.
+Fetch these rather than trusting the summary above; the service and its limits change.
 
 - Convert a database to Hyperscale:
   <https://learn.microsoft.com/en-us/azure/azure-sql/database/convert-to-hyperscale>

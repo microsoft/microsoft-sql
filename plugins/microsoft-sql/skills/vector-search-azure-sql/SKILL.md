@@ -1,16 +1,6 @@
 ---
 name: vector-search-azure-sql
-description: >-
-  Stores and searches vectors natively in Azure SQL Database: the vector type, VECTOR_DISTANCE,
-  the 1998 dimension ceiling, the DiskANN vector index, and the long list of places a vector
-  column is refused. Use when a schema needs an embedding column, when someone asks to "store
-  embeddings in SQL", "do similarity search", "cosine distance", "top k nearest neighbours",
-  "CREATE VECTOR INDEX", "VECTOR_SEARCH" or "WITH APPROXIMATE"; when a vector column is rejected
-  as a key, a constraint, a computed column or inside ORDER BY, GROUP BY, DISTINCT or UNION; and
-  when a similarity query returns the right rows but scans the whole table. This skill owns the
-  type and the query surface. The end to end pipeline is rag-on-azure-sql, generating embeddings
-  embeddings-and-external-models, and a vector column's place in a wider design
-  design-azure-sql-schema.
+description: "Use when writing, reviewing or debugging vector search on Azure SQL Database: VECTOR_DISTANCE, VECTOR_SEARCH, vector index. Has verified behavior common answers miss, e.g. ORDER BY VECTOR_DISTANCE never uses the index. For RAG, use `rag-on-azure-sql`."
 ---
 
 # Vector storage and search on Azure SQL Database
@@ -18,16 +8,21 @@ description: >-
 The `vector` type behaves like no other column type in this engine, and the query that looks like
 vector search is not the query that uses the vector index.
 
-Syntax and status re-checked 2026-09-03 against Microsoft Learn's `vector data type`,
-`VECTOR_SEARCH` and `CREATE VECTOR INDEX` pages. Every error number and plan below was measured
-2026-08-28 against a live Azure SQL Database (`SERVERPROPERTY('EngineEdition')` returns 5, General
-Purpose serverless, compatibility level 170) and again against the local Azure SQL Database
-container, which reports the same edition. They agreed on every error number below.
+Unless a line names a build, every error number and plan below is the same on Azure SQL Database
+at compatibility level 170 and on the Azure SQL Database container; both report
+`SERVERPROPERTY('EngineEdition')` 5.
 
-## Build the fixture and the index first
+## Scope
 
-Do not read about the index. Build one. It is the only way to learn whether the preview has reached
-your engine.
+- Owns the `vector` type and the query surface on Azure SQL Database.
+- The end to end pipeline is `rag-on-azure-sql`, generating embeddings is
+  `embeddings-and-external-models`, and a vector column's place in a wider design is
+  `design-azure-sql-schema`.
+
+## Build a test table and the index first
+
+Do not read about the index. Build one. It is the quickest way to learn how your engine's index
+behaves.
 
 ```sql
 CREATE TABLE dbo.chunks (
@@ -52,28 +47,31 @@ CREATE VECTOR INDEX vi_chunks ON dbo.chunks (embedding)
 SELECT DATEDIFF(millisecond, @t0, SYSUTCDATETIME()) AS build_ms;
 ```
 
-Measured over 140 rows: 145 ms on the local container, 276 ms in the cloud. If a plan, a document or
-a model says this statement is not yet buildable, run it before believing it. You turn nothing
-on first. Compatibility level is not the gate: column, insert, `VECTOR_DISTANCE` and approximate
-search over an existing index all worked at level 150. `PREVIEW_FEATURES` is not the gate either:
+At this size it builds in a fraction of a second, in the container and in the cloud. If a plan, a
+document or a model says this statement is not yet buildable, run it before believing it. You turn
+nothing on first. Compatibility level is not the gate: column, insert, `VECTOR_DISTANCE` and
+approximate search over an existing index all work at level 150. `PREVIEW_FEATURES` is not the
+gate either:
 
 ```sql
 SELECT [name], [value] FROM sys.database_scoped_configurations WHERE [name] = 'PREVIEW_FEATURES';
 ```
 
-**Do not read a decision out of that number.** On the container it is not deterministic: six
-freshly created databases on one engine read 0, 1, 0, 1, 1, 1 on 2026-09-03, while `model` and
-`master` both read 0. Learn documents OFF as the default, scopes the requirement to the boxed
+**Do not read a decision out of that number.** In the container it is not deterministic: freshly
+created databases on one engine read 0 or 1, varying from one database to the next, while `model`
+and `master` both read 0. Learn documents OFF as the default, scopes the requirement to the boxed
 engine, and its own `CREATE VECTOR INDEX` example calls the setting "not needed for Azure SQL
 Database". What matters is the statement above: the index builds and you set nothing. If a
 document tells you to turn this on first, it is wrong whatever your database happens to
 report. The type, `VECTOR_DISTANCE`, `VECTOR_NORM`, `VECTOR_NORMALIZE` and `VECTORPROPERTY` are
-generally available; `CREATE VECTOR INDEX`, `VECTOR_SEARCH` and `TOP (N) WITH APPROXIMATE` are
-preview and roll out by region, so a design that only performs with the index carries preview risk.
+generally available. On Azure SQL Database `CREATE VECTOR INDEX`, `VECTOR_SEARCH` and
+`TOP (N) WITH APPROXIMATE` are generally available too; they are preview only on SQL Server 2025,
+behind `PREVIEW_FEATURES`. Check feature availability by region before a design depends on the index.
 
 ## The correction: which query shape reaches the index
 
-An agent asked for fast similarity search writes this. It is wrong and nothing reports it:
+The usual answer to a request for fast similarity search is this. It is wrong and nothing
+reports it:
 
 ```sql
 -- Correct results. Never uses a vector index. Computes a distance for EVERY row.
@@ -83,13 +81,13 @@ FROM dbo.chunks
 ORDER BY VECTOR_DISTANCE('cosine', embedding, @q);
 ```
 
-Measured plan with a current DiskANN index: `Clustered Index Scan`, then `Compute Scalar`
+With a current DiskANN index the plan is `Clustered Index Scan`, then `Compute Scalar`
 evaluating `vector_distance` per row, then `Sort`. The index is not in the plan. Learn states it
 outright: vector distance is always exact and doesn't use any vector index, even if available. The
 shape that does reach the index is a different statement, not a tuning option:
 
 ```sql
--- Uses the vector index. Vector Index Seek in the measured plan.
+-- Uses the vector index. Vector Index Seek in the plan.
 DECLARE @q vector(5) = '[0.3,0.3,0.3,0.3,0.3]';
 SELECT TOP (10) WITH APPROXIMATE t.id, t.body, r.distance
 FROM VECTOR_SEARCH(TABLE = dbo.chunks AS t, COLUMN = embedding,
@@ -98,9 +96,9 @@ WHERE t.category = N'general'
 ORDER BY r.distance;
 ```
 
-Four shapes, measured on the same table and index:
+Four shapes on the same table and index:
 
-| Query | Measured plan |
+| Query | Plan |
 |---|---|
 | `ORDER BY VECTOR_DISTANCE(...)` with `TOP` | Clustered Index Scan, exact, full scan |
 | `VECTOR_SEARCH` with `TOP` and no `WITH APPROXIMATE` | Clustered Index Scan, exact kNN |
@@ -110,7 +108,7 @@ Four shapes, measured on the same table and index:
 **Every wrong shape returns correct rows.** That is the whole hazard. A pipeline tested on a few
 thousand rows passes, ships, then computes one distance per row per query forever, so the defect shows
 up as latency and cost, not as a failure anyone can point at. Learn says a warning is
-raised when no compatible index is found; nothing surfaced here.
+raised when no compatible index is found; do not count on seeing one.
 
 Turn the silent fallback into a failure. `WITH (FORCE_ANN_ONLY)` goes on the `VECTOR_SEARCH` alias
 and needs an index and `WITH APPROXIMATE` present:
@@ -126,11 +124,11 @@ ORDER BY r.distance;
 With no usable index that fails with `Msg 42227` instead of quietly scanning. Use it in a test, not
 in production.
 
-### The older syntax an agent reaches for first
+### The older syntax most examples still show
 
 `VECTOR_SEARCH(..., TOP_N = 10)` is what most published examples still show. Against a current index
 it fails with `Msg 42274`. Match on that number, not the text: Learn prints "version 3 index" where
-the engine measured here printed "newer index version". `TOP_N` belongs to an earlier index format
+the engine prints "newer index version". `TOP_N` belongs to an earlier index format
 that cannot be upgraded in place, so move the count to `SELECT TOP (N) WITH APPROXIMATE`.
 
 `WITH APPROXIMATE` is also not a general modifier. Without a `VECTOR_SEARCH` it fails with
@@ -167,7 +165,9 @@ It returns a **distance**: smaller is closer, always, for all three.
 - **`dot` returns the negative inner product.** The identical row scores -14, not 14. A query that
   sorts `dot` descending, or keeps the largest score, returns the **least** similar rows, with no
   error and a full result set, and grounds its answer on the worst matches.
-- Both arguments must share a base type. `float32` against `float16` is `Msg 42243`.
+- Keep both arguments on one base type. Container builds through `18.0.226` refuse `float32` against
+  `float16` with `Msg 42243`; `18.0.302.0_248` and `18.0.310.0_253` compute a distance, so a mixed
+  comparison runs on some builds and fails on others.
 
 ## The type, in one place
 
@@ -179,14 +179,20 @@ SELECT VECTORPROPERTY(@v, 'Dimensions') AS dims,       -- 3
        CAST(@v AS nvarchar(max))        AS round_trip;
 ```
 
-- **Dimensions are 1 to 1998**, which Learn states and the engine enforces: `vector(1999)` is
-  `Msg 2717`, `vector(0)` is `Msg 1001`. A populated `vector(1998)` has `DATALENGTH` 8000.
-  **The declared dimension cannot be changed later**, even on an empty table: `ALTER COLUMN` is
-  `Msg 42204`, so it is drop and recreate. A 3072 dimension model does not fit, and that fix
-  belongs at embedding time.
-- **Base type is `float32`** unless `float16` is stated. Half precision is preview and is a surface
-  Learn does gate on `PREVIEW_FEATURES`, it crosses TDS as a JSON string rather than in binary, and
-  it cannot be compared with a `float32` vector.
+- **Dimensions are 1 to 1998 at the default `float32`**, which Learn states and the engine enforces:
+  `vector(1999)` is `Msg 2717`, `vector(0)` is `Msg 1001`. A populated `vector(1998)` has `DATALENGTH`
+  8000. **The declared dimension cannot be changed later**, even on an empty table: `ALTER COLUMN` is
+  `Msg 42204`. A new dimension means a new column. Add it beside the old one, backfill it, move the
+  queries and the vector index to it, and drop the old column last. Dropping the populated column
+  first deletes every stored embedding and leaves search broken until the backfill finishes.
+  A 3072 dimension model does not fit a `float32` column:
+  ask the model for 1998 or fewer at embedding time, or declare `vector(3072, float16)`.
+- **Base type is `float32`** unless `float16` is stated. Learn lists half-precision `float16` (up
+  to 3996 dimensions) as generally available on Azure SQL Database with no preview setting; it is
+  preview, behind `PREVIEW_FEATURES`, on SQL Server 2025, so check it in the container before
+  relying on it there. Half precision crosses TDS as a JSON string unless
+  the driver supports native `float16` transport, and comparing it with a `float32` vector depends on the
+  build (see above).
 - **It is written and read as a JSON array**, converting implicitly from `varchar`, `nvarchar` and
   `json`. **The dimension in `CAST` must be a literal**: `CAST(@s AS vector(@d))` is `Msg 102`, so a
   helper taking the dimension as a parameter needs dynamic SQL.
@@ -196,7 +202,7 @@ SELECT VECTORPROPERTY(@v, 'Dimensions') AS dims,       -- 3
 
 ## The restriction list
 
-No model infers this: a `vector` column looks like a column. Every row was measured.
+No model infers this: a `vector` column looks like a column.
 
 **Refused in a table definition**
 
@@ -240,22 +246,21 @@ unsupported, and `sp_verify_database_ledger` errors on a database holding a vect
 ## What the index requires, and what it costs
 
 - **The table needs a clustered index.** Without one, `Msg 42254`. Learn says a primary key
-  clustered index; clustered primary keys on `int`, `bigint`, `nvarchar` and a composite all built
-  here, so `Msg 42217`'s narrower wording is stale, not the rule. Re-measured on a real logical
-  server 2026-09-08: `bigint` and a composite `(int, int)` both built, a heap was refused with
-  `Msg 42254` and not 42217, and **no input produced `Msg 42217` at all**.
+  clustered index; clustered primary keys on `int`, `bigint`, `nvarchar` and a composite
+  `(int, int)` all build, on Azure SQL Database too, so `Msg 42217`'s narrower wording is stale,
+  not the rule. A heap is refused with `Msg 42254`, not 42217, and **none of these raises
+  `Msg 42217` at all**.
 - **At least 100 rows with a non-null vector must already exist**, or `Msg 42266`. A fresh database
-  has no index until it has content, and every query is silently exact until then. The fixture
-  inserts 150 for headroom.
+  has no index until it has content, and every query is silently exact until then. The test table
+  above inserts 150 for headroom.
 - **One vector index per column.** A second, even with a different metric, is `Msg 42230`. The
   metric is fixed at build time, and asking `VECTOR_SEARCH` for a different one **falls back
-  silently**. Measured 2026-09-06 against a `cosine` index on 150 rows: `METRIC = 'euclidean'` and
-  `METRIC = 'dot'` both returned a full ordered result set, no error and no warning, computed
-  exactly. This skill said `Msg 42227` here until that measurement, and the claim was backwards in
-  the one direction that matters, because a reader who believes the engine will stop them has no
-  reason to check. `Msg 42227` is raised only by `WITH (FORCE_ANN_ONLY)`, which is why that hint
-  belongs in the test that proves the index is being read.
-- **The local Azure SQL Database container builds it too.** Validate the production query plan and
+  silently**. Against a `cosine` index, `METRIC = 'euclidean'` and `METRIC = 'dot'` both return a
+  full ordered result set, computed exactly, with no error and no warning. It is not `Msg 42227`,
+  and a reader who believes the engine will stop them has no reason to check. `Msg 42227` is
+  raised only by `WITH (FORCE_ANN_ONLY)`, which is why that hint belongs in the test that proves
+  the index is being read.
+- **The Azure SQL Database container builds it too.** Validate the production query plan and
   security behavior against Azure SQL Database before relying on local parity.
 
 | Operation | Result |
@@ -266,18 +271,16 @@ unsupported, and `sp_verify_database_ledger` errors on a database holding a vect
 | Importing a dacpac or bacpac | Fails. The export is fine. Drop the indexes before export, recreate after the load |
 | Partitioning the table | Not supported |
 
-This skill used to report that import row as unsettled and it is settled. Learn states it: the
-import creates schema objects before it loads data, so the index is built against an empty table and
-trips the 100 row minimum.
-`sqlpackage-import-export` measured the round trip on 2026-08-31 and agreed with Learn.
-Open it before planning either half, because it owns the sequence.
+Learn states the import row: the import creates schema objects before it loads data, so the index
+is built against an empty table and trips the 100 row minimum. `sqlpackage-import-export` owns the
+round trip and its sequence; open it before planning either half.
 
 `INSERT`, `UPDATE`, `DELETE` and `MERGE` are all supported on a current index and changes are
 searchable after commit, which is new: earlier index versions made the table read only. Watch
 `sys.dm_db_vector_indexes` for background maintenance, and **drop and recreate the index after
 replacing most of the embeddings**: the graph was built for the old distribution and recall degrades
 with no error. Filter predicates apply during the search, so a filtered top ten returns ten rows
-when ten qualify. Give the filter columns a nonclustered index, as the fixture does.
+when ten qualify. Give the filter columns a nonclustered index, as the test table above does.
 
 ## Check it worked
 
@@ -324,24 +327,25 @@ whatever the rows look like. Check 3 returns `nearest` below `furthest`, both no
 - Do not conclude the index is in use because results look right. Read the plan, or assert with
   `FORCE_ANN_ONLY`. `WITH APPROXIMATE` is not a droppable hint: it changes the algorithm.
 - Do not sort a `dot` distance descending, and do not present a cosine distance as a similarity.
-- Do not declare `vector(3072)`. The ceiling is 1998, and the fix belongs at embedding time.
+- Do not declare `vector(3072)` at the default `float32`: the ceiling is 1998. Ask the model for fewer
+  dimensions, or declare `vector(3072, float16)` and accept half precision.
 - Do not deduplicate on the embedding. There is no equality operator to do it with.
 - Do not raise the compatibility level or set `PREVIEW_FEATURES = ON`. Neither is the gate, and the
   container's `1` is not the cloud's value.
-- Do not report that the index cannot be built on the local container. It builds there.
+- Do not report that the index cannot be built in the container. It builds there.
 - Do not build the ingest, chunking and grounding pipeline here. That is `rag-on-azure-sql`.
 
 ## References
 
 - [references/vector-restrictions-and-query-plans.md](references/vector-restrictions-and-query-plans.md) when a claim here
-  disagrees with what you are seeing, which on a preview surface happens: it holds the raw statements
-  behind every table above, the four plans and the reproduction steps.
+  disagrees with what you are seeing, which can happen as engine builds change: it holds the raw statements
+  behind every table above, the four plans, and checks you can run.
 - Read [vector data type](https://learn.microsoft.com/sql/t-sql/data-types/vector-data-type) before
   choosing a dimension count or a driver, and
   [CREATE VECTOR INDEX](https://learn.microsoft.com/sql/t-sql/statements/create-vector-index-transact-sql)
-  before creating an index in production, for preview status and the migration off the earlier
+  before creating an index in production, for availability status and the migration off the earlier
   format.
 - Read [VECTOR_SEARCH](https://learn.microsoft.com/sql/t-sql/functions/vector-search-transact-sql)
   when a query will not compile alongside `WITH APPROXIMATE`, for the subquery patterns, and
   [Feature availability by region](https://learn.microsoft.com/azure/azure-sql/database/region-availability#vector-search)
-  before promising the preview in a region you have not built one in.
+  before promising the index in a region you have not built one in.

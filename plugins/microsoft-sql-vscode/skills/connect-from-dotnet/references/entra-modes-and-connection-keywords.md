@@ -37,7 +37,7 @@ ones first, so it costs latency a production workload has no reason to pay.
 
 ## Pooling and connection keywords
 
-Read out of `SqlConnectionStringBuilder` on 7.0.2, measured 2026-09-03 on .NET SDK 8.0.421.
+The defaults `SqlConnectionStringBuilder` reports on 7.0.
 
 | Keyword | Default |
 |---|---|

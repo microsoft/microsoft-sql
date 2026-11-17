@@ -1,10 +1,9 @@
-# The client library bulk paths: documented, not measured here
+# The client library bulk paths: what the snippets leave out
 
 SKILL.md carries a runnable snippet for each of the three. This file is what those snippets leave
-out. None of it was exercised against a live database in this authoring session: there was no .NET,
-Python or Node.js runtime alongside the engine used for
-[bulk-load-errors-and-log-rate-governor.md](bulk-load-errors-and-log-rate-governor.md). Treat every
-signature here as documented shape, and fetch the linked page before writing code against it.
+out. Fetch the linked page before writing code against a signature here. The server-side errors and
+the log rate governor are in
+[bulk-load-errors-and-log-rate-governor.md](bulk-load-errors-and-log-rate-governor.md).
 
 ## Contents
 

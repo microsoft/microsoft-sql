@@ -1,29 +1,16 @@
 ---
 name: prevent-sql-injection
-description: >-
-  Handles SQL injection on Azure SQL Database beyond parameterisation: a typed sp_executesql
-  parameter matches nothing where the same input concatenated into EXEC() returns every row;
-  QUOTENAME returns NULL above 128 characters, so the batch built from it becomes NULL and does
-  nothing; a dynamic ORDER BY built from one CASE over mixed types fails only for the sort key on
-  the lower-precedence branch; dynamic SQL breaks the ownership chain, so EXECUTE AS decides what
-  it may touch; and Always Encrypted refuses a literal (Msg 206). Use for a general injection
-  question or a pre-production review, when a QUOTENAME-built statement returns and raises
-  nothing, when a sort-by-column feature throws an operand type clash for one column only, when a
-  procedure works until its query becomes dynamic, or when an encrypted column will not take a
-  literal. Row level tenant isolation is rls-multi-tenant.
+description: "Use when writing or reviewing dynamic SQL on Azure SQL Database for injection: sp_executesql vs EXEC, dynamic ORDER BY or table names. Has verified behavior common answers miss, e.g. QUOTENAME returns NULL past 128 characters."
 ---
 
 # Prevent SQL injection: the value, the identifier, and the context it runs under
 
-Parameterising a value is the part an agent already gets right. Confirm it in a sentence and spend
-the answer on what a parameter cannot reach: an identifier, the type of a runtime-chosen sort
-expression, the permissions a dynamic batch runs under, and an encrypted column.
+Parameterising a value is the familiar part. Confirm it in a sentence and spend the answer on what
+a parameter cannot reach: an identifier, the type of a runtime-chosen sort expression, the
+permissions a dynamic batch runs under, and an encrypted column. The behavior below is Azure SQL
+Database's.
 
-Measured 2026-08-29 against an engine reporting `EngineEdition` 5 and Edition `SQL Azure`.
-`QUOTENAME`, `PARSENAME`, `sp_executesql`, ownership chaining and Always Encrypted were checked
-against Microsoft Learn on 2026-09-03; flags from `sqlcmd` 1.10.0 help.
-
-## 1. A parameter is a value, a concatenation is code, and the difference is measurable
+## 1. A parameter is a value, a concatenation is code, and one query shows the difference
 
 Do not assert this. Run it. Both statements get the same string.
 
@@ -40,19 +27,25 @@ EXEC sp_executesql N'SELECT COUNT(*) AS matched FROM dbo.Users WHERE name = @n',
 -- Same input concatenated: the input is now part of the statement. Returns 2.
 DECLARE @sql nvarchar(max) =
         N'SELECT COUNT(*) AS matched FROM dbo.Users WHERE name = N''' + @input + N'''';
-EXEC (@sql);
+EXEC (@sql);  -- vulnerable on purpose: do not copy
 ```
 
 Zero against two, from one string. Learn's rule for `@params` is the discipline in one line: values
 can only be constants or variables, never expressions built with operators.
 
-## 2. No parameter binds an identifier, and QUOTENAME's ceiling is a NULL
+## 2. No parameter binds an identifier, and QUOTENAME returns NULL past 128 characters
 
 `EXEC sp_executesql N'SELECT * FROM @t', N'@t sysname', @t = @name` cannot work: `@t` is a value,
 not a table. A dynamic identifier has to enter the SQL text, so `QUOTENAME`'s documented edges are
-load bearing. Learn: `character_string` is **sysname**, and an input over 128 characters returns
-`NULL`, as does an unacceptable quote character. Escaping is not the defect: an embedded `]` is
-doubled correctly. Crossing 128 is, because a `NULL` in a batch makes the whole batch `NULL`:
+load bearing. Its input, `character_string`, is **sysname**:
+
+- Up to 128 characters, `QUOTENAME` returns the name in brackets. An embedded `]` is doubled
+  correctly, so escaping is not the defect.
+- Over 128 characters, `QUOTENAME` returns `NULL`. It does not truncate the name and it raises no
+  error. An unacceptable quote character also returns `NULL`.
+- A `NULL` concatenated into a batch makes the whole batch `NULL`, and executing a `NULL` batch
+  does nothing and reports nothing. The long name is not rejected; the statement silently does not
+  run.
 
 ```sql
 DECLARE @n129 nvarchar(200) = REPLICATE(N'a', 129);
@@ -93,13 +86,16 @@ DECLARE @sql nvarchar(max) = N'SELECT COUNT(*) AS n FROM ' + @safe;
 EXEC sp_executesql @sql;
 ```
 
-The rejection there is the lookup's, not `QUOTENAME`'s: an over-long name matches no row because no
-table can carry one. Where the legal identifiers are known in advance, an allowlist is simpler.
+In this pattern an over-long name never reaches `QUOTENAME`, which only brackets names read back
+from the catalog. The lookup matches no row, because no catalog name is longer than 128 characters,
+so `@safe` stays `NULL` and the `THROW` raises error 50001. The long name is rejected with an error
+by the lookup, instead of turning into a silent `NULL` batch at `QUOTENAME`. Where the legal
+identifiers are known in advance, an allowlist is simpler.
 
 ## 3. One CASE over mixed types in a dynamic ORDER BY fails for some sort keys and not others
 
 A single `CASE` forces every branch to one common type chosen by type precedence, not by the branch
-the sort key selects. Measured on `dbo.T (i int, d date, s nvarchar(50))`:
+the sort key selects. On `dbo.T (i int, d date, s nvarchar(50))`:
 
 | Branches | sort key selects | Result |
 |---|---|---|
@@ -163,8 +159,7 @@ a tenant predicate reads. Neither remedy substitutes for parameterising.
 Learn lists it under Always Encrypted's limitations: comparing an encrypted column to a literal, or
 inserting one, fails with `Msg 206, Level 16, State 2, Operand type clash`. Only a value bound as a
 parameter over a connection with `Column Encryption Setting=Enabled` is encrypted before it leaves
-the driver, so parameterising is the only thing that returns a row. Documented, not reproduced here:
-it needs a column master key provisioned outside the database.
+the driver, so parameterising is the only thing that returns a row.
 
 ## Check it worked
 
@@ -189,7 +184,8 @@ tested: any raising `Msg 206`, `241` or `245` means a mixed-type `CASE` is still
 ## Do not
 
 - Do not present `QUOTENAME` as sufficient for a caller-supplied identifier without checking its
-  result for `NULL`, and do not say it truncates a long name. It returns `NULL`.
+  result for `NULL`, and do not say it truncates a long name or raises an error for one. It returns
+  `NULL`, and nothing reports it.
 - Do not say either helper checks that an object exists. Neither reads the catalog.
 - Do not build a caller-chosen `ORDER BY` from one `CASE` spanning columns of different types, even
   when the columns tried in testing share a type.
@@ -203,7 +199,7 @@ tested: any raising `Msg 206`, `241` or `245` means a mixed-type `CASE` is still
 
 ## References
 
-- Open [the measured runs](references/quotename-null-and-order-by-clashes.md) when a claim above
+- Open [the runnable checks](references/quotename-null-and-order-by-clashes.md) when a claim above
   disagrees with what you see, or to look up the message a column-type pairing produces.
 - Microsoft Learn, if a number above looks stale:
   [QUOTENAME](https://learn.microsoft.com/sql/t-sql/functions/quotename-transact-sql),

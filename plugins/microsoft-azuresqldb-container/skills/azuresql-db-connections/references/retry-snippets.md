@@ -162,13 +162,16 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_i
 
 # The canonical SQL_CONNECTION_STRING uses ADO.NET keywords (User Id=/Password=/TrustServerCertificate=true);
 # ODBC needs Uid=/Pwd=/TrustServerCertificate=yes, so translate before connecting. Reuse ONE connection.
+# TrustServerCertificate is carried over from the source string: true only for the local container, never
+# added for Azure SQL, whose certificate must be validated.
 raw = os.environ["SQL_CONNECTION_STRING"]
 p = dict(kv.split("=", 1) for kv in raw.split(";") if "=" in kv)
+trust = p.get("TrustServerCertificate", "false").strip().lower() in ("true", "yes")
 odbc = (
     "Driver={ODBC Driver 18 for SQL Server};"
     f"Server={p['Server']};Database={p['Database']};"
     f"Uid={p['User Id']};Pwd={p['Password']};"
-    "Encrypt=yes;TrustServerCertificate=yes"
+    f"Encrypt=yes;TrustServerCertificate={'yes' if trust else 'no'}"
 )
 _conn = pyodbc.connect(odbc, autocommit=False)
 

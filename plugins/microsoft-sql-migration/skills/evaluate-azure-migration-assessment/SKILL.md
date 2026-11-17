@@ -6,8 +6,7 @@ allowed-tools: Bash(az:*, curl:*) PowerShell Grep View
 
 # Evaluate Azure Migration Assessment
 
-These claims were checked on 2026-09-15 against the bundled `skill-contract.yml`, ARM API
-contracts, and assessment output contract.
+The bundled references define the ARM API contracts and assessment output contract.
 
 ## When to Use
 

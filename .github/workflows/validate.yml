@@ -21,4 +21,4 @@ jobs:
           node-version: "24"
 
       - name: Validate published distribution
-        run: node scripts/validate-distribution.mjs
+        run: node scripts/validate-distribution.mjs --require-signed-scripts

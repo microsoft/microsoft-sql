@@ -1,13 +1,20 @@
 # Privacy and data collection
 
-The plugins in this repository do not run in the background or independently collect telemetry.
-They provide instructions that an agent follows in response to a user request. Some workflows
-use an agent host, command-line tool, or Microsoft cloud service that may collect diagnostic,
-usage, or service data under that product's settings and privacy terms.
+The skill files in this repository do not independently collect telemetry. They provide
+instructions that an agent follows in response to a user request. The microsoft-sql-admin plugin
+also provides configuration for the separately downloaded SQL Tools MCP server; an agent host
+may download and start that server when the plugin is enabled. Agent hosts, command-line tools,
+MCP servers, and Microsoft cloud services have their own data collection settings and privacy
+terms.
 
-To prevent these plugins from initiating network requests, do not ask an agent to run a workflow
-that calls an external service, or remove the plugin from the agent host. Configure or disable
-telemetry for the agent host and external tools using their product documentation.
+To prevent server downloads or startup, disable the plugin's sql-tools MCP entry in the host or
+remove the administration plugin. To prevent workflow network requests, do not ask an agent to
+call external services. Configure or disable telemetry for the agent host and external tools
+using their product documentation.
+
+The SQL Tools MCP server sends telemetry to Microsoft by default. To turn it off, set the
+environment variable `SQLTOOLS__TELEMETRYENABLED=false` for the server process; the
+microsoft-sql-admin README says where to set the server's environment.
 
 ## Microsoft data collection notice
 

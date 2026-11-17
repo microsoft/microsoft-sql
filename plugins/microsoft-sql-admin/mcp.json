@@ -1,0 +1,18 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "sql-tools": {
+      "type": "stdio",
+      "command": "dnx",
+      "args": [
+        "Microsoft.SqlServer.SQLtools.MCPserver@1.0.0",
+        "--yes"
+      ],
+      "env": {
+        "SQLTOOLS__CONNECTIONPROVIDER": "EnvVar",
+        "SQLTOOLS__INCLUDEPREVIEWFEATURES": "Disabled",
+        "SQLTOOLS__SKILLCONTENTPROVIDER": "External"
+      }
+    }
+  }
+}

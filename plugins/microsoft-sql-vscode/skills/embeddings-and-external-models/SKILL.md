@@ -1,38 +1,26 @@
 ---
 name: embeddings-and-external-models
-description: >-
-  Generates embeddings and chunks inside Azure SQL Database with CREATE EXTERNAL MODEL,
-  AI_GENERATE_EMBEDDINGS, AI_GENERATE_CHUNKS and sp_invoke_external_rest_endpoint, covering the
-  database scoped credential naming rule, the permissions, the dimension budget that decides which
-  embedding model fits, and the outbound allowlist. Use when someone asks to "create an external
-  model", "call AI_GENERATE_EMBEDDINGS", "embed text in T-SQL", "chunk text in the database", or
-  "call an Azure OpenAI endpoint from SQL"; when such a call fails on the credential secret,
-  managed identity, permissions, HTTPS or a blocked domain; and when embedding a whole table in
-  one statement runs for hours. This skill owns producing the vector and calling out of the
-  engine; storing and searching it is vector-search-azure-sql, the pipeline around it is
-  rag-on-azure-sql, and offline embedding from application code is outside this in-engine workflow.
+description: "Use when generating embeddings in Azure SQL Database or reviewing that setup: CREATE EXTERNAL MODEL, AI_GENERATE_EMBEDDINGS, Azure OpenAI from T-SQL. Has verified behavior common answers miss, e.g. the model DDL succeeds with a credential that can never work."
 ---
 
 # Embeddings and external models in Azure SQL Database
 
-How the engine itself produces a vector, and how it is allowed to reach a model. Verified 2026-08-28
-against **both** a live Azure SQL Database (General Purpose serverless, compatibility level 170) and
-the local container, using a **real Azure OpenAI deployment created for the run**. Option lists and
-limits were re-sourced from Microsoft Learn on 2026-09-03.
+How the engine itself produces a vector, and how it is allowed to reach a model. Unless a line
+names one engine, what follows holds on **both** Azure SQL Database at compatibility level 170 and
+the Azure SQL Database container.
 
 `AI_GENERATE_CHUNKS` splits text and `CREATE EXTERNAL MODEL` registers an endpoint; neither touches
 the network. `AI_GENERATE_EMBEDDINGS` and `sp_invoke_external_rest_endpoint`, the call it builds
 on, both do, and that is where everything below goes wrong. All four work in the container
-as well as in the cloud: the 2026 catalog note calling this surface cloud only was wrong, and a real
-embedding call completed from inside a container.
+as well as in the cloud: this surface is not cloud only, and an embedding call to Azure OpenAI
+completes from inside a container.
 
 ## The correction
 
-**`CREATE EXTERNAL MODEL` validates almost nothing.** Measured on both engines, the DDL accepted an
-`http://` location, a host no allowlist permits, a credential whose name can never match, and a
-deployment that does not exist. All of it succeeded and appeared in `sys.external_models`. Each
-failure surfaces at the first `AI_GENERATE_EMBEDDINGS`, naming an object rather than the broken
-rule:
+**`CREATE EXTERNAL MODEL` validates almost nothing.** On both engines the DDL accepts an `http://`
+location, a host no allowlist permits, a credential whose name can never match, and a deployment
+that does not exist. All of it succeeds and appears in `sys.external_models`. Each failure
+surfaces at the first `AI_GENERATE_EMBEDDINGS`, naming an object rather than the broken rule:
 
 | What is actually wrong | What the engine says |
 |---|---|
@@ -49,28 +37,30 @@ a credential, object or permission that is present and correct.
 
 ## Which model fits, and it is not the best one
 
-A `vector` column holds at most **1998 dimensions** at the default `float32` base type. Learn's
-Azure OpenAI model table gives the outputs:
+A `vector` column holds at most **1998 dimensions** at the default `float32` base type, and **3996**
+at half-precision `float16`. Learn's Azure OpenAI model table gives the outputs:
 
 | Model | Output dimensions | Fits a vector column |
 |---|---|---|
 | `text-embedding-3-small` | 1536 | Yes |
 | `text-embedding-ada-002` | 1536 | Yes, and it accepts no `dimensions` parameter |
-| `text-embedding-3-large` | 3072 | **No, not at its default** |
+| `text-embedding-3-large` | 3072 | **Not in a `float32` column**; yes as `vector(3072, float16)` |
 
-`text-embedding-3-large` is what an agent reaches for because Learn's benchmark table scores it
-highest, and its 3072 dimension output fits no column this engine can declare. Only third generation
-models accept `dimensions`, so the fix is one JSON property on the model,
-`PARAMETERS = '{"dimensions":1536}'`, not a comment. Learn's `float16` base type doubles the ceiling
-to 3996, on a page that excludes Azure SQL Database and behind `PREVIEW_FEATURES`, so do not design
-around it. `vector-search-azure-sql` owns the column and the ceiling; this skill owns making the
-model return a number that fits.
+`text-embedding-3-large` is the usual pick because Learn's benchmark table scores it highest, and
+its 3072 dimension output does not fit a `float32` column. There are two fixes. Only third
+generation models accept `dimensions`, so one is a JSON property on the model,
+`PARAMETERS = '{"dimensions":1536}'`, not a comment. The other is a half-precision column,
+`vector(3072, float16)`, at half the precision per number. Learn lists half-precision `float16`
+(up to 3996 dimensions) as generally available on Azure SQL Database with no preview setting; it
+is preview, behind `PREVIEW_FEATURES`, on SQL Server 2025, so check it in the container before
+designing around it there. `vector-search-azure-sql` owns the column and the ceiling; this skill
+owns making the model return a number that fits.
 
 ## Step 1: chunk, which needs nothing but compatibility level 170
 
 `AI_GENERATE_CHUNKS` runs with no endpoint, no credential and no permission: a user holding only
-`db_datareader` ran it on both engines. Below compatibility level 170 Learn states the engine cannot
-find the function, which reads as a missing feature rather than a setting.
+`db_datareader` can run it on both engines. Below compatibility level 170 Learn states the engine
+cannot find the function, which reads as a missing feature rather than a setting.
 
 ```sql
 SELECT t.doc_id, c.chunk_set_id, c.chunk_order, c.chunk_offset, c.chunk
@@ -80,14 +70,14 @@ CROSS APPLY AI_GENERATE_CHUNKS(source = t.body, chunk_type = FIXED, chunk_size =
 ```
 
 - **`overlap` is a percentage of `chunk_size`, not a character count.** Learn states a whole number
-  from 0 to 50, applied to `chunk_size`. Measured at `chunk_size = 40, overlap = 10` the second chunk
-  started at offset 37: four characters back, not ten. Read as characters it silently changes how
+  from 0 to 50, applied to `chunk_size`. At `chunk_size = 40, overlap = 10` the second chunk starts
+  at offset 37: four characters back, not ten. Read as characters it silently changes how
   much context every chunk carries, and 50 is a hard ceiling.
 - **`chunk_type = FIXED` is a keyword, and the only one.** `chunk_type = N'FIXED'` is `Msg 102`, and
   so are `SENTENCE`, `PARAGRAPH`, `RECURSIVE`, `SEMANTIC`, `TOKEN` and `WORD`. Learn lists `FIXED`
   alone, so semantic boundaries are work done outside this function.
-- **`chunk_size` is characters, is required with `FIXED`, and splits mid word.** Measured at 40 the
-  second chunk began `azy dog. Azure SQL Database stores vecto`. It also keeps a chunk under the
+- **`chunk_size` is characters, is required with `FIXED`, and splits mid word.** At 40 a chunk can
+  read `azy dog. Azure SQL Database stores vecto`. It also keeps a chunk under the
   model's 8192 token limit.
 - **`enable_chunk_set_id = 1` is what makes a `CROSS APPLY` usable.** Without it `chunk_order`
   restarts at 1 per row and nothing records which row a chunk came from.
@@ -117,13 +107,12 @@ CREATE DATABASE SCOPED CREDENTIAL [https://<resource>.openai.azure.com/]
 WITH IDENTITY = 'Managed Identity', SECRET = '{"resourceid":"https://cognitiveservices.azure.com"}';
 ```
 
-Measured in the cloud: with no `SECRET` the call failed with `Msg 33047, Fail to obtain or decrypt
-secret`, which sounds like a master key problem and is not. Adding `resourceid` fixed it. The server
+On Azure SQL Database, with no `SECRET` the call fails with `Msg 33047, Fail to obtain or decrypt
+secret`, which sounds like a master key problem and is not. Adding `resourceid` fixes it. The server
 also needs an identity holding a role on the target resource, and without it the failure is an HTTP
-401, indistinguishable from a wrong key. **On the container managed identity does not work at all**:
+401, indistinguishable from a wrong key. **In the container managed identity does not work at all**:
 `Msg 31644, Server Managed Identity is disabled for this instance`, and its named remedy cannot run
-there either. Which statement refuses it, measured 2026-09-06 on 18.0.226_4_147, is worth getting
-right, because this skill named the wrong one until that day. `sp_configure` is not callable from a
+there either. It is worth knowing which statement refuses it. `sp_configure` is not callable from a
 user database at all, `Msg 2812, Could not find stored procedure`. Connected to `master` it runs and
 stages the value happily. **`RECONFIGURE` is what refuses**, with
 `Msg 40510, Statement 'CONFIG' is not supported in this version of SQL Server`, so the staged value
@@ -149,10 +138,10 @@ WITH (
   answer, so the generation half of a pipeline stays in the application.
 - **`API_FORMAT` is required and is not validated against the location.** Learn's four values are
   `Azure OpenAI`, `OpenAI`, `Ollama` and `ONNX Runtime`, the last a local runtime for a different
-  engine. The first three were accepted whatever the URL pointed at. Omitting it is `Msg 46505`, an
+  engine. The first three are accepted whatever the URL points at. Omitting it is `Msg 46505`, an
   unlisted value `Msg 46508`.
-- **`PARAMETERS` carries the dimension budget.** `'{"dimensions":768}'` returned a 768 dimension
-  vector from a model defaulting to 1536, measured; a value the model cannot produce is
+- **`PARAMETERS` carries the dimension budget.** `'{"dimensions":768}'` returns a 768 dimension
+  vector from a model defaulting to 1536; a value the model cannot produce is
   `Msg 31742, Unrecoverable HTTP error 400`.
 - **`PARAMETERS` also carries the retries.** `sql_rest_options.retry_count` takes 0 to 10 and retries
   HTTP 408, 429, 500, 502, 503 and 504, honouring `Retry-After`. It defaults to 0, so a model without
@@ -181,8 +170,8 @@ GRANT REFERENCES ON DATABASE SCOPED CREDENTIAL::[https://<resource>.openai.azure
 "does not exist or you do not have permission", so the obvious move is to recreate it, which changes
 nothing.
 
-**`Msg 15151` has a second cause that is not a permission at all**, measured on a logical server
-2026-09-08: `CREATE EXTERNAL MODEL` and the `AI_GENERATE_EMBEDDINGS` that uses it **cannot be in the
+**`Msg 15151` has a second cause that is not a permission at all.** On Azure SQL Database,
+`CREATE EXTERNAL MODEL` and the `AI_GENERATE_EMBEDDINGS` that uses it **cannot be in the
 same batch**. The model name binds when the batch compiles, before the create in that batch has run,
 and there is no deferred name resolution for external models. Split by `GO` or run in two round trips
 and the identical statements succeed. The message points at permissions the whole time. A caller going through `AI_GENERATE_EMBEDDINGS` needs neither of the other two grants,
@@ -195,15 +184,14 @@ because the model holds the credential: that is why to prefer it over raw REST.
 `sp_invoke_external_rest_endpoint` page carries the list and is the contract, so read it there and
 not from any table, this skill's included. Two things that list is not:
 
-- **Not "all of Azure".** Probed host by host in the cloud on 2026-08-28, `documents.azure.com`,
-  `management.azure.com` and `azureml.ms` were refused while `openai.azure.com` and
-  `blob.core.windows.net` were reached. Learn's route to a host off the list is API Management in
-  front of it, since `*.azure-api.net` is on it.
-- **Not enforced on the container at all.** The same call to a public non-Azure host returned HTTP
-  200 locally and `Msg 31612` in the cloud, so a pipeline proved locally can be refused on its first
-  cloud run by a policy no retry fixes.
+- **Not "all of Azure".** In the cloud, `documents.azure.com`, `management.azure.com` and
+  `azureml.ms` are refused while `openai.azure.com` and `blob.core.windows.net` are reached. Learn's
+  route to a host off the list is API Management in front of it, since `*.azure-api.net` is on it.
+- **Not enforced in the container at all.** The same call to a public non-Azure host returns HTTP
+  200 in the container and `Msg 31612` in the cloud, so a pipeline proved locally can be refused on
+  its first cloud run by a policy no retry fixes.
 
-Re-probe rather than quote: call a host that does not exist under that domain. `Msg 31625` means
+Probe rather than quote: call a host that does not exist under that domain. `Msg 31625` means
 the domain is permitted; `Msg 31612` means it is not.
 
 Local hosting is closed off by two more container rules: a private address is `Msg 31624`, and a
@@ -224,9 +212,10 @@ UPDATE TOP (200) c
  WHERE c.embedding IS NULL;
 ```
 
-**One row is one HTTP round trip, and it does not parallelise.** One call took 295 ms and a 25 row
-`UPDATE` took 8963 ms elapsed for 235 ms of CPU. So loop the statement above until it affects zero
-rows: 200 rows is roughly a 70 second transaction, and the corpus is never one. Also:
+**One row is one HTTP round trip, and it does not parallelise.** A batch's elapsed time is the sum
+of its rows' model calls while its CPU time stays small, so a 200 row batch holds its transaction
+open for 200 sequential calls, tens of seconds. So loop the statement above until it affects zero
+rows, and never make the corpus one transaction. Also:
 
 - **`NULL` input is an error, not a `NULL` result.** `Msg 8116, Argument data type NULL is invalid`.
   Filter the nulls; an empty string is accepted and returns a real vector.
@@ -235,12 +224,12 @@ rows: 200 rows is roughly a 70 second transaction, and the corpus is never one. 
 - **A per call override exists** when a job needs a different dimension or retry budget than the
   model carries: `AI_GENERATE_EMBEDDINGS(@t USE MODEL text_embedder PARAMETERS N'{"dimensions":768}')`.
 - **Concurrency is capped**, at 10% of worker threads to a maximum of 150, and `Msg 10928` past it.
-  Measured 2026-09-08 on a Basic database: 70 concurrent sessions, 30 admitted and 40 refused with
+  On a Basic database the request limit is 30, and sessions past it are refused with
   `Resource ID : 1. The request limit for the database is 30 and has been reached`. It arrives at
   **Level 20**, though `sys.messages` lists 10928 at severity 16, so a retry policy that filters on
   severity does not see what the catalog predicts.
   Learn's query for the per database number reads `sys.dm_user_db_resource_governance`, cloud only
-  and `Msg 208` on the container, so size parallelism in the cloud or not at all.
+  and `Msg 208` in the container, so size parallelism in the cloud or not at all.
 - Record which model produced each vector. The reason belongs to `rag-on-azure-sql`.
 
 ## Step 7: the general REST call, when no model type fits
@@ -308,17 +297,16 @@ sqlcmd -S "$SQL_SERVER" -d "$SQL_DB" -G -b -m-1 -i check-embeddings.sql
 no `Msg` number and the run looks clean, so use both.
 
 **`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
-Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
-`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
-message at any `-m` value, so on that build `Msg 31616` never appears at all and a run that
-overwrote the header still looks clean. Run the file through the ODBC build, or read the number out
-of `sys.messages` on a connection that works.
+Microsoft command line utilities. With go-sqlcmd 1.x, the build `brew install sqlcmd` and
+`winget install sqlcmd` install, a severity 10 message prints no `Msg` header at any `-m` value, so
+`Msg 31616` never appears at all and a run that overwrote the header still looks clean. Run the
+file through the ODBC build, or read the number out of `sys.messages` on a connection that works.
 
 ## References
 
-- [references/measured-external-model.md](references/measured-external-model.md): open it when a
-  claim above needs re-verifying, or for the naming, permission, allowlist and certificate matrices
-  and the statements reproducing them.
+- [references/measured-external-model.md](references/measured-external-model.md): open it for the
+  naming, permission, allowlist and certificate matrices and the statements that show them, or
+  when a claim above disagrees with what you see.
 - [CREATE EXTERNAL MODEL](https://learn.microsoft.com/sql/t-sql/statements/create-external-model-transact-sql):
   read before changing `API_FORMAT`, `PARAMETERS` or `retry_count`.
 - [AI_GENERATE_EMBEDDINGS](https://learn.microsoft.com/sql/t-sql/functions/ai-generate-embeddings-transact-sql):

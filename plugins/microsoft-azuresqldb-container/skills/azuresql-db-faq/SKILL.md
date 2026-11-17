@@ -1,15 +1,6 @@
 ---
 name: azuresql-db-faq
-description: >-
-  Answers questions about what the Azure SQL Database container (Private Preview)
-  can and cannot do, and WHY it differs from Azure SQL Database in the Microsoft
-  Azure cloud. Use when a user asks "can I take a backup", "why does USE fail",
-  "is X supported", "why can't I create a vector index", "why does SSMS error",
-  "why isn't the image on Docker Hub", "what's different from the cloud", or hits
-  behavior that does not match their Azure SQL Database expectations. Do NOT guess
-  from general SQL Server / Azure knowledge: the container is a Private Preview
-  product with specific gaps and a specific connection model. Read this skill,
-  and link the user to the live Known limitations page for the current full list.
+description: "Use when asking what the local Azure SQL Database container (Private Preview) supports or why it differs from the cloud: can I back up, why USE fails, can't create a vector index, SSMS errors."
 ---
 
 # The Azure SQL Database container: capabilities, limits, and why
@@ -19,15 +10,13 @@ from the cloud" questions accurately, instead of guessing from general SQL Serve
 or Azure SQL Database knowledge. A base model does not know this preview product's
 specifics, and the honest answers are often nuanced.
 
-Re-measured on 2026-09-19 against the container image tag `18.0.226_4_147`, reporting
-`EngineEdition` 5, Edition `SQL Azure`, build `12.0.2000.8`. All seven executable checks
-behind this skill pass: the engine identity, `Msg 40510` for `BACKUP` and for `RESTORE`,
-`Msg 40508` for `USE`, `Msg 33233` for a contained user, `Msg 12824` for `SET CONTAINMENT =
-PARTIAL`, and `Msg 12713` for `BULK INSERT` from a local file. **Two of those numbers were
-wrong before that date**: this skill printed `Msg 15007` and `Msg 12844`. Both statements
-are still refused, so the answers are unchanged and only the numbers are. The gap list this skill summarises tracks the
-published Known limitations page, which moves independently of that run, so read the live page
-before repeating a gap claim.
+The container reports `EngineEdition` 5, Edition `SQL Azure`, build `12.0.2000.8`. It refuses
+`BACKUP` and `RESTORE` with `Msg 40510`, `USE` on a user-database connection with `Msg 40508`,
+`SET CONTAINMENT = PARTIAL` with `Msg 12824`, and `BULK INSERT` from a local file with `Msg 12713`.
+Image tags through `18.0.226_4_147` also refuse a contained user with `Msg 33233`; later builds
+accept it. The gap list this skill summarises tracks the published Known
+limitations page, which moves independently of this skill, so read the live page before
+repeating a gap claim.
 
 ## The mental model: engine vs. managed service vs. SQL Server
 
@@ -54,17 +43,17 @@ managed cloud service, and it is not SQL Server. Sort almost any
 ## Most-asked questions (quick answers)
 
 - **"Can I run this container in Azure / in production?"** No. It is your local inner loop (development, testing, CI, demos), not a production database. For production, deploy the same code to Azure SQL Database in the Microsoft Azure cloud (the outer loop), usually by changing only the connection string. You do not run this container in Azure.
-- **"Can I take a backup?"** No: `BACKUP DATABASE` and `RESTORE DATABASE` return **Msg 40510 ("not supported in this version")** on the container, in every session. Azure SQL Database in the cloud likewise does not support them, because backups there are managed by the platform (not run with the `BACKUP` statement). For local data persistence, use a Docker named volume (`-v sqldb-data:/var/opt/mssql`); for managed backups, point-in-time restore, or geo-replication, use Azure SQL Database in the cloud.
+- **"Can I take a backup?"** No: the container refuses `BACKUP DATABASE` and `RESTORE DATABASE` with **Msg 40510 ("not supported in this version")**, in every session. Azure SQL Database in the cloud likewise does not support them, because backups there are managed by the platform (not run with the `BACKUP` statement). For local data persistence, use a Docker named volume (`-v sqldb-data:/var/opt/mssql`); for managed backups, point-in-time restore, or geo-replication, use Azure SQL Database in the cloud.
 - **"Why does `USE otherdb` fail with Msg 40508?"** Because a connection to a user database is an Azure-faithful session that enforces the same restriction as Azure SQL Database in the cloud. Select the database in the connection string (`Database=appdb`), do not switch with `USE`. (`USE` "works" only on a `master` connection, which is a provisioning session.)
 - **"Why does connecting fail until I create the database?"** The engine does **not** auto-create databases on connect. Provision once on a `master` connection (`CREATE DATABASE appdb`), then connect with `Database=appdb`.
 - **"Is a non-x64 host supported? / Is there an ARM64 build?"** The image is x64 only; there is no native ARM64 build. On an ARM64 host it runs under emulation: add `--platform linux/amd64` (Docker) or `platform: linux/amd64` (compose). Say "runs under emulation", never "ARM64 is supported", and do not promise a native build or a date. If the user wants one, point them at https://aka.ms/azuresqldb-container-feature-request.
-- **"Why can't I `CREATE VECTOR INDEX`?"** You probably can, and this is a place where the documentation and the engine disagree. The Known limitations page still lists vector index DDL as an active issue; measured on this image, the DiskANN index builds and `VECTOR_SEARCH` returns ranked results against it. Two things stop the statement: `SET QUOTED_IDENTIFIER ON` is required and is off by default in `sqlcmd` (without it, **Msg 1934**, whose text never names the setting), and the table needs at least **100 rows with non-null vectors** (below that, **Msg 42266**). Once the index exists, `TRUNCATE TABLE` on that table is refused (**Msg 42232**) and `DROP VECTOR INDEX` is not a statement (use `DROP INDEX name ON dbo.table`). Full-scan top-k stays exact and stays the right choice for a small table. Full detail: the `azuresql-db-rag` skill.
+- **"Why can't I `CREATE VECTOR INDEX`?"** You probably can: the DiskANN index builds and `VECTOR_SEARCH` returns ranked results against it, and the Known limitations page lists it as working, with restrictions. Two things stop the statement: `SET QUOTED_IDENTIFIER ON` is required and is off by default in `sqlcmd` (without it, **Msg 1934**, which names `'QUOTED_IDENTIFIER'` inside a long list of index features and reads like an index problem), and the table needs at least **100 rows with non-null vectors** (below that, **Msg 42266**). Once the index exists, `TRUNCATE TABLE` on that table is refused (**Msg 42232**) and `DROP VECTOR INDEX` is not a statement (use `DROP INDEX name ON dbo.table`). Full-scan top-k stays exact and stays the right choice for a small table. Full detail: the `azuresql-db-rag` skill.
 - **"Is Microsoft Entra ID (Azure AD) authentication supported?"** Yes. Configure it with `MSSQL_AAD_CLIENT_ID`, `MSSQL_AAD_PRIMARY_TENANT`, and `MSSQL_AAD_CERTIFICATE_FILE_PATH` plus a mounted `.pfx` (empty export password). Optionally set `MSSQL_AAD_SERVER_ADMIN_NAME`, `MSSQL_AAD_SERVER_ADMIN_TYPE` (`0` = user, `1` = group), and `MSSQL_AAD_SERVER_ADMIN_SID` to bootstrap an Entra server admin at start. SQL auth (`sa`) remains the simple local default. Open `references/entra-auth.md` in the `azuresql-db-container` skill before configuring any of this. Also see [Getting started: Microsoft Entra ID authentication](https://microsoft.github.io/azure-sql-database-container/getting-started.html#microsoft-entra-id-authentication).
 - **"Why does SSMS / the MSSQL extension throw errors?"** Graphical tooling is not yet 100% compatible; it is being fixed. Use `sqlcmd` or a driver, which work today; the **azuresql-db-container** skill has the command line. The MSSQL extension's GitHub Copilot integration also works (https://aka.ms/vscode-mssql-copilot-docs).
 - **"Why isn't the image on Docker Hub / MCR?"** This is a container-only Private Preview; the image is in a private registry with shared pull-only credentials provided when you sign up for the Private Preview at https://aka.ms/sqldbcontainerpreview-signup (they may rotate).
 - **"My engine is missing a recent fix, or behaves like an older build."** `:latest` is a moving tag and the image is rebuilt almost daily, but `docker run` reuses the copy already on disk (Docker's default pull policy is `missing`), so you can silently stay on a stale build. Refresh with `docker pull sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, then recreate the container. See the `azuresql-db-container` skill's image reference.
 - **"My query works locally but fails in the cloud."** Some PaaS restrictions are not yet enforced by the container, so something invalid in the cloud can succeed locally. Validate against a real Azure SQL Database once before declaring readiness (the `azuresql-db-local-to-cloud` skill can provision a target for a one-shot check).
-- **"Why does `CREATE USER ... WITH PASSWORD` fail when I make an app user?"** On the container a SQL contained user fails with **Msg 33233**, and you cannot turn containment on: `ALTER DATABASE ... SET CONTAINMENT = PARTIAL` fails with **Msg 12824**, which asks for an `sp_configure` setting that this engine does not have. Create a server login plus a mapped user instead: `CREATE LOGIN applogin WITH PASSWORD='...'` on `master`, then `CREATE USER appuser FOR LOGIN applogin` + role grants on `appdb`. This is inverted from the cloud (where contained users are preferred). Entra `CREATE USER ... FROM EXTERNAL PROVIDER` does work, but only on a container started with Entra configured (`MSSQL_AAD_*`). Against a container started without it the same statement is refused with **Msg 33134**, "Principal '...' could not be resolved. Error message: 'Unable to query Azure AD certificate from local cert store.'" Full recipe: the `azuresql-db-auth` skill.
+- **"Why does `CREATE USER ... WITH PASSWORD` fail when I make an app user?"** It depends on the image build. Image tags through `18.0.226_4_147` refuse a SQL contained user with **Msg 33233**; builds `18.0.302.0_248` and `18.0.310.0_253` accept it, as Azure SQL Database does. On no build can you turn containment on: `ALTER DATABASE ... SET CONTAINMENT = PARTIAL` fails with **Msg 12824**, which asks for an `sp_configure` setting that this engine does not have. A server login plus a mapped user works on every build: `CREATE LOGIN applogin WITH PASSWORD='...'` on `master`, then `CREATE USER appuser FOR LOGIN applogin` + role grants on `appdb`. Entra `CREATE USER ... FROM EXTERNAL PROVIDER` does work, but only on a container started with Entra configured (`MSSQL_AAD_*`). Without it the statement fails on every build, and the failure never names the missing configuration: image tag `18.0.226_4_147` answers **Msg 33134**, "Principal '...' could not be resolved. Error message: 'Unable to query Azure AD certificate from local cert store.'", and build `18.0.310.0_253` ends the session (**Msg 596**, "Cannot continue the execution because the session is in the kill state"). Full recipe: the `azuresql-db-auth` skill.
 
 Open [references/faq.md](references/faq.md) when the quick answers above do not cover the
 question, and [references/limitations.md](references/limitations.md) when the user needs the
@@ -98,7 +87,7 @@ current gap list with a workaround.
 
 ## Minimum tool versions
 
-Use only the tools needed by the selected recipe, at or above these minimum tested versions:
+Use only the tools needed by the selected recipe, at or above these minimum versions:
 
 - **`sqlcmd`**: go-sqlcmd 1.10.0
 

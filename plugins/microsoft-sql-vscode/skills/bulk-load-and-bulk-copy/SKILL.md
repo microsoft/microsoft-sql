@@ -1,16 +1,6 @@
 ---
 name: bulk-load-and-bulk-copy
-description: >-
-  Loads data into Azure SQL Database fast by choosing the right route: BULK INSERT and
-  OPENROWSET(BULK ...) from Azure Blob Storage, bcp, .NET SqlBulkCopy, and the Python and Node.js
-  bulk-copy equivalents. Use when someone says "bulk insert", "bulk load a CSV", "bcp in",
-  "OPENROWSET BULK", "load a file into a table fast", "SqlBulkCopy", "fast_executemany", or
-  pastes the error "OPENROWSET is not allowed to read local files" (Msg 12713) or a load stuck on
-  a LOG_RATE_GOVERNOR wait. Covers choosing between the Blob-only server-side paths and the
-  client-side paths, and the log rate cap that throttles every one of them regardless of logging
-  mode. Does not design the target table (design-azure-sql-schema), establish the connection
-  (connect-from-python, connect-from-dotnet, connect-from-typescript-and-node) or run a DACPAC or
-  BACPAC export or import (sqlpackage-import-export).
+description: "Use when loading a large file or many rows into an Azure SQL Database table fast: bulk insert a CSV, bcp, SqlBulkCopy, fast_executemany, BULK INSERT or OPENROWSET refusing a local file (Msg 12713), LOG_RATE_GOVERNOR."
 ---
 
 # Load rows fast: BULK INSERT from Blob Storage, bcp, and the driver bulk APIs
@@ -18,10 +8,15 @@ description: >-
 Moves rows into a table that already exists, and kills the two habits carried over from SQL Server:
 a local file path, and a minimal-logging tune-up. Designing that table is another job.
 
-Engine behaviour measured 2026-08-29 against a container reporting `SERVERPROPERTY('EngineEdition')`
-5 and `12.0.2000.8`, with `bcp` 18.6.0002.1 from `mssql-tools18`. Every option and flag below comes
-from Microsoft Learn's `BULK INSERT`, `bcp utility`, `sys.dm_user_db_resource_governance` and
-"Resource management in Azure SQL Database" pages, fetched 2026-09-03.
+Every option and flag below comes from Microsoft Learn's `BULK INSERT`, `bcp utility`,
+`sys.dm_user_db_resource_governance` and "Resource management in Azure SQL Database" pages.
+
+## Scope
+
+- Loading rows into a table that already exists. Designing that table is `design-azure-sql-schema`.
+- Establishing the connection is `connect-from-python`, `connect-from-dotnet` or
+  `connect-from-typescript-and-node`.
+- A DACPAC or BACPAC export or import of a whole database is `sqlpackage-import-export`.
 
 ## The correction
 
@@ -44,7 +39,7 @@ Azure SQL Database." What caps ingestion is the transaction log rate governor, a
 limit on log record generation enforced at the subsecond level, "limiting throughput regardless of
 how many IOs can be issued against data files". It surfaces as a `LOG_RATE_GOVERNOR` wait, or
 `POOL_LOG_RATE_GOVERNOR` in an elastic pool. `TABLOCK` and `BATCHSIZE` do not raise that ceiling,
-and were measured not to move the Msg 12713 refusal either. The documented mitigations are to scale
+and they do not get past the Msg 12713 refusal either. The documented mitigations are to scale
 up or change tier, stage transient data in `tempdb`, or load into a clustered columnstore or
 compressed table.
 
@@ -62,7 +57,7 @@ Before quoting an error number, a wait type or a throughput figure, open [refere
 ## BULK INSERT from Blob Storage
 
 Managed identity leaves no secret to leak. Grant the database's identity the **Storage Blob Data
-Contributor** role on the container first:
+Contributor** role on the storage container first:
 
 ```sql
 CREATE DATABASE SCOPED CREDENTIAL BlobCred WITH IDENTITY = 'Managed Identity';
@@ -109,7 +104,7 @@ and fails through the same layer, so the two count as one route.
 
 ## bcp, from a client machine
 
-`bcp` ships inside the engine container image, not on the host, so run it there:
+`bcp` ships inside the Azure SQL Database container image, not on the host, so run it there:
 
 ```bash
 /opt/mssql-tools18/bin/bcp dbo.MyTable in data.csv \
@@ -122,12 +117,14 @@ integrated) is not supported against it. `-c` is character mode; `-t` and `-r` o
 newline defaults; `-F 2` skips the header row that `BULK INSERT` cannot; `-b` makes each batch its
 own committed transaction, so a failure late in the file keeps the batches already loaded; `-m 0`
 tolerates no conversion error (also 10 by default); `-e` is the only way to see the rejected rows.
-The `-h "TABLOCK"` hint is Windows only, so it does not exist in the container.
+The `-h "TABLOCK"` hint is Windows only, so the Linux `bcp` in the container image does not have
+it.
 
-Certificate trust was measured on 2026-08-29 as failing **silently**: `-u`, `-Yo` and an ODBC DSN
-carrying `TrustServerCertificate=yes` each exited 1 with zero bytes on stdout and stderr, while the
-paths that refuse the certificate returned a readable SSL or TCP error. Never promise `bcp` will
-"just work" once a trust flag is added.
+With `bcp` 18.6 from `mssql-tools18`, against a server presenting a self-signed certificate,
+certificate trust fails **silently**: `-u`, `-Yo` and an ODBC DSN carrying
+`TrustServerCertificate=yes` each exit 1 with zero bytes on stdout and stderr, while the paths that
+refuse the certificate return a readable SSL or TCP error. Never promise `bcp` will "just work" once
+a trust flag is added.
 
 ## The client library bulk APIs
 
@@ -145,7 +142,7 @@ dotnet run
 using var bulk = new SqlBulkCopy(connection);
 bulk.DestinationTableName = "dbo.MyTable";
 bulk.BatchSize = 5000;          // 0, the default, is one transaction for the entire load
-bulk.BulkCopyTimeout = 0;       // per batch, not per operation
+bulk.BulkCopyTimeout = 600;     // seconds per batch, not per operation; 0 would mean no limit at all
 bulk.EnableStreaming = true;
 bulk.ColumnMappings.Add("csv_id", "Id");   // required whenever names or order differ
 await bulk.WriteToServerAsync(reader);
@@ -174,7 +171,7 @@ for (const r of rows) table.rows.add(r.id, r.name);
 const rowCount = await new sql.Request().bulk(table);
 ```
 
-None of the three was exercised live, so before tuning past the properties shown, open [references/driver-bulk-apis.md](references/driver-bulk-apis.md).
+Before tuning past the properties shown, open [references/driver-bulk-apis.md](references/driver-bulk-apis.md).
 
 ## Not a bulk load: a whole database
 
@@ -215,11 +212,12 @@ WHERE wait_type LIKE '%LOG_RATE_GOVERNOR%';
 `wait_time_ms` on `LOG_RATE_GOVERNOR` is the load being throttled by it, and the answer is a higher
 service level or less log volume, not a bigger batch.
 
-**On the local container the first query fails with `Msg 208`, invalid object name, and there is no
-substitute.** Measured 2026-09-03: `sys.dm_user_db_resource_governance` and `sys.dm_db_resource_stats`
-are both absent, and `sys.dm_internal_resource_governor_resource_pools` exists but returns zero rows.
-The log rate governor is a service behaviour and it is not observable locally, so do not size a load
-against a number the container gave you. The wait statistics query does run in both places.
+**In the local Azure SQL Database container the first query fails with `Msg 208`, invalid object
+name, and there is no substitute.** `sys.dm_user_db_resource_governance` and
+`sys.dm_db_resource_stats` are both absent there, and
+`sys.dm_internal_resource_governor_resource_pools` exists but returns zero rows. The log rate
+governor is a service behaviour and it is not observable locally, so do not size a load against a
+number the container gives you. The wait statistics query runs in both places.
 
 ## Do not
 
@@ -238,5 +236,5 @@ against a number the container gave you. The wait statistics query does run in b
 - [Resource management in Azure SQL Database](https://learn.microsoft.com/azure/azure-sql/database/resource-limits-logical-server):
   the per-tier and Hyperscale log rate numbers, before promising a throughput.
 - `connect-from-python`, `connect-from-dotnet`, `connect-from-typescript-and-node` for getting
-  connected, which this skill assumes is done. `diagnose-resource-pressure` when a whole workload
+  connected, which this skill assumes is done. `resource-usage-sqlserver` when a whole workload
   is slow rather than one load hitting the governor.

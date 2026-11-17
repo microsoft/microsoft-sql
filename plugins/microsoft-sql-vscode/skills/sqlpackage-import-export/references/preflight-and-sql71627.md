@@ -1,12 +1,9 @@
-# The pre-flight scan for SQL71627, sourced from documentation
+# The pre-flight scan for SQL71627
 
-This file is sourced from Microsoft Learn, Microsoft support content and the SqlPackage issue
-tracker, not reproduced against a live engine. The container used to verify the rest of this
-skill accepted a Windows-style login-mapped user without complaint, because its permission model
-is looser than a real Azure SQL Database logical server on this specific point; the failure below
-is real and documented, but it was not observed running locally. Treat the queries as a starting
-point, and treat a clean scan on the container as inconclusive rather than as proof the same
-export will succeed against a real Azure SQL Database.
+The Azure SQL Database container for local development accepts a Windows-style login-mapped user
+without complaint, because its permission model is looser than a logical server's on this point.
+Treat the queries below as a starting point, and treat a clean scan or export from the container as
+inconclusive rather than as proof the same export will succeed against Azure SQL Database.
 
 ## What SQL71627 means
 

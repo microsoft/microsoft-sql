@@ -2,7 +2,6 @@
 
 ## Contents
 
-- [Provenance](#provenance)
 - [Setup](#setup)
 - [Extract versus Export: what lands inside the file](#extract-versus-export-what-lands-inside-the-file)
 - [ExtractAllTableData: a dacpac that carries data](#extractalltabledata-a-dacpac-that-carries-data)
@@ -11,22 +10,11 @@
 - [Import refuses a non-empty target](#import-refuses-a-non-empty-target)
 - [Publish reruns against its own target with no changes](#publish-reruns-against-its-own-target-with-no-changes)
 - [There is no BACKUP T-SQL](#there-is-no-backup-t-sql)
-- [Environment](#environment)
-
-## Provenance
-
-Every parameter and `/p:` property named in `SKILL.md` was read out of
-`sqlpackage /Action:<action> /?` on SqlPackage 170.4.83.3 on 2026-09-02, then cross-checked against
-the Microsoft Learn page for that same action. Nothing is stated in the skill that failed both
-checks, and nothing is carried from memory.
-
-Engine behaviour was measured on 2026-08-29 against the Azure SQL Database container recorded under
-[Environment](#environment), and the vector index row limits on 2026-08-31 against the same build.
-Everything below is a transcript of those runs, not a reconstruction.
 
 ## Setup
 
-A source database with one table holding three rows and one view over it:
+SqlPackage installed as a global .NET tool, `dotnet tool install -g microsoft.sqlpackage`, and a
+source database with one table holding three rows and one view over it:
 
 ```sql
 CREATE TABLE dbo.Widget (Id INT IDENTITY PRIMARY KEY, Name NVARCHAR(100));
@@ -40,13 +28,13 @@ CREATE VIEW dbo.WidgetView AS SELECT Id, Name FROM dbo.Widget;
 ```text
 $ sqlpackage /Action:Extract /SourceConnectionString:"..." /TargetFile:widget.dacpac
 Successfully extracted database and saved it to file '.../widget.dacpac'.
-Time elapsed 0:00:07.56
 
 $ sqlpackage /Action:Export /SourceConnectionString:"..." /TargetFile:widget.bacpac
 Processing Table '[dbo].[Widget]'.
 Successfully exported database and saved it to file '.../widget.bacpac'.
-Time elapsed 0:00:07.69
 ```
+
+Listing both files shows what each carries; the sizes will differ with your schema:
 
 ```text
 $ unzip -l widget.dacpac
@@ -100,7 +88,6 @@ $ sqlpackage /Action:Import /SourceFile:widget.bacpac /TargetConnectionString:".
 Importing data
 Processing Table '[dbo].[Widget]'.
 Successfully imported database.
-Time elapsed 0:00:39.17
 ```
 
 ```sql
@@ -119,9 +106,10 @@ Update complete.
 Successfully published database.
 ```
 
-The target database `dq_from_dacpac` did not exist before this run; confirmed with
-`SELECT name FROM sys.databases` before and after. Row count in the published target is 0,
-because the source file was a schema-only dacpac:
+The target database `dq_from_dacpac` need not exist beforehand: `SELECT name FROM sys.databases`
+before and after shows it appear. On a logical server the publishing login needs permission to
+create databases: the server admin, or a member of the `dbmanager` role in `master`. The row count
+in the published target is 0, because the source file is a schema-only dacpac:
 
 ```sql
 SELECT COUNT(*) FROM dq_from_dacpac.dbo.Widget;   -- 0
@@ -129,8 +117,7 @@ SELECT COUNT(*) FROM dq_from_dacpac.dbo.Widget;   -- 0
 
 ## Import refuses a non-empty target
 
-Running Import a second time against `dq_from_bacpac`, which the first Import had already
-populated:
+Run the Import a second time against `dq_from_bacpac`, which the first Import populated:
 
 ```text
 $ sqlpackage /Action:Import /SourceFile:widget.bacpac /TargetConnectionString:"...dq_from_bacpac..."
@@ -141,12 +128,12 @@ user objects. Import should be performed against a new, empty database.
 Error SQL71659: Data cannot be imported into target because it contains one or more user objects.
 ```
 
-Refused before any statement ran against the target; the row count in `dq_from_bacpac` was
-unchanged.
+It is refused before any statement runs against the target, and the row count in
+`dq_from_bacpac` is unchanged.
 
 ## Publish reruns against its own target with no changes
 
-Running the same Publish a second time against `dq_from_dacpac2`, already fully published:
+Run the same Publish a second time against a target it already published, `dq_from_dacpac2` here:
 
 ```text
 $ sqlpackage /Action:Publish /SourceFile:widget.dacpac /TargetConnectionString:"...dq_from_dacpac2..."
@@ -155,11 +142,10 @@ Analyzing deployment plan (Complete)
 Updating database (Start)
 Update complete.
 Successfully published database.
-Time elapsed 0:00:01.66
 ```
 
-No object-creation lines the second time; the plan had nothing to apply. Compare the 32-second
-first run, which created the database and both objects, against this 1.66-second no-op rerun.
+There are no object-creation lines the second time; the plan has nothing to apply, and the rerun
+finishes far sooner than the first publish, which created the database and both objects.
 
 ## There is no BACKUP T-SQL
 
@@ -167,15 +153,4 @@ first run, which created the database and both objects, against this 1.66-second
 $ sqlcmd -Q "BACKUP DATABASE dq_sqlpackage TO DISK='/tmp/x.bak';"
 Msg 40510, Level 16, State 1, Server SQL Azure, Line 1
 'BACKUP DATABASE' is not supported in this version of SQL Server.
-```
-
-## Environment
-
-SqlPackage 170.4.83.3 installed as a global .NET tool (`dotnet tool install -g
-microsoft.sqlpackage`), against a container reporting:
-
-```sql
-SELECT @@VERSION;                              -- Microsoft SQL Azure (RTM) - 12.0.2000.8
-SELECT SERVERPROPERTY('EngineEdition');        -- 5
-SELECT SERVERPROPERTY('Edition');              -- SQL Azure
 ```

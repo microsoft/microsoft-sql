@@ -1,32 +1,39 @@
-# Verified behaviour: every run behind the migration doctrine
+# Schema locks, alter cost and retries: checks you can run
 
 ## Contents
 
-- [The engine and the fixture](#the-engine-and-the-fixture)
-- [Run 1: metadata only versus rewrite](#run-1-metadata-only-versus-rewrite)
-- [Run 2: does a schema lock block a snapshot reader](#run-2-does-a-schema-lock-block-a-snapshot-reader)
-- [Run 3: the convoy behind a pending schema change](#run-3-the-convoy-behind-a-pending-schema-change)
-- [Run 4: lock timeout, online, and wait at low priority](#run-4-lock-timeout-online-and-wait-at-low-priority)
-- [Run 5: eight instances migrating at startup](#run-5-eight-instances-migrating-at-startup)
-- [Run 6: a migration under a retry policy, faulted mid script](#run-6-a-migration-under-a-retry-policy-faulted-mid-script)
-- [Run 7: what parses as an idempotent script](#run-7-what-parses-as-an-idempotent-script)
-- [Run 8: rename, contract, and drop then re-add](#run-8-rename-contract-and-drop-then-re-add)
-- [What did not hold](#what-did-not-hold)
-- [Reproducing this](#reproducing-this)
+- [Before you run these](#before-you-run-these)
+- [Which alterations rewrite every row](#which-alterations-rewrite-every-row)
+- [A schema lock blocks snapshot and NOLOCK readers](#a-schema-lock-blocks-snapshot-and-nolock-readers)
+- [A pending schema change blocks every query behind it](#a-pending-schema-change-blocks-every-query-behind-it)
+- [A lock timeout or an online alteration keeps readers moving](#a-lock-timeout-or-an-online-alteration-keeps-readers-moving)
+- [A pausable build, and a rebuild that gives up](#a-pausable-build-and-a-rebuild-that-gives-up)
+- [Concurrent startup migrations: only an application lock is safe](#concurrent-startup-migrations-only-an-application-lock-is-safe)
+- [A retried migration re-applies an unguarded backfill](#a-retried-migration-re-applies-an-unguarded-backfill)
+- [Which idempotent forms parse](#which-idempotent-forms-parse)
+- [Rename, contract, and drop then re-add](#rename-contract-and-drop-then-re-add)
+- [Assumptions that are false here](#assumptions-that-are-false-here)
 
-## The engine and the fixture
+## Before you run these
 
-All runs 2026-08-28, on one engine, one database.
+Every check runs on Azure SQL Database. The snapshot reader check needs read committed snapshot
+and snapshot isolation on: `is_read_committed_snapshot_on = 1` and
+`snapshot_isolation_state_desc = ON` in `sys.databases`.
 
-```text
-SERVERPROPERTY('EngineEdition')   5
-SERVERPROPERTY('Edition')         SQL Azure
-compatibility_level               170
-is_read_committed_snapshot_on     1
-snapshot_isolation_state_desc     ON
-```
+You need a table large enough that a rewrite is visible, millions of rows rather than thousands,
+and two or more client connections: two for most checks, one per simulated instance for the startup
+check. Run each session on its own connection, not as nested batches on one.
 
-Fixture, in `appdb`:
+Open every session with autocommit on and issue `BEGIN TRAN` and `COMMIT` explicitly. A client
+opened with autocommit off wraps the explicit transaction in a driver transaction and rolls it back
+at close, so log bytes read near zero and every alteration looks metadata only.
+
+Watch three things: wall clock at the client; `wait_type` and `blocking_session_id` from
+`sys.dm_exec_requests`, sampled from a session not involved in the check; and
+`database_transaction_log_bytes_used` from `sys.dm_tran_database_transactions`, read before the
+commit.
+
+The table the checks use:
 
 ```sql
 CREATE TABLE dbo.orders (
@@ -37,124 +44,98 @@ CREATE TABLE dbo.orders (
   note nvarchar(100) NULL,
   created_at datetime2 NOT NULL DEFAULT SYSUTCDATETIME()
 );
--- 2,000,000 rows, 230 MB reserved
 ```
 
-Concurrency was driven by separate client connections, one per thread, not by nested batches.
+## Which alterations rewrite every row
 
-## Run 1: metadata only versus rewrite
+A metadata only change writes a few kilobytes of log in a handful of records, effectively instant
+at any row count. A rewrite touches every row: about one log record per row, more log than the
+table holds, and time that grows with the table.
 
-Each statement ran inside `BEGIN TRAN`, was timed, then
-`sys.dm_tran_database_transactions.database_transaction_log_bytes_used` was read for
-`CURRENT_TRANSACTION_ID()` before `COMMIT`.
+Run each statement inside `BEGIN TRAN` and, before `COMMIT`, read
+`sys.dm_tran_database_transactions.database_transaction_log_bytes_used` for
+`CURRENT_TRANSACTION_ID()`.
 
-| Statement | Time | Log bytes | Log records |
-|---|---|---|---|
-| `ALTER TABLE dbo.orders ADD c1 int NULL` | 3.6 ms | 1,240 | 11 |
-| `ADD c2 int NOT NULL CONSTRAINT df_c2 DEFAULT (0)` | 1.7 ms | 2,200 | 19 |
-| `ADD c3 uniqueidentifier NOT NULL DEFAULT (NEWID())` | **4,585 ms** | **448,002,068** | **2,000,018** |
-| `ADD c4 datetime2 NOT NULL DEFAULT (SYSUTCDATETIME())` | 1.5 ms | 2,220 | 19 |
-| `ADD c5 varchar(max) NULL` | 1.6 ms | 2,336 | 23 |
-| `ALTER COLUMN status varchar(50) NOT NULL` (from 20) | 1.0 ms | 1,068 | 10 |
-| `ALTER COLUMN status varchar(max) NOT NULL` | **7,260 ms** | **572,400,240** | **2,000,018** |
-| `ALTER COLUMN note2 nvarchar(50)` (from `varchar(50)`) | **5,070 ms** | **426,473,648** | **2,000,027** |
-| `ALTER COLUMN customer_id bigint NOT NULL` | **6,053 ms** | **508,588,372** | **2,000,018** |
-| `ALTER COLUMN note nvarchar(100) NOT NULL` (from `NULL`) | **14,508 ms** | **661,262,280** | **2,000,023** |
-| `ADD CONSTRAINT ck_amt CHECK (amount >= 0)` | 521 ms | 1,704 | 17 |
-| `WITH NOCHECK ADD CONSTRAINT ck_amt2 CHECK (...)` | 1.5 ms | 1,388 | 12 |
-| `DROP COLUMN c5` | 2.9 ms | 1,224 | 12 |
-| `CREATE INDEX ix_off ON dbo.orders(customer_id)` | 628 ms | 37,714,632 | 4,510 |
-| `CREATE INDEX ix_on ON dbo.orders(amount) WITH (ONLINE=ON)` | 3,489 ms | 1,712 | 12 |
+| Statement | Result |
+|---|---|
+| `ALTER TABLE dbo.orders ADD c1 int NULL` | metadata only |
+| `ADD c2 int NOT NULL CONSTRAINT df_c2 DEFAULT (0)` | metadata only |
+| `ADD c3 uniqueidentifier NOT NULL DEFAULT (NEWID())` | **rewrites every row** |
+| `ADD c4 datetime2 NOT NULL DEFAULT (SYSUTCDATETIME())` | metadata only |
+| `ADD c5 varchar(max) NULL` | metadata only |
+| `ALTER COLUMN status varchar(50) NOT NULL` (from 20) | metadata only |
+| `ALTER COLUMN status varchar(max) NOT NULL` | **rewrites every row** |
+| `ALTER COLUMN note2 nvarchar(50)` (from `varchar(50)`) | **rewrites every row** |
+| `ALTER COLUMN customer_id bigint NOT NULL` | **rewrites every row** |
+| `ALTER COLUMN note nvarchar(100) NOT NULL` (from `NULL`) | **rewrites every row** |
+| `ADD CONSTRAINT ck_amt CHECK (amount >= 0)` | scans every row to validate, writes kilobytes of log |
+| `WITH NOCHECK ADD CONSTRAINT ck_amt2 CHECK (...)` | metadata only |
+| `DROP COLUMN c5` | metadata only |
+| `CREATE INDEX ix_off ON dbo.orders(customer_id)` | builds the index; log grows with the index, not one record per row |
+| `CREATE INDEX ix_on ON dbo.orders(amount) WITH (ONLINE=ON)` | can be slower than the offline build, and logs little in the session's transaction |
 
-`sys.dm_tran_locks` sampled from a second session while each transaction was open showed
-`OBJECT` / `Sch-M` for every `ALTER TABLE`, and `HOBT` / `Sch-M` plus `OBJECT` / `Sch-S` for the
-index builds.
+While each transaction is open, `sys.dm_tran_locks` read from a second session shows `OBJECT` /
+`Sch-M` for every `ALTER TABLE`, and `HOBT` / `Sch-M` plus `OBJECT` / `Sch-S` for the index builds.
 
-A first pass of this run reported near zero log bytes for most statements. The cause was the client
-being opened with autocommit off, so an outer driver transaction wrapped the explicit one and
-rolled everything back at close. The table above is the corrected run, with autocommit on and
-`BEGIN TRAN` and `COMMIT` issued explicitly. Worth recording, because the first pass looked
-plausible.
+## A schema lock blocks snapshot and NOLOCK readers
 
-## Run 2: does a schema lock block a snapshot reader
+Every read takes a schema stability lock, `Sch-S`, which is incompatible with `Sch-M`. Read
+committed snapshot, `SNAPSHOT` isolation and `WITH (NOLOCK)` all wait behind an uncommitted schema
+change, however cheap the change itself is.
 
-Session A: `BEGIN TRAN; ALTER TABLE dbo.orders ADD z1 int NULL;` held open 3 seconds, then
-committed. Three readers started 0 ms later, one per connection.
+Session A: `BEGIN TRAN; ALTER TABLE dbo.orders ADD z1 int NULL;`, held open for a few seconds, then
+committed. Start three readers at once, one per connection: a default read committed snapshot
+read, a read under `SET TRANSACTION ISOLATION LEVEL SNAPSHOT` in an explicit transaction, and a
+`SELECT ... WITH (NOLOCK)`.
 
-```text
-sys.dm_exec_requests, 2 s in:
-  52  LCK_M_SCH_S  wait_time 2047  blocked by 51
-  53  LCK_M_SCH_S  wait_time 2044  blocked by 52
-  54  LCK_M_SCH_S  wait_time 2042  blocked by 52
+`sys.dm_exec_requests` shows all three on `LCK_M_SCH_S`. The first names session A as its blocker;
+the later ones may name the first waiting reader, because they queue behind it. Each reader returns
+only when session A commits. The `ALTER` is metadata only: what blocks is the open transaction
+holding `Sch-M`, not the work.
 
-elapsed at the client:
-  default read committed snapshot   3,098 ms
-  SET TRANSACTION ISOLATION LEVEL SNAPSHOT, explicit tran   3,102 ms
-  SELECT ... WITH (NOLOCK)          3,100 ms
-```
+## A pending schema change blocks every query behind it
 
-All three waited the full hold. The `ALTER` itself was a 2 ms metadata only change; what blocked
-was the transaction holding `Sch-M`, not the work.
-
-## Run 3: the convoy behind a pending schema change
+A schema change waiting for its `Sch-M` lock blocks every query that arrives after it. One slow
+reader and one cheap `ALTER` stall the table for as long as the reader runs.
 
 Session A: `BEGIN TRAN; SELECT TOP 1 id FROM dbo.orders WITH (REPEATABLEREAD); WAITFOR DELAY
 '00:00:10'; COMMIT;`
 Session B, 1 s later: `ALTER TABLE dbo.orders ADD z1 int NULL`.
 Sessions C, D, E, 1 s after that: `SELECT TOP 1 id FROM dbo.orders`.
 
-```text
-sys.dm_exec_requests, 3 s in:
-  51  LCK_M_SCH_M  blocked by 54   ALTER TABLE dbo.orders ADD z1 int NULL
-  52  LCK_M_SCH_S  blocked by 51   SELECT TOP 1 id FROM dbo.orders
-  53  LCK_M_SCH_S  blocked by 51   SELECT TOP 1 id FROM dbo.orders
-  55  LCK_M_SCH_S  blocked by 51   SELECT TOP 1 id FROM dbo.orders
+`sys.dm_exec_requests` shows session B on `LCK_M_SCH_M`, blocked by A, and C, D and E on
+`LCK_M_SCH_S`, blocked by B, not by the long reader. C, D and E return only after A commits and B
+completes, each having waited out the rest of A's `WAITFOR` for a read that takes milliseconds.
+This is what turns a metadata only change into a full stall.
 
-elapsed:
-  long reader        10,011 ms
-  ALTER (2 ms work)   9,017 ms
-  tiny SELECT #0      8,025 ms
-  tiny SELECT #1      8,020 ms
-  tiny SELECT #2      8,023 ms
-```
+## A lock timeout or an online alteration keeps readers moving
 
-The three trivial reads are blocked by the `ALTER`, not by the long reader. This is what turns a
-metadata only change into a full stall.
+**`SET LOCK_TIMEOUT` makes the change give up instead of holding the queue.** Put
+`SET LOCK_TIMEOUT 2000` in front of an offline `ALTER COLUMN`, with the same 10 second reader in
+flight. The `ALTER` fails with `Msg 1222, Lock request time out period exceeded` once the timeout
+passes, and the `SELECT`s queued behind it return then, instead of waiting for the reader to
+commit.
 
-## Run 4: lock timeout, online, and wait at low priority
+**Online does not block readers.** Change the same column both ways. Use a column, `w2` here, that
+no index or default constraint references, so neither form is refused, and start two concurrent
+`SELECT TOP 1` readers while the change runs:
 
-**`SET LOCK_TIMEOUT 2000` in front of an offline `ALTER COLUMN`**, same 10 second reader in flight:
-
-```text
-the ALTER          ERR Msg 1222, Lock request time out period exceeded,  2,099 ms
-tiny SELECT #0     1,095 ms
-tiny SELECT #1     1,077 ms
-```
-
-Compare the 8,020 ms in run 3 with no timeout set.
-
-**Online versus offline on the same column**, `w2`, no index and no default constraint on it, so
-neither form is refused. Two concurrent `SELECT TOP 1` readers started 1.2 s into the change:
-
-| Statement | Its own time | Reader 1 | Reader 2 |
-|---|---|---|---|
-| `ALTER COLUMN w2 bigint NULL` | 8,369 ms | 7,169 ms | 7,169 ms |
-| `ALTER COLUMN w2 int NULL WITH (ONLINE = ON)` | 4,085 ms | 75 ms | 95 ms |
-| `ALTER COLUMN w2 bigint NULL WITH (ONLINE = ON)` | 3,513 ms | 74 ms | 76 ms |
-
-`sys.dm_exec_requests` showed `LCK_M_SCH_S` waiters during the offline run and none during either
-online run.
+| Statement | Readers |
+|---|---|
+| `ALTER COLUMN w2 bigint NULL` | wait on `LCK_M_SCH_S` until the change finishes |
+| `ALTER COLUMN w2 int NULL WITH (ONLINE = ON)` | return in milliseconds, no `LCK_M_SCH_S` waits |
+| `ALTER COLUMN w2 bigint NULL WITH (ONLINE = ON)` | return in milliseconds, no `LCK_M_SCH_S` waits |
 
 **Online does not convoy.** With the 10 second reader in flight and an online `ALTER COLUMN`
-waiting behind it, `SELECT`s arriving after the `ALTER` returned in 80 and 82 ms, against 8,020 ms
-for the offline form in run 3.
+waiting behind it, `SELECT`s arriving after the `ALTER` return in milliseconds. Behind the offline
+form they wait for the reader to commit.
 
 **Where `ONLINE = ON` is accepted:**
 
 | Statement | Result |
 |---|---|
 | `ALTER TABLE ... ALTER COLUMN ... WITH (ONLINE = ON)` | accepted |
-| `ALTER TABLE ... REBUILD WITH (ONLINE = ON)` | accepted, 2,961 ms |
+| `ALTER TABLE ... REBUILD WITH (ONLINE = ON)` | accepted |
 | `CREATE INDEX ... WITH (ONLINE = ON)` | accepted, inside and outside an explicit transaction |
 | `ALTER TABLE ... ADD col ... WITH (ONLINE = ON)` | `Msg 102`, syntax error |
 | `ALTER TABLE ... DROP COLUMN c1 WITH (ONLINE = ON)` | `Msg 156`, syntax error |
@@ -169,10 +150,12 @@ for the offline form in run 3.
 | `ALTER TABLE ... REBUILD WITH (ONLINE = ON (WAIT_AT_LOW_PRIORITY (...)))` | parses and runs |
 | `ALTER TABLE ... ALTER COLUMN ... WITH (ONLINE = ON (WAIT_AT_LOW_PRIORITY (...)))` | **`Msg 102`, syntax error** |
 
-**The two forms written out.** A resumable build, which requires `ONLINE = ON` and cannot run inside
-an explicit transaction, pauses to fit a window and is watched in `sys.index_resumable_operations`.
-A rebuild with `WAIT_AT_LOW_PRIORITY` gives up rather than queueing the workload behind itself; it
-is for rebuilds only, per the table above.
+## A pausable build, and a rebuild that gives up
+
+A resumable build requires `ONLINE = ON`, cannot run inside an explicit transaction, pauses to fit
+a window, and is watched in `sys.index_resumable_operations`. A rebuild with
+`WAIT_AT_LOW_PRIORITY` gives up rather than queueing the workload behind itself; it is for rebuilds
+only, per the table above.
 
 ```sql
 -- Pausable build. Not inside BEGIN TRAN.
@@ -186,13 +169,20 @@ ALTER INDEX ix_orders_customer ON dbo.orders REBUILD
 WITH (ONLINE = ON (WAIT_AT_LOW_PRIORITY (MAX_DURATION = 1 MINUTES, ABORT_AFTER_WAIT = SELF)));
 ```
 
-## Run 5: eight instances migrating at startup
+`sys.index_resumable_operations` lists the build with its `state_desc` and `percent_complete`
+until it completes or is aborted. The rebuild either gets its lock within `MAX_DURATION` or, with
+`ABORT_AFTER_WAIT = SELF`, cancels itself instead of making the workload wait.
 
-Fixture reset before each mode: `dbo.__migrations(version int PRIMARY KEY, applied_at)` and
-`dbo.customers(id, name, tier int NOT NULL DEFAULT 0)` with 500 rows, all `tier = 0`.
+## Concurrent startup migrations: only an application lock is safe
 
-Each of eight threads, on its own connection, checked the history table and, if version 1 was
-absent, ran four statements with a 50 ms pause between them:
+Runners that start together each read the history table before any of them records the version,
+so every one decides to apply. What happens next depends only on the shape of the script.
+
+Reset before each mode: `dbo.__migrations(version int PRIMARY KEY, applied_at)` and
+`dbo.customers(id, name, tier int NOT NULL DEFAULT 0)` with a few hundred rows, all `tier = 0`.
+
+Start several runners at once, each on its own connection. Each checks the history table and, if
+version 1 is absent, runs four statements with a 50 ms pause between them:
 
 ```text
 1  ALTER TABLE dbo.customers ADD region nvarchar(20) NULL
@@ -201,16 +191,17 @@ absent, ran four statements with a 50 ms pause between them:
 4  INSERT INTO dbo.__migrations (version) VALUES (1)
 ```
 
-Correct final state is version count 1, `region` present, index present, `SUM(tier) = 500`.
+The correct final state is one version row, `region` present, the index present, and `SUM(tier)`
+equal to the row count.
 
-| Mode | Decided to apply | Errors | Final `SUM(tier)` |
-|---|---|---|---|
-| no guards, no transaction | 8 | 7 x `Msg 2705` on statement 1 | 500 |
-| `IF NOT EXISTS` guards on 1 and 3, no transaction | 8 | 7 x `Msg 2627` on statement 4 | **4000** |
-| the same guards, all four inside one transaction | 8 | 7 x `Msg 2627` on statement 4 | 500 |
-| `sp_getapplock` Exclusive, Transaction owner, before the check | **1 applied, 7 skipped** | **0** | 500 |
+| Mode | What you will see |
+|---|---|
+| no guards, no transaction | One runner applies; every other fails on statement 1 with `Msg 2705`. `SUM(tier)` is correct |
+| `IF NOT EXISTS` guards on 1 and 3, no transaction | Every runner passes the guards and runs the backfill, so `SUM(tier)` is the row count times the number of runners. The only errors are `Msg 2627` on statement 4, in every runner but one, **after the data is wrong** |
+| the same guards, all four inside one transaction | Every runner but one fails on statement 4 with `Msg 2627` and rolls back. `SUM(tier)` is correct, and those runners report failure |
+| `sp_getapplock` Exclusive, Transaction owner, before the check | **One runner applies, the rest skip, no errors.** `SUM(tier)` is correct |
 
-Exact messages:
+The messages:
 
 ```text
 2705  Column names in each table must be unique. Column name 'region' in table
@@ -219,49 +210,38 @@ Exact messages:
       in object 'dbo.__migrations'. The duplicate key value is (1).
 ```
 
-Row two is the one that matters. The guards did their job, every runner passed them, and the
-un-guardable `UPDATE` ran eight times. The only error surfaced on the history insert, after the
-data was already wrong.
+Row two is the one that matters. The guards do their job, every runner passes them, and the
+`UPDATE`, which has no guard form, runs once per runner. The only error surfaces on the history
+insert, after the data is already wrong.
 
-Related re-run errors, captured separately: `Msg 2714` for a `CREATE TABLE` or a named constraint
-that already exists, `Msg 1913` for an index name that already exists.
+Related re-run errors: `Msg 2714` for a `CREATE TABLE` or a named constraint that already exists,
+`Msg 1913` for an index name that already exists.
 
-## Run 6: a migration under a retry policy, faulted mid script
+## A retried migration re-applies an unguarded backfill
+
+A retry policy reruns the whole unit. When the backfill committed before the fault, the rerun
+applies it again, and the runner reports success.
 
 Migration: the same guarded four steps, with `WAITFOR DELAY '00:00:03'` inserted before the history
 insert to stand in for the rest of a real migration. Runner: retry up to three attempts, treating a
 broken connection or a documented transient error number as retriable, which is the shape every
-data access guide teaches. Fault: a second session issued `KILL <spid>` 1.5 s into attempt 1, which
-lands inside the `WAITFOR`, that is after the backfill committed and before the history row.
+data access guide teaches. Fault: from a second session, `KILL <spid>` while attempt 1 is inside
+the `WAITFOR`, that is after the backfill committed and before the history row.
 
-**No transaction:**
+**No transaction.** Attempt 1 fails on a broken connection with no SQL error number; the ODBC
+driver reports native error 0, `Unspecified error occurred on SQL Server. Connection may have been
+terminated by the server.` The policy classifies it as transient and retries. Attempt 2 applies
+with no error, the runner reports success, version 1 is recorded once, and `SUM(tier)` is twice
+the correct value. Nothing is raised, nothing is logged, and the exit code is zero.
 
-```text
-attempt 1: FAILED err=None [TRANSIENT -> retried]
-           [Microsoft][ODBC Driver 18 for SQL Server]Unspecified error occurred on SQL Server.
-           Connection may have been terminated by the server. (0)
-attempt 2: applied, no error
-runner reported success: True
-final: versions 1, region present, SUM(tier) = 1000     <- correct is 500
-```
+**All steps inside one transaction, same fault at the same point.** Attempt 1 fails the same way,
+attempt 2 applies, the runner reports success, and `SUM(tier)` is correct.
 
-**Same script, all steps inside one transaction, same fault at the same point:**
+`KILL` stands in for a real transient fault here. A broken connection with no SQL error number is
+the class of failure transient fault policies exist to retry, but this does not show that a
+specific library's classifier agrees; check yours.
 
-```text
-attempt 1: FAILED, same transient classification
-attempt 2: applied, no error
-runner reported success: True
-final: versions 1, region present, SUM(tier) = 500      <- correct
-```
-
-The hazard reproduces. Nothing raised, nothing logged, exit zero, data doubled. Two caveats stated
-plainly: the fault was injected with `KILL` rather than by waiting for a real transient fault, and
-what the client saw was a broken connection with no SQL error number, surfaced by the driver as
-native error 0. That is the class of failure transient fault policies exist to retry, so the
-classification in the harness is the same one a production policy would make, but it is not proof
-that a specific library's classifier would agree.
-
-**Transaction limits found while testing this**, each attempted inside `BEGIN TRAN`:
+**Transaction limits**, each statement inside `BEGIN TRAN`:
 
 | Statement | Inside a transaction |
 |---|---|
@@ -269,7 +249,10 @@ that a specific library's classifier would agree.
 | `ALTER TABLE ... REBUILD WITH (ONLINE = ON)` | accepted |
 | `ALTER DATABASE CURRENT SET COMPATIBILITY_LEVEL = 160` | **`Msg 226`**, not allowed within a multi statement transaction |
 
-## Run 7: what parses as an idempotent script
+## Which idempotent forms parse
+
+Most guard syntax from other databases is a syntax error on Azure SQL Database. Run each line on
+its own:
 
 | Written | Result |
 |---|---|
@@ -284,77 +267,68 @@ that a specific library's classifier would agree.
 | `CREATE OR ALTER VIEW dbo.v_x AS ...` | works, inside and outside a transaction |
 | `DROP TABLE IF EXISTS dbo.t` | works |
 
-## Run 8: rename, contract, and drop then re-add
+## Rename, contract, and drop then re-add
 
-**`sp_rename` on a column.** `EXEC sp_rename 'dbo.parts.sku', 'part_number', 'COLUMN'` raised no
-error. The driver received one informational message:
+**`sp_rename` on a column raises no error.** `EXEC sp_rename 'dbo.parts.sku', 'part_number',
+'COLUMN'` succeeds, and the driver receives one informational message:
 
 ```text
 [01000] (15477)  Caution: Changing any part of an object name could break scripts and
                  stored procedures.
 ```
 
-A view and a procedure written over `sku` then failed with `Msg 207, Invalid column name 'sku'` at
-the next `SELECT` and the next `EXEC`. `sys.sql_expression_dependencies` still returned both
+A view and a procedure written over `sku` then fail with `Msg 207, Invalid column name 'sku'` at
+the next `SELECT` and the next `EXEC`. `sys.sql_expression_dependencies` still returns both
 referencing objects against `dbo.parts` with `is_ambiguous = 0`, so the dependency metadata gives
 no signal that either is broken.
 
-**Contract, from the point of view of an instance that has not been replaced.** A connection
-inserted successfully, another session ran `ALTER TABLE dbo.parts2 DROP COLUMN legacy_note`, then
-the same connection:
+**Contract breaks an instance that has not been replaced, one statement at a time.** Insert from
+one connection, run `ALTER TABLE dbo.parts2 DROP COLUMN legacy_note` from another, then return to
+the first connection:
 
 ```text
 its very next INSERT naming legacy_note   Msg 207, Invalid column name 'legacy_note'
 its SELECT *                              still works, with one fewer column
 ```
 
-**Drop then re-add.** Table `dbo.wide2(id int IDENTITY PRIMARY KEY, a char(4000) NOT NULL,
-b char(3000) NOT NULL)`, 200 rows.
+**`DROP COLUMN` frees neither space nor row budget.** Take a table
+`dbo.wide2(id int IDENTITY PRIMARY KEY, a char(4000) NOT NULL, b char(3000) NOT NULL)` with a few
+hundred rows, drop `a`, and add it back:
 
 ```text
-used_page_count before DROP COLUMN a      202
-used_page_count after  DROP COLUMN a      202          <- nothing reclaimed
 ALTER TABLE dbo.wide2 ADD a char(4000) NOT NULL DEFAULT ''
   Msg 1701: Creating or altering table 'wide2' failed because the minimum row size would be
   11011, including 7 bytes of internal overhead. This exceeds the maximum allowable table
   row size of 8060 bytes.
-ALTER TABLE dbo.wide2 REBUILD
-used_page_count after REBUILD             102
-re-add after REBUILD                      succeeded
 ```
 
-11011 is the row size counting the dropped `char(4000)`, which no longer appears in
-`sys.columns`. `sys.system_internals_partition_columns`, the catalog view that would show it,
-returned `Msg 208, Invalid object name` here, so the space cannot be inspected directly.
+`used_page_count` does not change when the column is dropped. After `ALTER TABLE dbo.wide2
+REBUILD` it falls, and the re-add succeeds.
 
-**Unnamed default constraint.** A column declared `qty int NOT NULL DEFAULT (0)` produced
-`DF__parts__qty__123EB7A3`. `ALTER TABLE dbo.parts DROP COLUMN qty` failed with
+11011 is the row size counting the dropped `char(4000)`, which no longer appears in
+`sys.columns`. On Azure SQL Database `sys.system_internals_partition_columns`, the catalog view
+that would show it, returns `Msg 208, Invalid object name`, so the space cannot be inspected
+directly.
+
+**An unnamed default constraint gets a name you did not choose.** A column declared
+`qty int NOT NULL DEFAULT (0)` gets a generated name such as `DF__parts__qty__123EB7A3`.
+`ALTER TABLE dbo.parts DROP COLUMN qty` then fails with
 `Msg 5074, The object 'DF__parts__qty__123EB7A3' is dependent on column 'qty'`. Looking the name up
-in `sys.default_constraints` and dropping it through `sp_executesql` succeeded. The generated suffix
+in `sys.default_constraints` and dropping it through `sp_executesql` succeeds. The generated suffix
 differs per environment, so a script naming it literally works where it was written and nowhere
 else.
 
-## What did not hold
+## Assumptions that are false here
 
-- **"Online index operations cannot run inside an explicit transaction."** Expected, and false
-  here. `CREATE INDEX ... WITH (ONLINE = ON)` and `ALTER TABLE ... REBUILD WITH (ONLINE = ON)` both
-  ran inside `BEGIN TRAN` and committed. The claim was dropped rather than softened.
+- **"Online index operations cannot run inside an explicit transaction."** False on Azure SQL
+  Database: `CREATE INDEX ... WITH (ONLINE = ON)` and `ALTER TABLE ... REBUILD WITH (ONLINE = ON)`
+  both run inside `BEGIN TRAN` and commit.
 - **`WAIT_AT_LOW_PRIORITY` as a general answer to the convoy.** It is rejected with `Msg 102` on
   `ALTER TABLE ... ALTER COLUMN`, so it covers rebuilds only. `SET LOCK_TIMEOUT` is the setting that
   applies to every statement.
-- **A first attempt at run 1** reported near zero log bytes for almost every statement, which would
-  have made every alteration look metadata only. Cause was an outer driver transaction rolling each
-  case back. Corrected before anything was written down.
+- **Near zero log bytes as proof of a metadata only change.** A driver transaction opened with
+  autocommit off rolls each case back and makes every alteration look metadata only; see
+  [Before you run these](#before-you-run-these).
 - **The `sp_rename` caution as a warning the operator sees.** It is class 01, informational. The
-  client library surfaced it in a messages collection and raised nothing. A runner that logs only
+  client library puts it in a messages collection and raises nothing. A runner that logs only
   exceptions logs nothing.
-
-## Reproducing this
-
-Everything above needs one Azure SQL Database engine, a table large enough that a rewrite is
-visible, and two or more client connections. Two sessions are enough for runs 2, 3, 4 and 8, and
-eight for run 5. The measurements that matter are wall clock at the client, `wait_type` and
-`blocking_session_id` from `sys.dm_exec_requests` sampled from an uninvolved session, and
-`database_transaction_log_bytes_used` from `sys.dm_tran_database_transactions` read before the
-commit. Open every session with autocommit on and issue `BEGIN TRAN` explicitly, or the driver's
-own transaction will silently undo the case being measured.

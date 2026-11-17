@@ -1,16 +1,6 @@
 ---
 name: azuresql-db-connections
-description: >-
-  Makes an app's database connections reliable against the local Azure SQL
-  Database container (Private Preview) and, unchanged, against Azure SQL
-  Database in the cloud: connection pooling plus retry/transient-fault handling. Use when the
-  user mentions "connection pooling", "retry logic", "transient fault", "retry
-  on transient error", "EnableRetryOnFailure", "connection resiliency",
-  "reliable connections", "pool size", "Max Pool Size", or says "the connection
-  keeps dropping", "connections time out under load", "add backoff", or "make
-  the DB layer resilient". This is the Azure SQL engine (EngineEdition 5), not
-  the mssql/server SQL Server image. Reach for this whenever hardening a
-  data-access layer that talks to SQL Server or Azure SQL.
+description: "Use when hardening an app's data layer: connections drop or time out under load, add pooling and retry with backoff for transient faults, Max Pool Size. Also covers the local Azure SQL Database container."
 ---
 
 # Reliable connections on the Azure SQL Database container (pooling + retry)
@@ -18,16 +8,6 @@ description: >-
 Make the app's database connections reliable with **connection pooling** and **retry /
 transient-fault handling**. This is the **Azure SQL engine** (Private Preview), not the SQL
 Server image.
-
-Verified on 2026-09-05 against the container image
-`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
-5, Edition `SQL Azure`, build `12.0.2000.8`. All five executable checks behind this skill
-passed: the engine identity, `Msg 40508` for `USE`, a TCP session on the mapped port, and the
-two resource-governance dynamic management views returning nothing locally. Of the ten
-transient error numbers in the retry list below, nine are in this build's `sys.messages` and
-`Msg 10929` is not. It stays in the list because it is a cloud resource-governance error the
-container has no reason to raise, and it is sourced from Microsoft Learn rather than from that
-run.
 
 ## Why do this locally (local-to-cloud parity)
 
@@ -102,7 +82,9 @@ Server=localhost,<HOST_PORT>;Database=appdb;User Id=sa;Password=<MSSQL_SA_PASSWO
 Retry only a transient fault: throttling, a brief failover, a dropped idle connection. In Azure
 SQL these arrive as specific error numbers: 40501 throttling, 40613 database unavailable,
 49918/49919/49920 busy, 4060, 10928, 10929, 40197, 233, plus connection-timeout and broken-pipe
-socket errors.
+socket errors. The local container's `sys.messages` lists all of these except `10929`, a cloud
+resource-governance error the container has no reason to raise; keep it in the list for Azure
+SQL Database.
 
 - Retry **only** transient errors. Retrying a non-transient error (login failure 18456, syntax
   error, constraint violation, permission denied) just fails slower and hides the real bug.
@@ -148,7 +130,7 @@ driver-specific keywords, not by inventing new env vars.
 
 ## Minimum tool versions
 
-Use only the tools needed by the selected recipe, at or above these minimum tested versions:
+Use only the tools needed by the selected recipe, at or above these minimum versions:
 
 - **`sqlcmd`**: go-sqlcmd 1.10.0
 - **`dotnet`**: .NET SDK 8.0.421

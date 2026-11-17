@@ -1,16 +1,6 @@
 ---
 name: t-sql-correctness
-description: >-
-  Writes T-SQL that returns the right answer on Azure SQL Database, and catches statements that
-  return a wrong answer with no error: NULL compared using = or <> or NOT IN, ISNULL and COALESCE
-  differing in return type, integer division truncating, a string variable declared with no
-  length, and a session where QUOTED_IDENTIFIER is OFF. Also corrects PostgreSQL and MySQL habit
-  (LIMIT, RETURNING, SERIAL, ILIKE, NOW(), true, false, double-quoted literals, TEXT columns, ON
-  CONFLICT, USE) and the opposite mistake of avoiding syntax supported since 2025. Use when
-  writing, porting or reviewing SQL, and for "why is that row missing", "why did NOT IN return
-  nothing", "why is this average wrong", "how do I paginate", "how do I get the id I just
-  inserted", "is this comparison case sensitive". Upserts are t-sql-upserts-merge, JSON
-  t-sql-json-and-openjson, table design design-azure-sql-schema.
+description: "Use when writing, porting or reviewing T-SQL for Azure SQL Database, or results look wrong with no error: NULLs, NOT IN, integer division. Has verified behavior common answers miss, e.g. the 'NULL eliminated' warning never reaches sqlcmd."
 ---
 
 # Write T-SQL that returns the right answer
@@ -19,7 +9,11 @@ Three failures. **The silent one first**, because nothing raises it: the stateme
 row count looks plausible, the answer is wrong. Then **PostgreSQL habit**, which at least fails
 loudly. Then **overcorrection**, hand-rolling what the engine now does natively.
 
-Checked against Microsoft Learn and sqlcmd 1.10.0, 2026-09-03.
+## Scope
+
+- Upserts and `MERGE` are `t-sql-upserts-merge`.
+- JSON and `OPENJSON` are `t-sql-json-and-openjson`.
+- Table design is `design-azure-sql-schema`.
 
 ## Wrong answers that raise no error
 
@@ -59,13 +53,16 @@ SELECT COUNT(*) FROM dbo.customers c
 WHERE NOT EXISTS (SELECT 1 FROM dbo.assigned a WHERE a.customer_id = c.id);  -- 2
 ```
 
-**Aggregates skip nulls, and say nothing about it.** Measured 2026-09-03 on `EngineEdition` 5
-through the **ODBC `sqlcmd`** at `-I -m-1`, the build that does print a severity 10 message's `Msg`
-number: this batch returns 30 and **no message at all**. Which build was used is the whole weight of
-that sentence, because go-sqlcmd 1.10.0 prints no `Msg` header on a severity 10 message at any `-m`
-value, so a silent run there would prove nothing. Message 8153, "Null value is eliminated by an
-aggregate", is in `sys.messages` at severity 10 and was never raised. Microsoft Learn's
-`SET ANSI_WARNINGS` page says a warning is generated. It is not, so do not plan on being told.
+The rewrite is the fix. The `NULL` rows are not the bug, so find out what writes them before you
+delete any. Add `NOT NULL` only after that writer is fixed and the existing rows are settled.
+
+**Aggregates skip nulls, and in practice nobody is told.** The engine does send message 8153,
+"Null value is eliminated by an aggregate or other SET operation", as an informational message,
+as Microsoft Learn's `SET ANSI_WARNINGS` page says, on Azure SQL Database and SQL Server 2022
+alike, and a .NET SqlClient `InfoMessage` handler receives it. The tools in between drop it: the
+ODBC `sqlcmd`, even at `-I -m-1`, `mssql-tools18` `sqlcmd` and `pyodbc` print nothing, and an ORM
+or dashboard that does not subscribe to informational messages shows nothing either. So do not
+plan on being told.
 
 ```sql
 CREATE TABLE dbo.readings (v INT NULL);
@@ -115,8 +112,8 @@ SELECT "not a column";   -- Msg 207, invalid column name
 ```
 
 `ON` is the default and the ODBC and OLE DB drivers set it on connect, so application code sees
-`ON`. The container's own `sqlcmd` leaves it **OFF**, so a script behaves one way in a container
-shell and another way run by the app. Pass `-I` to settle it.
+`ON`. The `sqlcmd` in the Azure SQL Database container image leaves it **OFF**, so a script
+behaves one way in a container shell and another way run by the app. Pass `-I` to settle it.
 
 ## PostgreSQL habit, translated
 
@@ -133,8 +130,10 @@ shell and another way run by the app. Pass `-I` to settle it.
 | `ON CONFLICT DO UPDATE` | See `t-sql-upserts-merge` | That skill owns upserts, including when not to use `MERGE` |
 | `USE otherdb;` | Open a new connection | Unsupported, along with cross-database three and four part names |
 
-`USE` is the trap that survives review: it **works on the container** and fails in the cloud. Open [references/postgres-to-tsql.md](references/postgres-to-tsql.md) before porting a
-schema or a query file, and when a statement crosses a database boundary.
+`USE` fails with `Msg 40508` in the cloud and in a user-database session on the local Azure SQL
+Database container: open a connection to the other database instead. Open
+[references/postgres-to-tsql.md](references/postgres-to-tsql.md) before porting a schema or a query
+file, and when a statement crosses a database boundary.
 
 `TOP` and `OFFSET FETCH` cannot be combined in one query expression, and a stable page needs a
 **unique** sort key: `ORDER BY placed_at DESC, order_id DESC`.
@@ -199,10 +198,9 @@ parsed under different rules from the ones the application connects with. `-m-1`
 script reporting success.
 
 **`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
-Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
-`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
-message at any `-m` value, so on that build a quiet output file is not evidence that the engine
-stayed quiet. Query `sys.messages` or use the ODBC build when the number matters.
+Microsoft command line utilities. go-sqlcmd 1.x, the build `brew install sqlcmd` and
+`winget install sqlcmd` install, prints no `Msg` header on a severity 10 message at any `-m` value,
+so on that build a quiet output file is not evidence that the engine stayed quiet. Query `sys.messages` or use the ODBC build when the number matters.
 
 ## Do not
 

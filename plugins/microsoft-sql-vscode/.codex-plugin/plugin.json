@@ -1,7 +1,7 @@
 {
   "name": "microsoft-sql-vscode",
   "version": "1.0.0",
-  "description": "Build and manage Azure SQL Database applications in Visual Studio Code with the MSSQL extension, including connections, schema and ORM workflows, deployment, diagnostics, security, data movement, recovery, T-SQL, vector search, and database projects. Data API Builder guidance is excluded where it would duplicate tools provided by the extension.",
+  "description": "Build and manage Azure SQL Database applications in Visual Studio Code with the MSSQL extension, including connections, schema and ORM workflows, deployment, diagnostics, security, data movement, recovery, T-SQL, vector search, and database projects. Data API Builder configuration guidance is excluded where it would duplicate tools provided by the extension; hosting Data API Builder in Azure and connecting remote MCP clients are included.",
   "author": {
     "name": "Microsoft"
   },

@@ -1,30 +1,12 @@
 ---
 name: azuresql-db-scaffold
-description: >-
-  Scaffolds a NEW app (.NET Aspire, FastAPI, Next.js, NestJS) wired to the local
-  Azure SQL Database container as its default dev database. Use when
-  starting/bootstrapping/initializing a project that needs SQL Server or Azure
-  SQL locally, or when adding "set up the database", "docker compose for the db",
-  "create the local DB", ".env connection string", "first migration", or a
-  data-access layer. Use this INSTEAD of the mssql/server SQL Server image,
-  because this is the Azure SQL engine (EngineEdition 5). Triggers include
-  "scaffold app with SQL", "spin up Azure SQL locally", "compose service for the
-  database", "wire up Prisma/EF/SQLAlchemy/TypeORM to SQL Server". Reach for this
-  even when the user only says "add a database" to a fresh project.
+description: "Use when a new app (.NET Aspire, FastAPI, Next.js, NestJS) needs a local database: add a database, compose service, .env connection string, first migration. Uses the Azure SQL Database container."
 ---
 
 # Scaffold a new project on the Azure SQL Database container
 
 Bootstrap a new app with the **Azure SQL Database container** (Private Preview) as the default
 local database. This is the **Azure SQL engine**, not the SQL Server image.
-
-Verified on 2026-09-05 against the container image
-`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
-5, Edition `SQL Azure`, build `12.0.2000.8`. The three executable checks behind this skill
-passed: the engine identity, `Msg 40508` for `USE`, and a native `VECTOR(n)` column with the
-double cast through `NVARCHAR(MAX)`. The per-stack scaffolds themselves were not executed by
-that run, so their snippets are checked for shape against the stacks' own documentation rather
-than measured end to end.
 
 ## Use the right image (interception point)
 
@@ -33,7 +15,7 @@ than measured end to end.
 - Do **NOT** use `mcr.microsoft.com/mssql/server` (the SQL Server image). If a generated
   compose/run command points there, stop and switch to the engine image above.
 - Verify identity once running: `SELECT SERVERPROPERTY('EngineEdition')` returns **5**,
-  `SERVERPROPERTY('Edition')` returns **'SQL Azure'**.
+  `SERVERPROPERTY('Edition')` returns **'SQL Azure'**; the build reports as `12.0.2000.8`.
 - Image is x64 only. On a non-x64 host add `--platform linux/amd64` (Docker) or
   `platform: linux/amd64` (compose).
 - Registry is private (Private Preview): sign in first with
@@ -62,23 +44,85 @@ provisioning appdb.
 
 ## Step 1: start the container and provision appdb
 
-Reuse this exact shape (free port, conditional platform, ready-wait, provision appdb in the
-same retry loop). The `-b` makes a SQL error set the exit code, so transient startup errors
-(like `Msg 913`) are retried, not masked. Never poll bare sqlcmd without `-l`.
+Run this in Bash after registry sign-in. It selects a free host port and creates a new
+named container; an existing container with that name is left untouched. Keep
+`CONTAINER_ID` and `HOST_PORT` for subsequent commands. GNU coreutils `timeout`
+(`gtimeout` on macOS) is required before any container is allocated.
 
 ```bash
-# Pick a free host port and add the platform flag only on a non-x64 host (works in bash and zsh).
-: "${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD to a unique password}"
-export SQLCMDPASSWORD="$MSSQL_SA_PASSWORD"
+# Fail before allocating a container if the bounded-process dependency is missing.
+TIMEOUT_BIN=
+for candidate in timeout gtimeout gnutimeout; do
+  candidate_path=$(command -v "$candidate") || continue
+  case "$("$candidate_path" --version 2>/dev/null)" in
+    *'GNU coreutils'*) TIMEOUT_BIN=$candidate_path; break;;
+  esac
+done
+[ -n "$TIMEOUT_BIN" ] || { echo "READINESS_TIMEOUT_REQUIRED: GNU coreutils" >&2; exit 69; }
+READY_TIMEOUT_SECONDS=${READY_TIMEOUT_SECONDS:-120}
+READY_MAX_ATTEMPTS=${READY_MAX_ATTEMPTS:-30}
+PROVISION_TIMEOUT_SECONDS=${PROVISION_TIMEOUT_SECONDS:-30}
+for bound in "$READY_TIMEOUT_SECONDS" "$READY_MAX_ATTEMPTS" "$PROVISION_TIMEOUT_SECONDS"; do
+  case "$bound" in ''|*[!0-9]*) echo "READINESS_INVALID_BOUND" >&2; exit 64;; esac
+  if [ "${#bound}" -gt 5 ] || [ "$bound" -eq 0 ] || [ "$bound" -gt 86400 ]; then
+    echo "READINESS_INVALID_BOUND" >&2; exit 64
+  fi
+done
+# Normalize decimal settings before Bash arithmetic (including leading zeroes).
+READY_TIMEOUT_SECONDS=$((10#$READY_TIMEOUT_SECONDS))
+READY_MAX_ATTEMPTS=$((10#$READY_MAX_ATTEMPTS))
+PROVISION_TIMEOUT_SECONDS=$((10#$PROVISION_TIMEOUT_SECONDS))
+
+# Pick a free host port and add the platform flag only on a non-x64 host.
+: "${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD to a unique password before running this recipe}"; export MSSQL_SA_PASSWORD
 HOST_PORT=1433; while lsof -nP -iTCP:"$HOST_PORT" -sTCP:LISTEN >/dev/null 2>&1; do HOST_PORT=$((HOST_PORT+1)); done
+export HOST_PORT
 PLATFORM=(); case "$(docker info -f '{{.Architecture}}' 2>/dev/null)" in x86_64|amd64) ;; *) PLATFORM=(--platform linux/amd64);; esac
-docker rm -f sqldb 2>/dev/null
-docker run -d --name sqldb "${PLATFORM[@]}" -e "ACCEPT_EULA=Y" -e MSSQL_SA_PASSWORD \
-  -p "127.0.0.1:$HOST_PORT:1433" sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest
-until docker exec -e SQLCMDPASSWORD sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -l 2 \
-  -Q "IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;" >/dev/null 2>&1; do sleep 2; done
+CONTAINER_NAME=${CONTAINER_NAME:-sqldb-$RANDOM-$$}
+# A name collision fails; never remove an existing container to make room.
+CONTAINER_ID=$(docker run -d --name "$CONTAINER_NAME" "${PLATFORM[@]}" -e "ACCEPT_EULA=Y" -e MSSQL_SA_PASSWORD \
+  -p "127.0.0.1:$HOST_PORT:1433" sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest) || { echo "CONTAINER_START_FAILED" >&2; exit 72; }
+[ -n "$CONTAINER_ID" ] || { echo "CONTAINER_ID_MISSING" >&2; exit 72; }
+echo "created container $CONTAINER_ID ($CONTAINER_NAME)"
+# Readiness has a wall-clock deadline as well as a finite attempt count.
+deadline=$((SECONDS + READY_TIMEOUT_SECONDS)); attempt=0; ready=0
+while [ "$attempt" -lt "$READY_MAX_ATTEMPTS" ]; do
+  remaining=$((deadline - SECONDS))
+  [ "$remaining" -gt 0 ] || break
+  attempt=$((attempt+1)); probe_seconds=5
+  [ "$remaining" -ge "$probe_seconds" ] || probe_seconds=$remaining
+  if "$TIMEOUT_BIN" --kill-after=1 "$probe_seconds" docker exec "$CONTAINER_ID" sh -c \
+    'SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" exec /opt/mssql-tools18/bin/sqlcmd "$@"' sh \
+    -S localhost -U sa -d master -C -b -l 2 -t 5 -Q "SELECT 1;" >/dev/null 2>&1; then
+    ready=1; break
+  fi
+  remaining=$((deadline - SECONDS))
+  [ "$remaining" -gt 0 ] && [ "$attempt" -lt "$READY_MAX_ATTEMPTS" ] || break
+  delay=2; [ "$remaining" -ge "$delay" ] || delay=$remaining
+  sleep "$delay"
+done
+[ "$ready" -eq 1 ] || { echo "READINESS_FAILED after $attempt attempts" >&2; exit 70; }
+
+# A provisioning error is not retried as startup delay. Password stays in the guest environment.
+"$TIMEOUT_BIN" --kill-after=1 "$PROVISION_TIMEOUT_SECONDS" docker exec "$CONTAINER_ID" sh -c \
+  'SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" exec /opt/mssql-tools18/bin/sqlcmd "$@"' sh \
+  -S localhost -U sa -d master -C -b -l 2 -t "$PROVISION_TIMEOUT_SECONDS" \
+  -Q "IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;" || { echo "PROVISIONING_FAILED" >&2; exit 71; }
 echo "ready on localhost,$HOST_PORT"
 ```
+
+Readiness stops after 120 seconds or 30 attempts by default. Each probe has a
+five-second process bound and SQL login/query limits; provisioning runs once on
+`master` with a separate 30-second bound. These are the maintained migration
+recipe's limits, with up to one second of timeout kill grace. They do not bound
+registry access, image pulls or Docker startup itself. Override the named limits
+only for a known slow development host; a provisioning error is not retried as
+startup delay.
+
+On failure, stop before generating migrations. The newly created container is
+retained for inspection (`docker logs "$CONTAINER_ID"`). After inspecting it,
+remove only that exact container with `docker rm -f "$CONTAINER_ID"` when it is no
+longer needed. The recipe never deletes a pre-existing development database.
 
 Required env: `ACCEPT_EULA=Y` and a complex `MSSQL_SA_PASSWORD` (at least 8 characters using at
 least three of upper case, lower case, digits, and symbols). The engine listens on 1433.
@@ -121,15 +165,17 @@ npx prisma migrate dev --name init
 Seed only AFTER appdb exists:
 
 ```bash
-docker exec -e SQLCMDPASSWORD -i sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -d appdb -i seed.sql
+docker exec -i "$CONTAINER_ID" sh -c \
+  'SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" exec /opt/mssql-tools18/bin/sqlcmd "$@"' sh \
+  -S localhost -U sa -C -b -l 2 -t 30 -d appdb < seed.sql
 ```
 
 ## Vectors (if your app uses embeddings)
 
 Native `VECTOR(n)` column type and `VECTOR_DISTANCE('cosine', a, b)`. Insert with
 `CAST(CAST(? AS NVARCHAR(MAX)) AS VECTOR(n))` where **n is a LITERAL, never a bind parameter** (a parameter dimension
-fails with "Incorrect syntax near '@P3'"). `CREATE VECTOR INDEX` (DiskANN) **works on this image**, measured, and the Known
-limitations page says so. It needs `SET QUOTED_IDENTIFIER ON` and at least 100 rows with
+fails with "Incorrect syntax near '@P3'"). `CREATE VECTOR INDEX` (DiskANN) **works on this image**, as the Known
+limitations page states. It needs `SET QUOTED_IDENTIFIER ON` and at least 100 rows with
 non-null vectors (`Msg 42266` below that). Full-scan top-k stays exact and stays the right choice
 for a small table. The `azuresql-db-rag` skill carries the rules the index imposes.
 
@@ -146,7 +192,7 @@ for a small table. The `azuresql-db-rag` skill carries the rules the index impos
 
 ## Minimum tool versions
 
-Use only the tools needed by the selected recipe, at or above these minimum tested versions:
+Use only the tools needed by the selected recipe, at or above these minimum versions:
 
 - **`sqlcmd`**: go-sqlcmd 1.10.0
 - **`dotnet`**: .NET SDK 8.0.421

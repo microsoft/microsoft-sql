@@ -18,12 +18,16 @@ also read `DATABASE_URL`. Image is
 
 ## Provision appdb first (every stack below assumes this has run)
 
-The engine does not auto-create databases. On a master connection:
+The engine does not auto-create databases. Step 1 in `SKILL.md` already performs
+bounded readiness and provisions `appdb` on `master`. Reuse its `CONTAINER_ID`
+and timeout settings if provisioning an additional database; do not select an
+unrelated container by a fixed name. For the same idempotent `appdb` operation:
 
 ```bash
-: "${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD to a unique password}"
-export SQLCMDPASSWORD="$MSSQL_SA_PASSWORD"
-docker exec -e SQLCMDPASSWORD sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b \
+: "${CONTAINER_ID:?Run the canonical start recipe first}"
+"$TIMEOUT_BIN" --kill-after=1 "$PROVISION_TIMEOUT_SECONDS" docker exec "$CONTAINER_ID" sh -c \
+  'SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" exec /opt/mssql-tools18/bin/sqlcmd "$@"' sh \
+  -S localhost -U sa -d master -C -b -l 2 -t "$PROVISION_TIMEOUT_SECONDS" \
   -Q "IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;"
 ```
 
@@ -146,9 +150,12 @@ alembic upgrade head
 Vector insert (dimension is a LITERAL in the SQL text, value is bound):
 
 ```python
+import json
+
+embedding = [0.1] * 1536  # Stand-in data; use all 1536 values from your embedding model.
 cx.execute(
     text("INSERT INTO dbo.docs (embedding) VALUES (CAST(CAST(:v AS NVARCHAR(MAX)) AS VECTOR(1536)))"),
-    {"v": "[0.1, 0.2, 0.3]"},   # 1536 is literal; do NOT bind it as a parameter
+    {"v": json.dumps(embedding)},  # Dimension is literal; the vector value is bound.
 )
 ```
 
@@ -170,7 +177,7 @@ npm install -D prisma@6
 npm install @prisma/client@6
 ```
 
-Pinned to Prisma 6 (6.19.3) on purpose: Prisma 7 (7.10.0, the current stable) rejects the
+Pinned to Prisma 6 (6.19.3) on purpose: Prisma 7, the current stable major, rejects the
 `url = env("DATABASE_URL")` block below and wants a `prisma.config.ts` plus a driver adapter
 (`@prisma/adapter-mssql`). Pin the major explicitly rather than letting npm pick: `prisma` has
 carried 8.x prereleases on its `latest` dist-tag.
@@ -184,13 +191,10 @@ datasource db {
 }
 ```
 
-Provision appdb on master, THEN run the first migration (Prisma will not create the database):
+Complete the bounded common provisioning step above, THEN run the first migration
+(Prisma will not create the database):
 
 ```bash
-: "${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD to a unique password}"
-export SQLCMDPASSWORD="$MSSQL_SA_PASSWORD"
-docker exec -e SQLCMDPASSWORD sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b \
-  -Q "IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;"
 npx prisma migrate dev --name init
 ```
 

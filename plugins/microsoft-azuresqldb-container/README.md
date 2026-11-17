@@ -11,30 +11,30 @@ is published in [`microsoft/microsoft-sql`](https://github.com/microsoft/microso
 
 | Skill | Description |
 | --- | --- |
-| `azuresql-db-auth` | Connects an app to the Azure SQL Database container securely, with a least-privilege database user instead of the sa login, the right auth method per environment, and safe handling of the connection secret. |
-| `azuresql-db-ci` | Runs integration tests against the Azure SQL Database container (Private Preview, local engine) in CI. |
-| `azuresql-db-connections` | Makes an app's database connections reliable against the local Azure SQL Database container (Private Preview) and, unchanged, against Azure SQL Database in the cloud. |
-| `azuresql-db-container` | Runs the Azure SQL Database container locally (Private Preview). |
-| `azuresql-db-dab` | Stands up an instant no-code REST + GraphQL API over the local Azure SQL Database container using Microsoft Data API Builder (DAB). |
-| `azuresql-db-faq` | Answers questions about what the Azure SQL Database container (Private Preview) can and cannot do, and WHY it differs from Azure SQL Database in the Microsoft Azure cloud. |
-| `azuresql-db-feedback` | Reports a bug or files feedback about the azuresql-db-* agent skills themselves, or about the Azure SQL Database container (Private Preview). |
-| `azuresql-db-from-sql-server` | Migrates a local SQL Server setup to the Azure SQL Database container for Azure-faithful local development. |
-| `azuresql-db-functions` | Builds a serverless API and event-driven handlers over the local Azure SQL Database container using Azure Functions with the Azure SQL bindings. |
-| `azuresql-db-import` | Imports an existing Azure SQL Database or SQL Server schema and data INTO the local Azure SQL Database container using SqlPackage. |
-| `azuresql-db-local-to-cloud` | Proves that code built and tested against the local Azure SQL Database container runs unchanged against Azure SQL Database in the cloud, with only the connection string changing. |
-| `azuresql-db-rag` | Builds local vector search, RAG, embeddings, and semantic search on the Azure SQL Database container using the native VECTOR type and VECTOR_DISTANCE. |
-| `azuresql-db-scaffold` | Scaffolds a NEW app (.NET Aspire, FastAPI, Next.js, NestJS) wired to the local Azure SQL Database container as its default dev database. |
-| `azuresql-db-schema-migration` | Runs database schema migrations against the local Azure SQL Database container so the same migrations apply identically on the local engine and in the Azure cloud. |
-| `azuresql-db-seed` | Populates the local Azure SQL Database container's database (appdb) with realistic sample/test data so a developer has something to build against. |
-| `azuresql-db-sidecar` | Adds the Azure SQL Database container as a sidecar service in an existing Docker Compose stack or Dev Container. |
-| `azuresql-db-testing` | Writes integration tests that run IN CODE against a real Azure SQL Database container, spun up per test or per suite with Testcontainers and torn down after. |
+| `azuresql-db-auth` | Use when an app connects to the local Azure SQL Database container as sa. |
+| `azuresql-db-ci` | Use when CI (GitHub Actions, Azure Pipelines, GitLab) runs integration tests against the Azure SQL Database container as a service. |
+| `azuresql-db-connections` | Use when hardening an app's data layer: connections drop or time out under load, add pooling and retry with backoff for transient faults, Max Pool Size. |
+| `azuresql-db-container` | Use when running Azure SQL Database or any SQL/mssql container locally for dev or CI. |
+| `azuresql-db-dab` | Use when asked for an API over existing tables ('give me an API for this database', REST and GraphQL without code), or to run a local Data API builder endpoint on the Azure SQL Database container. |
+| `azuresql-db-faq` | Use when asking what the local Azure SQL Database container (Private Preview) supports or why it differs from the cloud. |
+| `azuresql-db-feedback` | Use when an azuresql-db-* skill or the Azure SQL Database container misbehaved, lacks something, or you worked around it. |
+| `azuresql-db-from-sql-server` | Use when a project runs mcr.microsoft.com/mssql/server in Docker or compose and local dev should behave like Azure SQL Database. |
+| `azuresql-db-functions` | Use when building a serverless CRUD API or reacting to row changes with Azure Functions on the local Azure SQL Database container. |
+| `azuresql-db-import` | Use when loading an existing database into the local Azure SQL Database container. |
+| `azuresql-db-local-to-cloud` | Use when code built on the local Azure SQL Database container must run on Azure SQL Database. |
+| `azuresql-db-rag` | Use when storing embeddings or running similarity search, top-k or RAG on the local Azure SQL Database container with VECTOR(n) and VECTOR_DISTANCE, instead of pgvector, FAISS or a separate vector store. |
+| `azuresql-db-scaffold` | Use when a new app (.NET Aspire, FastAPI, Next.js, NestJS) needs a local database. |
+| `azuresql-db-schema-migration` | Use when running migrations against the local Azure SQL Database container. |
+| `azuresql-db-seed` | Use when the local Azure SQL Database container needs sample data. |
+| `azuresql-db-sidecar` | Use when adding the local Azure SQL Database container to an existing docker-compose or devcontainer.json. |
+| `azuresql-db-testing` | Use when integration tests start the Azure SQL Database container from code with Testcontainers. |
 
 ## Install
 
 - Copilot CLI: `copilot plugin marketplace add microsoft/microsoft-sql`, then `copilot plugin install microsoft-azuresqldb-container@microsoft-sql`
 - Claude Code: `/plugin marketplace add microsoft/microsoft-sql`, then `/plugin install microsoft-azuresqldb-container@microsoft-sql`
-- VS Code: add `microsoft/microsoft-sql` to `chat.plugins.marketplaces`, then install from **Chat: Open Customizations > Plugins** or the Extensions view (`@agentPlugins`)
+- VS Code: add `microsoft/microsoft-sql` to `chat.plugins.marketplaces`, then install from **Chat: Open Customizations** using **Browse** or **Plugins > Browse Marketplace**
 - Codex: `codex plugin marketplace add microsoft/microsoft-sql --ref main`, then `codex plugin add microsoft-azuresqldb-container@microsoft-sql`
 - Cursor: `cursor-agent plugin marketplace add https://github.com/microsoft/microsoft-sql`, then run `cursor-agent` and install `microsoft-azuresqldb-container` from `/plugin`
-- Grok Build: `grok plugin marketplace add microsoft/microsoft-sql`, then `grok plugin install microsoft-azuresqldb-container --trust`
+- Grok Build: `grok plugin marketplace add microsoft/microsoft-sql`, then install from the Marketplace tab in `/plugins`; for a direct CLI install after review, use `grok plugin install 'microsoft/microsoft-sql#plugins/microsoft-azuresqldb-container' --trust`
 - Other Agent Skills clients: copy `skills/<skill>/` only when the client has no plugin marketplace

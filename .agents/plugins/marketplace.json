@@ -29,6 +29,18 @@
       "category": "Databases"
     },
     {
+      "name": "microsoft-sql-admin",
+      "source": {
+        "source": "local",
+        "path": "./plugins/microsoft-sql-admin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Databases"
+    },
+    {
       "name": "microsoft-sql-fdh",
       "source": {
         "source": "local",

@@ -1,25 +1,12 @@
 ---
 name: connect-to-azure-sql
-description: >-
-  Connects an application to Azure SQL Database: picks the Microsoft driver for the language,
-  sets encryption and certificate validation, sizes the pool against the worker limit not the
-  session limit, and makes retry part of the first version of the code. Use when a user asks "how
-  do I connect to Azure SQL", "which driver should I use", "what goes in the connection string",
-  "add retry logic", "the connection keeps dropping", "should I set TrustServerCertificate", or
-  "my app times out connecting to Azure". Also use when a first connection to a free or
-  serverless database fails with error 40613, documented resume behaviour, not an outage.
-  Azure SQL Database only, not Azure SQL Managed Instance and not self-managed SQL Server. Driver
-  installation, connection strings and pooling per language belong to connect-from-dotnet,
-  connect-from-python and connect-from-typescript-and-node.
+description: "Use when connecting an app to Azure SQL Database: which driver, what goes in the connection string, retry, a first connection that fails then works (40613), certificate errors or TrustServerCertificate."
 ---
 
 # Connect to Azure SQL Database
 
 Opening one connection is easy. Two things go wrong: **the first connection is expected to fail and
 the code has no retry**, and **a certificate error gets fixed by turning verification off**.
-
-Flags and defaults below were verified 2026-09-03 against `sqlcmd` 1.10.0 and User Secrets Manager
-8.0.27 on this machine; cloud behaviour is from Microsoft Learn.
 
 ## Connect once from the command line before writing any code
 
@@ -28,7 +15,8 @@ every later failure is a failure of the code. Cloud, SQL authentication, passwor
 command line:
 
 ```bash
-sqlcmd -S <server>.database.windows.net,1433 -d <database> -U <user> -P "$SQL_PASSWORD" \
+export SQLCMDPASSWORD="$SQL_PASSWORD"   # sqlcmd reads it from the environment; no -P in the process list
+sqlcmd -S <server>.database.windows.net,1433 -d <database> -U <user> \
   -N mandatory -l 30 -Q "SELECT DB_NAME() AS db, encrypt_option FROM sys.dm_exec_connections WHERE session_id = @@SPID"
 ```
 
@@ -60,9 +48,9 @@ straight into a working string:
 | `-l 30` | `Connect Timeout` | Covers the retries inside it |
 | `-G` | `Authentication=Active Directory Default` | No `-U`; add `-U` for interactive |
 
-`-N` is validated before any connection is attempted, so a typo is caught for free. Measured
-2026-09-03 on 1.10.0: any other value exits 1 with `Argument value has to be one of [m[andatory]
-yes 1 t[rue] disable o[ptional] no 0 f[alse] s[trict]]`.
+With go-sqlcmd 1.x, `-N` is validated before any connection is attempted, so a typo is caught for
+free: any other value exits 1 with `Argument value has to be one of [m[andatory] yes 1 t[rue]
+disable o[ptional] no 0 f[alse] s[trict]]`.
 
 ## Container and cloud: the same string with one exception
 
@@ -81,25 +69,25 @@ A clean local run is therefore no evidence the retry story works.
 
 The image reads the certificate path, the application (client) id and the tenant id from three
 `MSSQL_AAD_` environment variables set when the container is created. Learn documents that trio for
-SQL Server on Linux containers and does not document this image, so here it is measured, not cited:
+SQL Server on Linux containers but not for this image. To see whether a container has them:
 
 ```bash
 docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' <container> | grep -c '^MSSQL_AAD_'
 ```
 
-`3` or more means Entra ID was configured. Measured 2026-09-03 on a container created without it:
-`0`, exit 1. **That state refuses the login, not the mode**, so `-G` or
-`Authentication=Active Directory Default` returns `18456`, `Login failed for user ''` (measured
-2026-08-28 in `connect-from-dotnet`), naming neither Entra ID nor the missing configuration, and no
-connection string edit fixes it. Open `entra-id-auth` once the three are set and the identity needs
-a database user, or when an `18456` names a token-identified principal rather than an empty one.
+`3` or more means Entra ID was configured; a container created without it prints `0` and exits 1.
+**That state refuses the login, not the mode**, so `-G` or `Authentication=Active Directory Default`
+returns `18456`, `Login failed for user ''`, naming neither Entra ID nor the missing configuration,
+and no connection string edit fixes it. Open `entra-id-auth` once the three are set and the
+identity needs a database user, or when an `18456` names a token-identified principal rather than
+an empty one.
 
 ## What this skill does not own
 
 Driver installation, per-language syntax and pool configuration are `connect-from-dotnet`,
 `connect-from-python`, `connect-from-typescript-and-node`. An error number needing a cause is
-`diagnose-connection-errors`, except 40613, which stays here. Resource pressure is
-`diagnose-resource-pressure`, and creating the server and its firewall rule is
+`connectivity-troubleshoot`, except 40613, which stays here. Resource pressure is
+`resource-usage-sqlserver`, and creating the server and its firewall rule is
 `provision-azure-sql-db`.
 
 ## Retry is part of the first version, not the hardening pass
@@ -183,11 +171,11 @@ the server's identity. `TrustServerCertificate=true` keeps the traffic encrypted
 client checking who it is talking to**, the part that matters on a public endpoint. Encryption and identity are
 separate settings, and login credentials are encrypted whatever `Encrypt` says.
 
-**The rule for an agent: a certificate error is a name problem, not a trust problem.** Fix the
-hostname or set the hostname-in-certificate option. Never disable verification, never set
-`Encrypt=false`; the one exception is the container's self-signed certificate above.
+**A certificate error is a name problem, not a trust problem.** Fix the hostname or set the
+hostname-in-certificate option. Never disable verification, never set `Encrypt=false`; the one
+exception is the container's self-signed certificate above.
 
-Two facts that change under the model's feet:
+Two facts that older guidance gets wrong:
 
 - **The defaults flipped.** `Microsoft.Data.SqlClient` 4.0 changed `Encrypt` from `false` to `true`
   and ODBC Driver 18 made the same change, both declared breaking. Code that worked before an
@@ -243,7 +231,7 @@ inside it.
 az sql db show-connection-string -c ado.net -s <server> -n <database>
 ```
 
-On 2.89.1 the output needs correcting by hand. The ODBC template emits
+With Azure CLI 2.89 the output needs correcting by hand. The ODBC template emits
 `Driver={ODBC Driver 13 for SQL Server}`, five major versions out of date. `--auth-type ADPassword`
 emits the deprecated `Authentication="Active Directory Password"`. `--client` accepts only
 `ado.net`, `jdbc`, `odbc`, `php`, `php_pdo` and `sqlcmd`, so asking it for a Node.js, Python or Go
@@ -251,8 +239,8 @@ template and paraphrasing the answer invents a string. And no template carries r
 
 ## Size the pool against workers, not sessions
 
-The number an agent reaches for is the session limit, **30,000 on every vCore size**, never the
-binding constraint. What throttles a workload is **concurrent workers**:
+The tempting number is the session limit, **30,000 on every vCore size**, never the binding
+constraint. What throttles a workload is **concurrent workers**:
 
 | Compute, standard-series | Concurrent workers |
 |---|---|
@@ -267,7 +255,7 @@ Set an explicit maximum pool size: unlimited turns a traffic spike into `10928`.
 pools across **every** instance, background workers and scheduled jobs included, and keep the total
 under the worker limit with headroom. In serverless and short-lived compute create **one pool per
 process** and reuse it; one per request or per invocation exhausts outbound ports and causes
-connection storms. A database already failing with `10928` is `diagnose-resource-pressure`.
+connection storms. A database already failing with `10928` is `resource-usage-sqlserver`.
 
 ## The network path, when it works from one place but not another
 
@@ -319,7 +307,7 @@ application cold, and confirm the code survives `40613`.
 ## Read the source when
 
 Fetch the Microsoft Learn article rather than recalling it when an error number needs a cause (then
-`diagnose-connection-errors`), when the retry delays matter to a design (the transient errors
+`connectivity-troubleshoot`), when the retry delays matter to a design (the transient errors
 article), when a resource limit is close (the vCore resource limits reference, the only current
 source for worker counts), or when a TLS minimum is being set (the connectivity settings article).
 

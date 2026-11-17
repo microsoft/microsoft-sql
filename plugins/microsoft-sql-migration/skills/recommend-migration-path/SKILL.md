@@ -6,14 +6,37 @@ allowed-tools: ask_user, view, grep, glob
 
 # Skill: Recommend Migration Path
 
-These claims were checked on 2026-09-15 against the bundled `skill-contract.yml`, decision rules,
-input/output schemas, and knowledge base v3.14.
+The bundled policy consists of the decision rules, input/output contracts,
+input/output schemas, and knowledge base v3.15.
+
+## Startup — before the interview
+
+Complete this step before normalizing the profile or asking the first question. Open all seven
+policy files from this installed skill folder:
+
+- [Input contract](references/input-contract.md)
+- [Decision rules](references/decision-rules.md)
+- [Output contract](references/output-contract.md)
+- [Knowledge base](references/knowledge-base.md)
+- [Input schema](references/input.schema.json)
+- [Output schema](references/output.schema.json)
+- [Advisor coverage](references/advisor-coverage.json)
+
+Large files may exceed a read tool's limit. Read them in ranges or search and open the relevant
+sections; a truncated first page is not the complete policy. Check the declared knowledge-base
+and decision-rules versions, then announce the versions actually read and the bundled source
+before the first question. If a required file is unreadable or the versions disagree, name the
+missing file or mismatched declarations and stop before selecting a target. Do not fetch a live
+knowledge base unless the user asks. Record `knowledgeBaseVersion`, `knowledgeBaseSource`,
+`decisionRulesVersion`, optional `commit`, and `evaluatedAt` for the recommendation.
 
 ## Description
 
 Help the user get a **preliminary recommendation / recommended assessment path** for a SQL Server migration to Azure. This skill is a **discovery and pre-selection assistant**, not a final architecture decision. Every recommendation remains **provisional** until validated by assessment tooling and an architect.
 
-When auditing a recommendation, trace it to the knowledge base [`references/knowledge-base.md`](https://github.com/fredgis/sql-migration-advisor/blob/main/docs/sql-server-to-azure-migration.md) and the bundled `references/decision-rules.md`.
+When auditing a recommendation, trace it to the bundled knowledge base
+[`references/knowledge-base.md`](references/knowledge-base.md) and
+[`references/decision-rules.md`](references/decision-rules.md).
 
 ## When to Use
 
@@ -217,7 +240,7 @@ The assessments that a recommendation points to have their own requirements, and
 
 This skill signs in to nothing, holds no credential, and reads nothing over the network. It works entirely from the files shipped beside it.
 
-**The knowledge base ships with the skill.** Before the interview, load `references/knowledge-base.md`, `references/decision-rules.md` and the two contracts from the same commit as this file. Facts and rules therefore move together, and the advice stays reproducible and citable: a reader can fetch that exact commit and see what the recommendation was based on. Freshness is handled by the weekly check and by releases, not by a moving target under the reader.
+**The knowledge base ships with the skill.** Before the interview, load `references/knowledge-base.md`, `references/decision-rules.md` and the two contracts from the same commit as this file. Facts and rules therefore move together, and the advice stays reproducible and citable: a reader can fetch that exact commit and see what the recommendation was based on. Freshness is handled by plugin updates, not by a moving target under the reader.
 
 **Nothing is fetched.** The knowledge base ships in this repository, so there is no live document to read and no external host to depend on. Facts are refreshed by releasing a new version, not by reaching outside at run time.
 
@@ -238,13 +261,12 @@ State the same knowledge-base version in the recommendation card. A reader who c
    loaded and announced, so this line cannot drift away from the rules that produced the answer:
 
 ```text
-This assessment used knowledge base <the version you loaded and announced>. To check for a newer release: apm outdated
+This assessment used knowledge base <the version you loaded and announced>. Check for updates to microsoft-sql-migration in your agent host's plugin manager, or compare your copied skill files with the microsoft/microsoft-sql repository.
 ```
 
-A literal version here goes stale the moment the knowledge base moves, and it reports a provenance
-the assessment never had. It had frozen at an old line while the skill shipped a newer one, because
-a script rewriting version stamps had been told to leave this sentence alone, mistaking a template
-for an example. A placeholder needs no exclusion list, which is why it is the fix.
+Use the loaded version in that message. Do not assume an additional package manager is installed.
+If the user wants an update, update the whole plugin or copied skill folder so the rules and
+references remain from one revision. Do not replace only the knowledge base.
 
 **Never block, and never change the advice.** An out-of-date skill still answers from the rules it shipped with; it simply says which ones those were.
 
@@ -264,7 +286,9 @@ When evaluating and ranking candidates, apply `references/decision-rules.md` by 
 
 Follow every phase in order. Do not jump from interview answers to a recommendation.
 
-1. **Load the policy.** Read all seven, **before asking anything**: [`references/input-contract.md`](references/input-contract.md), [`references/decision-rules.md`](references/decision-rules.md), [`references/output-contract.md`](references/output-contract.md), the bundled knowledge base [`references/knowledge-base.md`](references/knowledge-base.md), [`references/input.schema.json`](references/input.schema.json), [`references/output.schema.json`](references/output.schema.json) and [`references/advisor-coverage.json`](references/advisor-coverage.json), which is where a method's `role` and its prerequisite paths come from and without which the candidate list cannot be built. Only `SKILL.md` arrives with the skill; every other file has to be opened, which is why this skill declares read tools. Fetch the live knowledge base only if the user asked for it. Record `knowledgeBaseVersion`, `knowledgeBaseSource` (`bundled` or `live`), `decisionRulesVersion`, optional `commit` and `evaluatedAt`. **Announce the versions and the source in one line before the first question**, so the user knows which facts are about to be applied. If a file cannot be read, name that file and stop before selecting a target. If the versions disagree, say which two disagree and stop. Never carry on from memory: a rule recalled rather than read is a rule nobody can audit, and nothing later in this file licenses an exception.
+1. **Load the policy.** Complete [Startup — before the interview](#startup--before-the-interview).
+   Advisor coverage supplies each method's `role` and prerequisite paths; read it before building
+   the candidate list. Apply the loaded rules, never a rule recalled from memory.
 2. **Frame honestly**: “I'll ask a short triage set, then produce a provisional disposition and the assessment evidence needed to validate it.”
 3. **Normalise the profile.** Take what the user already supplied, convert labels and prose into the IDs of the input contract, preserve the `UNKNOWN` / `NONE_CONFIRMED` / `NOT_APPLICABLE` distinction, and render the normalised profile so a misreading is visible.
 4. **Tier 1 triage**: ask only the missing questions that can change a surviving candidate.

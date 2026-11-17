@@ -1,16 +1,6 @@
 ---
 name: ef-core-azure-sql
-description: >-
-  Configures Entity Framework Core against Azure SQL Database, where retry is on by default and
-  redefines a transaction: the execution strategy refuses a user-initiated transaction, and the
-  wrapper it tells you to write replays the whole unit, so a fault after the commit writes the
-  row twice and reports success. Also covers UseAzureSql versus UseSqlServer,
-  EnableRetryOnFailure, JSON mapping and split queries. Use when a DbContext targets Azure SQL
-  Database, and for "EnableRetryOnFailure", "connection resiliency for EF Core", "UseAzureSql or
-  UseSqlServer", "AsSplitQuery", an Include returning tens of thousands of rows, "does not
-  support user-initiated transactions", duplicated rows after a retry, or a migration that
-  retypes JSON columns. Not general EF Core: pooling is connect-from-dotnet, retry
-  connect-to-azure-sql, identity entra-id-auth, a pipeline github-actions-for-sql.
+description: "Use when EF Core targets Azure SQL Database: EnableRetryOnFailure, 'does not support user-initiated transactions', duplicate rows after a retry, UseAzureSql or UseSqlServer, AsSplitQuery, JSON columns."
 ---
 
 # EF Core against Azure SQL Database
@@ -18,23 +8,28 @@ description: >-
 This is the Azure SQL Database delta on top of EF Core, not an EF Core tutorial. Modelling, LINQ,
 change tracking and `Include` work the same everywhere and are not repeated here.
 
-Command output and compiler results below were captured 2026-09-03 on
-`Microsoft.EntityFrameworkCore.SqlServer` 9.0.19 with `dotnet ef` 9.0.19 on .NET SDK 8.0.421.
-Runtime behaviour was measured 2026-08-27 against a live engine reporting `EngineEdition` 5.
-EF Core 10 is the supported long term release and EF Core 9 is still serviced.
-Open [references/retry-transactions-and-type-mapping.md](references/retry-transactions-and-type-mapping.md) when a
-number below disagrees with what you are seeing, or before reproducing a run.
+Command output, compiler results and runtime behaviour below are for
+`Microsoft.EntityFrameworkCore.SqlServer` 9 unless a row says otherwise. EF Core 10 is the
+supported long term release and EF Core 9 is still serviced.
+Open [references/retry-transactions-and-type-mapping.md](references/retry-transactions-and-type-mapping.md) when
+something below disagrees with what you are seeing, or to run the checks yourself.
+
+## Scope
+
+- The Azure SQL Database delta on EF Core, not general EF Core.
+- Pooling is `connect-from-dotnet`, retry doctrine `connect-to-azure-sql`, identity
+  `entra-id-auth`, and running migrations from a pipeline `github-actions-for-sql`.
 
 ## The correction
 
-Retry is not a setting on this database. It is on in every current answer: `EnableRetryOnFailure`
-in the older corpus shape, `UseAzureSql` in the newer one. Both produce
+Retry is not a setting on this database. Every current recommendation turns it on:
+`EnableRetryOnFailure` in older code, `UseAzureSql` in newer code. Both produce
 `SqlServerRetryingExecutionStrategy`, and **turning it on silently redefines what a transaction
-is.** The visible half is an exception, and it is not the problem. The problem is what an agent
-writes next, because the exception dictates its own remedy and the remedy is incomplete:
+is.** The visible half is an exception, and it is not the problem. The problem is the code written
+next, because the exception dictates its own remedy and the remedy is incomplete:
 
 ```csharp
-// Retry on, so this unit is replayed on a transient fault. Measured: a fault arriving after
+// Retry on, so this unit is replayed on a transient fault. A fault arriving after
 // Commit runs the delegate again, inserts the order a SECOND time, and Execute returns
 // success. Nothing is thrown. Nothing is logged. The caller is told it worked.
 var strategy = context.Database.CreateExecutionStrategy();
@@ -54,14 +49,13 @@ identically, so switching call does not fix it and staying on the old call does 
 
 ## What actually refuses, and what does not
 
-Measured on 9.0.19 against the live engine. The commonly repeated claim, that
-`Database.BeginTransaction` throws, is wrong.
+The commonly repeated claim, that `Database.BeginTransaction` throws, is wrong.
 
 | Call, with the retrying strategy configured | Result |
 |---|---|
 | `Database.BeginTransaction()` on its own | **Succeeds.** No exception |
-| A LINQ query while that transaction is open | Throws `InvalidOperationException` in about 60 ms |
-| `SaveChanges` while that transaction is open | Throws `InvalidOperationException` in about 20 ms |
+| A LINQ query while that transaction is open | Throws `InvalidOperationException` at once |
+| `SaveChanges` while that transaction is open | Throws `InvalidOperationException` at once |
 | `Database.ExecuteSqlRaw` while that transaction is open | **Succeeds.** Not guarded at all |
 | `SaveChanges` with no explicit transaction | Succeeds. EF's own transaction is a unit it created |
 
@@ -77,7 +71,7 @@ than under load:
 its own fix. Treat it as a compiler error that arrives late. **The fix it names is not the whole
 fix**, and nothing after it fails loudly. That is the next section, and it is why this skill exists.
 
-## The measured duplicate write
+## The silent duplicate write
 
 Same delegate, same configured strategy, one variable: where the transient fault lands.
 
@@ -133,9 +127,9 @@ to narrow the retry set, never to disable retry so the exception goes away.
 
 ## What retry costs when it does not help
 
-`UseAzureSql` defaults to 6 retries with a 30 second cap, so 7 attempts, and measured end to end a
-permanently failing operation gives up after **57 seconds**, with attempts starting at 0.0, 0.0,
-1.0, 4.1, 11.6, 26.9 and 56.9 seconds. A request thread is held for that whole minute, and behind a
+`UseAzureSql` defaults to 6 retries with a 30 second cap, so 7 attempts. The delays between them
+grow to roughly 0, 1, 3, 7.5, 15 and 30 seconds, so a permanently failing operation gives up only
+after **close to a minute**. A request thread is held for that whole minute, and behind a
 30 second gateway timeout the caller has already given up. Size the retry budget against the
 deadline of the thing calling you, and put a `CancellationToken` through every async call.
 
@@ -160,12 +154,12 @@ options.UseAzureSql(connectionString, o => o.UseCompatibilityLevel(170));
   `error CS1061: 'DbContextOptionsBuilder' does not contain a definition for 'UseAzureSql'`.
   Upgrade the provider package rather than inventing an extension method.
 - **When `UseSqlServer` is called by code you cannot change**, EF Core 9 has a first party answer
-  that is not obsolete, and it compiled clean here: `options.ConfigureSqlEngine(c =>
+  that is not obsolete, and it compiles clean: `options.ConfigureSqlEngine(c =>
   c.EnableRetryOnFailureByDefault());`. `UseSqlServer(cs, o => o.UseAzureSqlDefaults(true))` also
   installs the retrying strategy, but it warns `CS0618: 'UseAzureSqlDefaults(bool)' is obsolete` and
   leaves the engine type as `SqlServer`, so the type mapping does not follow.
 - **Retry numbers are defaults, not overrides.** Supplying them alongside `UseAzureSql` replaces the
-  6 and the 30 seconds. Do that with a measured reason, never by copying a blog post:
+  6 and the 30 seconds. Do that for a reason from your own workload, never by copying a blog post:
 
 ```csharp
 options.UseAzureSql(
@@ -210,8 +204,8 @@ Most EF Core type mapping advice applies to any engine this provider talks to an
 `design-azure-sql-schema`. Two things are different here.
 
 **`DateTime` with `HasDefaultValueSql("GETDATE()")`.** Azure SQL Database offers no time zone
-choice: `CURRENT_TIMEZONE()` returns UTC and `GETDATE()` equals `SYSUTCDATETIME()`, in the container
-and in the cloud alike. A model carried over from an engine running on local time changes meaning
+choice: `CURRENT_TIMEZONE()` returns UTC and `GETDATE()` equals `SYSUTCDATETIME()`, in the local
+Azure SQL Database container and in the cloud alike. A model carried over from an engine running on local time changes meaning
 without changing shape. Prefer `DateTimeOffset`, or `SYSUTCDATETIME()`, and be explicit either way.
 
 **An indexed `string` with no `MaxLength` is narrowed to `nvarchar(450)`**, and neither the index
@@ -239,7 +233,7 @@ changes here is the arithmetic of the fix**, because each extra query is a real 
 - Split queries are not one consistent read unless wrapped in a snapshot or serializable
   transaction, which puts them back under everything above.
 
-Slow query triage is `diagnose-slow-query`.
+Slow query triage is `slow-query-investigation`.
 
 ## Migrations against a cloud database
 
@@ -257,7 +251,7 @@ dotnet ef database update \
   `OnConfiguring` without editing the application.
 - **The database itself is not created by a migration.** That is `provision-azure-sql-db`.
 - **Do not migrate from application startup here.** EF Core 9 added a database wide lock, so the
-  concurrency objection an agent will recall is out of date. The objection that survives is
+  concurrency objection you may recall is out of date. The objection that survives is
   permissions: startup migration means the runtime identity holds schema rights permanently.
 
 ## Connecting with an identity rather than a password
@@ -339,7 +333,7 @@ non-unique index the replay writes a second row and the whole defence is decorat
 
 ## References
 
-- [Every run behind the tables above, and how to reproduce one](references/retry-transactions-and-type-mapping.md)
+- [Checks behind the tables above, with the setup to run them](references/retry-transactions-and-type-mapping.md)
 - [Connection resiliency](https://learn.microsoft.com/ef/core/miscellaneous/connection-resiliency):
   execution strategies, the transaction rule, and the four documented answers to a commit that fails
   with an unknown outcome. Read it before writing anything transactional.

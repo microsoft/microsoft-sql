@@ -1,16 +1,6 @@
 ---
 name: deploy-app-to-azure
-description: >-
-  Takes a working local application and its Azure SQL Database to Azure with the Azure Developer
-  CLI, reading its infrastructure rather than inheriting it. The one first-party template pairing
-  a web app with Azure SQL Database uses a database password and grants db_owner, and the
-  firewall rule it ships under an Azure services name spans the whole public address space. Use
-  when a user says "deploy my app to Azure", "azd up", "which azd template should I start from",
-  "get this into Azure without a password", or when a deployment reported success and the app
-  then fails its first database call with a login failure. Covers what each template does about
-  identity, what init, provision, deploy and up each do, and what teardown leaves behind.
-  github-actions-for-sql owns pipelines, provision-azure-sql-db creating the server and database,
-  entra-id-auth the database user and the grant.
+description: "Use when deploying an app and its Azure SQL Database with azd: azd up, which template to start from, no password in the deployment, or deploy succeeded but the first database call fails to log in."
 ---
 
 # Deploy an application and its Azure SQL Database to Azure
@@ -18,14 +8,12 @@ description: >-
 **This owns the deployment sequence, and the infrastructure handed to you at the start of it.** It
 does not create the database, it does not own the identity, and it is not the pipeline.
 
-Verified 2026-09-03 against the Azure Developer CLI 1.32.0, Azure CLI 2.90.0, sqlcmd 1.10.0 and
-.NET 8.0.421, by listing the template gallery and reading the shipped Bicep of every
-Microsoft-published template it returns for Azure SQL Database.
+Templates change; each claim below about one comes with the command that checks it.
 
 ## The correction: a first-party template's infrastructure is not a reviewed baseline
 
-An agent treats a Microsoft sample's `infra` directory as settled, spends its attention on the
-application code, and asked to reach Azure SQL Database without a password recommends the
+The usual approach treats a Microsoft sample's `infra` directory as settled, spends its attention
+on the application code, and, asked to reach Azure SQL Database without a password, recommends the
 first-party template as the way to get there. **That inference is wrong in two separate ways at
 once**, and every claim below is settled by a command rather than by reading.
 
@@ -36,9 +24,9 @@ azd version
 azd template list --output json | grep -c '"Azure-Samples/todo-'
 ```
 
-Measured 2026-09-18: 303 templates, **zero** `todo-` entries. The family was archived 2026-09-04 and
-left the gallery 2026-09-08, yet `azd init -t todo-csharp-sql` still initializes it and Microsoft
-Learn still lists it, so users still arrive with it. `todo-csharp-cosmos-sql` is Cosmos DB for
+The count is **zero**: the `todo-` family is archived and has left the gallery, yet
+`azd init -t todo-csharp-sql` still initializes it and Microsoft Learn still lists it, so users
+still arrive with it. `todo-csharp-cosmos-sql` is Cosmos DB for
 NoSQL. **`todo-nodejs-sql` and `todo-python-sql` never existed.**
 
 ### The archived web application blueprint for Azure SQL Database uses a password
@@ -50,8 +38,8 @@ curl -s https://raw.githubusercontent.com/Azure-Samples/todo-csharp-sql/main/inf
   | grep -n -i "administratorLogin\|create user\|db_owner\|external provider"
 ```
 
-Measured 2026-09-03: `administratorLogin`, `create user ${APPUSERNAME} with password`,
-`alter role db_owner add member`, and zero hits for `external provider`.
+It returns `administratorLogin`, `create user ${APPUSERNAME} with password`,
+`alter role db_owner add member`, and nothing for `external provider`.
 
 | It does | Not |
 |---|---|
@@ -80,7 +68,7 @@ for r in todo-csharp-sql:app/db-avm.bicep \
 done
 ```
 
-**Four of four**, measured 2026-09-03: `1` on every line. All four build the logical server from
+**Every line prints `1`.** All four build the logical server from
 the Azure Verified Module and all four ship a rule named `Azure Services` running `0.0.0.1` to
 `255.255.255.254`, **every address a client can present**. Three are Entra-only with a managed
 identity and are otherwise the ones to copy, so picking the better template fixes the password and
@@ -122,7 +110,7 @@ azd provision --preview                        # what would be created, before i
 ```
 
 Open [references/azd-and-azure-sql.md](references/azd-and-azure-sql.md) **before** choosing a
-template or writing the hook: it carries the per-template evidence, which templates are
+template or writing the hook: it carries the per-template details, which templates are
 Microsoft-published rather than community ones, and the hook wiring end to end.
 
 **What to copy instead.** The three serverless quickstarts are the pattern worth taking: an
@@ -192,7 +180,7 @@ under an `infra` key, `path` and `module`.
 
 **That Bicep has to come from somewhere, and there are only two real sources**: a template, read
 first on the terms above, or hand-written from Azure Verified Modules. There is no third option,
-and this is where an agent invents one:
+though one is easy to assume:
 
 > **The compose feature cannot create an Azure SQL Database.** Its database resource types are
 > Azure Cosmos DB, Azure Cosmos DB for MongoDB, Azure Cosmos DB for PostgreSQL, Azure Cache for
@@ -362,6 +350,9 @@ cannot. `azd pipeline config` is the handoff point.
 
 ## Do not
 
+- Do not run `azd down` unless the user asked for teardown, and first tell them the database and its
+  data are deleted with everything else. Never add `--force` or `--purge` on your own: under an agent
+  there is no prompt to stop a mistake.
 - Do not treat a first-party template's `infra` directory as reviewed, and do not call one
   passwordless because a managed identity appears in it. Check what that identity authenticates to.
 - Do not accept a firewall rule because its name says Azure services. Read the range, and expect the
@@ -381,7 +372,7 @@ cannot. `azd pipeline config` is the handoff point.
 
 - [references/azd-and-azure-sql.md](references/azd-and-azure-sql.md): open it before choosing a
   template, before writing the post-provision hook, or when a claim above disagrees with what you
-  are seeing. It carries the per-template evidence, which templates are Microsoft-published, the
+  are seeing. It carries the per-template details, which templates are Microsoft-published, the
   naming traps, and the hook wiring from infrastructure output to grant.
 - `azd template list` and the community gallery at `azure.github.io/awesome-azd` are the only
   current statement of what templates exist. List them rather than recalling them.

@@ -1,17 +1,6 @@
 ---
 name: azuresql-db-functions
-description: >-
-  Builds a serverless API and event-driven handlers over the local Azure SQL
-  Database container using Azure Functions with the Azure SQL bindings. Use when a user
-  wants "a serverless API over SQL", "Azure Functions with a database", "HTTP
-  CRUD with SQL input/output bindings", "run code when a row changes", "react to
-  inserts/updates/deletes", "event-driven on Azure SQL", or "SQL trigger
-  function". The Azure SQL trigger binding (backed by Change Tracking) is the
-  local event-driven mechanism; Change Event Streaming (CES) is cloud-only and
-  cannot run against the local container. Triggers include "func start with
-  SQL", "SqlTrigger", "SqlInput/SqlOutput binding", "local.settings.json
-  SqlConnectionString". Reach for this when building serverless endpoints or
-  change-driven logic on the local Azure SQL engine.
+description: "Use when building a serverless CRUD API or reacting to row changes with Azure Functions on the local Azure SQL Database container: SQL bindings and trigger. For the cloud, use `azure-functions-sql-bindings`."
 ---
 
 # Serverless API + event-driven on the Azure SQL Database container with Azure Functions
@@ -33,14 +22,8 @@ Database container** (Private Preview) using **Azure Functions** and the first-p
 > [references/event-driven.md](references/event-driven.md) when you need the reason CES cannot
 > run here, or when a user asks for it by name.
 
-Verified on 2026-09-05 against the container image
-`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
-5, Edition `SQL Azure`, build `12.0.2000.8`. All six executable checks behind this skill
-passed: change tracking enabled on a user database, compatibility level 130 or higher,
-`OPENJSON` present, and, against Azure Functions Core Tools 4.12.0, that `func templates list`
-still advertises a SQL trigger template while `func new --template SqlTrigger` is refused with
-`Unknown template 'SqlTrigger'`, with an HTTP template succeeding in the same project as the
-control.
+The container supports what the bindings need: Change Tracking on a user database,
+compatibility level 130 or higher, and `OPENJSON`.
 
 ## Load-bearing facts (inlined; full engine detail in azuresql-db-container)
 
@@ -74,10 +57,13 @@ The bindings read the connection string from an app setting. Use the name
   "Values": {
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
-    "SqlConnectionString": "Server=localhost,1433;Database=appdb;User Id=sa;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true"
+    "SqlConnectionString": "Server=localhost,1433;Database=appdb;User Id=sa;Password=<sa-password>;TrustServerCertificate=true"
   }
 }
 ```
+
+Replace `<sa-password>` with the container's `MSSQL_SA_PASSWORD`; `local.settings.json` stays out of
+source control.
 
 `TrustServerCertificate=true` is required for the container's self-signed cert.
 Set `FUNCTIONS_WORKER_RUNTIME` to your language (`dotnet-isolated`, `node`,
@@ -115,7 +101,7 @@ Python, and other runtimes are also available.
 
 ```bash
 func init MyApi --worker-runtime dotnet-isolated
-cd MyApi
+cd MyApi || exit 1
 func new --name Books                              # pick an HTTP trigger template
 ```
 
@@ -141,7 +127,8 @@ func start        # HTTP endpoints on http://localhost:7071/api/<name>
 The SQL trigger fires your function when rows change.
 
 **There is no SQL trigger template to scaffold from, even though the tooling
-lists one.** `func templates list` advertises a `SQL Trigger` entry, but
+lists one.** With Azure Functions Core Tools 4.12.0, `func templates list` advertises a
+`SQL Trigger` entry, but
 `func new --template SqlTrigger` exits non-zero with
 `Unknown template 'SqlTrigger'`: the listing and the scaffolder disagree, and no
 flag reconciles them. Scaffold an HTTP trigger instead (`func new --name

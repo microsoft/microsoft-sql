@@ -1,16 +1,6 @@
 ---
 name: build-app-on-azure-sql
-description: >-
-  Sequences standing up a new application on Azure SQL Database and routes each decision to the
-  skill that owns it. Use at the start of a project, when a user says "build an app on Azure
-  SQL", "add Azure SQL Database to my app", "which stack should I use with Azure SQL", "where do
-  I start", "generate an API over my database", or "get this into Azure without a password in the
-  repo". It establishes the order that works: server-side prerequisites before any code, an
-  identity instead of a password, schema through a migration not at startup, and a generated data
-  API before hand-written CRUD. It routes rather than repeats: provision-azure-sql-db creates the
-  database, connect-to-azure-sql drivers and retry, entra-id-auth the identity,
-  dab-rest-and-graphql and azure-functions-sql-bindings the API layer, deploy-app-to-azure
-  shipping, azuresql-db-scaffold the local container version.
+description: "Use when starting a new app on Azure SQL Database: choose a stack and go from resource group to first request without storing a password."
 ---
 
 # Build an application on Azure SQL Database
@@ -19,14 +9,10 @@ description: >-
 that get made wrong at the start. Every technique it names belongs to another skill, and the handoff
 is the point.
 
-Verified 2026-09-03 against Azure CLI 2.90.0, go-sqlcmd 1.10.0, Data API builder 2.0.9 and .NET SDK
-8.0.421, and against the four first-party Azure SQL Database quickstarts on Microsoft Learn. The two
-sqlcmd builds were compared again on 2026-09-05, go-sqlcmd 1.10.0 against ODBC sqlcmd 18.6.0002.1.
-
 ## The failure this exists to prevent
 
-Asked to build an application on Azure SQL Database, an agent starts inside the application: it
-picks a stack, writes a data layer, and puts a user name and password in configuration.
+The usual start for an application on Azure SQL Database is inside the application: pick a stack,
+write a data layer, and put a user name and password in configuration.
 
 **Every first-party Azure SQL Database quickstart starts outside the application.** All four open
 with the same section, before a line of code, and it configures the server rather than the project.
@@ -34,7 +20,7 @@ The three things that section does are the three things that fail silently:
 
 | Prerequisite | How it fails |
 |---|---|
-| A firewall rule covering the client address | Learn documents a latency of **up to** five minutes on security setting changes. **Measured 2026-09-05 it was immediate**, so do not plan around a five minute wait and do not read a refusal as a rule that has not landed yet: see [how long a rule really takes](#how-long-a-firewall-rule-really-takes). Network address translation also means the address the client connects from is often not the one in its own network configuration |
+| A firewall rule covering the client address | Learn documents a latency of **up to** five minutes on security setting changes. **In practice a change usually applies within seconds**, so do not plan around a five minute wait and do not read a refusal as a rule that has not landed yet: see [how long a rule really takes](#how-long-a-firewall-rule-really-takes). Network address translation also means the address the client connects from is often not the one in its own network configuration |
 | A Microsoft Entra administrator on the logical server | Passwordless auth is simply off. The failure arrives at connect time as a login failure, which reads as a wrong credential |
 | A database user for the deployed identity | Nothing at deploy time reports it missing. The application returns a server error, and its code is correct |
 
@@ -76,13 +62,13 @@ skill it routes to come out of only one of them. Microsoft Learn calls them
 | How to tell | `sqlcmd -?` starts `Microsoft (R) SQL Server Command Line Tool` | `sqlcmd --version` prints a version alone |
 
 `-m-1` is an **ODBC `sqlcmd`** instruction, and it is the flag that makes a severity 10 message
-print its `Msg` number, which that build otherwise does not do. Measured 2026-09-05 on 18.6.0002.1:
+print its `Msg` number, which that build otherwise does not do. With ODBC `sqlcmd` 18.x,
 `RAISERROR('a severity ten note', 10, 1)` prints `Msg 50000, Level 0, State 1` at `-m-1` and the
 bare text without it.
 
-**go-sqlcmd 1.10.0 does not do this.** Measured the same day against the same engine, it prints the
-`Msg` header only at severity 11 and above, and a severity 10 message arrives as text with no number
-at `-m-1`, `-m0` and `-m1` alike, on stdout and on stderr. Its `-m` still filters, so `-m17` drops a
+**go-sqlcmd 1.x does not do this.** It prints the `Msg` header only at severity 11 and above, and a
+severity 10 message arrives as text with no number at `-m-1`, `-m0` and `-m1` alike, on stdout and
+on stderr. Its `-m` still filters, so `-m17` drops a
 severity 16 message entirely, but no value of it puts a number back on a warning. If the numbers a
 skill tells you to look for never appear, check which build you are running before you conclude the
 engine stayed quiet: query `sys.messages`, or run the statement through the ODBC build.
@@ -102,30 +88,15 @@ Two facts decide what to do when the rule looks right and the connection still f
 
 ### How long a firewall rule really takes
 
-Learn says security setting changes take **up to** five minutes. Up to is the whole sentence, and
-this skill used to repeat the ceiling as the expected case and tell readers the first run would
-fail because of it. It does not.
+Learn says security setting changes take **up to** five minutes. Up to is the whole sentence: it is
+a ceiling, not the expected case, and a first run does not fail because of it. A rule created or
+deleted with `az sql server firewall-rule` usually applies, in either direction, to the next
+connection attempted after the command returns.
 
-Measured 2026-09-05 against a Basic tier database on a logical server in `eastus2`, over three
-trials in both directions. Each trial deleted the rule admitting the client and polled until the
-connection was refused, then created it again and polled until the connection succeeded, with the
-clock started the instant the `az` control-plane call returned and a poll every two seconds.
-
-| Trial | Rule removed, until refused | Rule created, until admitted |
-|---|---|---|
-| 1 | 1.0 s | 0.8 s |
-| 2 | 0.8 s | 0.9 s |
-| 3 | 0.8 s | 0.9 s |
-
-Every poll in every trial found the change already in effect on the **first** attempt, so the real
-figure is below the measurement floor: one Entra `sqlcmd` login, about 0.8 s. Read the table as
-"not more than a second", not as "about a second".
-
-What this changes in practice. **A connection refused straight after `az sql server firewall-rule
-create` returned is very unlikely to be a rule that has not propagated yet, so do not wait five
-minutes and try again.** Check the address first: network address translation means the address the
-server sees is often not the one the client believes it has, and the refusal message names the
-address the server saw.
+**A connection refused straight after `az sql server firewall-rule create` returned is very
+unlikely to be a rule that has not propagated yet, so do not wait five minutes and try again.**
+Check the address first: network address translation means the address the server sees is often
+not the one the client believes it has, and the refusal message names the address the server saw.
 
 ```output
 Cannot open server 'example' requested by the login. Client with IP address '203.0.113.7' is not
@@ -152,7 +123,7 @@ below.
 
 ## The four decisions, and where each one goes
 
-A good answer names the decision, states the usual right answer, and hands off.
+For each one, name the decision, state the usual right answer, and hand off.
 
 ### 1. What does the application develop against?
 
@@ -183,7 +154,7 @@ auth mode, not after the login fails.
 
 - Installation, syntax and pooling per stack: `connect-from-dotnet`, `connect-from-python`,
   `connect-from-typescript-and-node`
-- An error number that needs a cause: `diagnose-connection-errors`
+- An error number that needs a cause: `connectivity-troubleshoot`
 
 ### 3. Who writes the data layer?
 
@@ -206,13 +177,15 @@ dab add Book --source dbo.books --source.type table --permissions "authenticated
 
 Open `dab-rest-and-graphql` before starting that engine rather than after: version 2.0 writes an
 `Unauthenticated` provider and serves an MCP endpoint over the same entities, so a short
-configuration can publish the whole database anonymously while validation passes.
+configuration can publish the whole database anonymously while validation passes. Hosting the
+generated API in Azure belongs to `deploy-dab-to-azure`, and connecting an agent to its MCP
+endpoint to `dab-mcp-endpoint`.
 
 Hand-written, on .NET, from an empty directory:
 
 ```bash
 dotnet new web -o <app-name>
-cd <app-name>
+cd <app-name> || exit 1
 dotnet add package Microsoft.Data.SqlClient
 ```
 
@@ -234,15 +207,16 @@ the Python quickstart carries an explicit warning against shipping its raw state
 
 This needs saying out loud because the sample code contradicts it. Three of the four quickstarts
 create their table during startup and label it, in the sample itself, as testing only: "Table should
-be created ahead of time in production app". An agent that has absorbed those samples reproduces the
-startup DDL and drops the label.
+be created ahead of time in production app". Code modelled on those samples tends to keep the
+startup DDL and drop the label.
 
 - The tool-neutral doctrine, including why startup migration is wrong: `schema-migrations-safely`
 - Getting the model right before it is expensive to change: `design-azure-sql-schema`
 
 ## Getting it to Azure
 
-`deploy-app-to-azure` owns the deployment itself. One thing belongs in the plan before it starts.
+`deploy-app-to-azure` owns the deployment itself, and `deploy-dab-to-azure` owns it when the data
+layer is a generated Data API builder API. One thing belongs in the plan before it starts.
 
 **The identity grant is a real step and it is easy to skip.** Connecting a hosted application to the
 database is three operations: enable a managed identity, create a database user for it, grant it
@@ -307,7 +281,7 @@ nobody asked for is the usual leftover of the one-command tool above.
 
 ## Checklist before reporting success
 
-- [ ] Firewall rule and Microsoft Entra administrator verified, and the latency waited out or flushed
+- [ ] Firewall rule and Microsoft Entra administrator verified by a connection that succeeded
 - [ ] One command-line round trip succeeded before any application code was written
 - [ ] Connection configuration has no secret, and names the user database
 - [ ] The auth mode string came from `entra-id-auth`, not from memory
@@ -319,9 +293,9 @@ nobody asked for is the usual leftover of the one-command tool above.
 
 - Do not write application code before the firewall rule and the Microsoft Entra administrator are
   confirmed. That ordering is the whole skill.
-- Do not read a first-run failure as a code or driver bug. Check the latency, then the admin, then
-  the database user, in that order, and never declare a new firewall rule a success until the
-  latency is waited out or the auth cache is flushed.
+- Do not read a first-run failure as a code or driver bug. Check the address the server saw, then
+  the admin, then the database user, in that order, and never declare a new firewall rule a success
+  until a connection through it has succeeded.
 - Do not put a password in configuration because passwordless "can be added later". The two paths
   differ in the connection string only, so there is nothing to save.
 - Do not copy the quickstart's startup table creation into a real application. The sample says so

@@ -1,27 +1,20 @@
 ---
 name: t-sql-json-and-openjson
-description: >-
-  Queries and stores JSON on Azure SQL Database using the native json type, a JSON index, and
-  OPENJSON with an explicit WITH schema, instead of the older nvarchar(max) plus JSON_VALUE
-  pattern the training data is full of. Use when asked to "store JSON in SQL", "query a JSON
-  column", "shred a JSON array into rows", "flatten this payload into a table", "index a JSON
-  property", "should this be nvarchar(max) or the json type", "parse the API response we saved",
-  or when JSON_VALUE, JSON_QUERY, JSON_MODIFY, ISJSON, OPENJSON, JSON_OBJECT or JSON_ARRAYAGG
-  appears in a query being written or reviewed; and when a JSON lookup returns NULL for a value
-  that is visibly present, or invalid JSON reached a column that nothing rejected. Where a
-  document column belongs in a table design is design-azure-sql-schema, and general T-SQL dialect
-  is t-sql-correctness.
+description: "Use when storing, querying or reviewing JSON in Azure SQL Database: json type or nvarchar(max), OPENJSON, JSON_VALUE returning NULL. Has verified behavior common answers miss, e.g. nvarchar(max) silently stores invalid JSON."
 ---
 
 # Query JSON on Azure SQL Database with the native type
 
-Two generations of JSON support exist here and a model has read far more of the first: a document
-in `nvarchar(max)` read with functions. The second is a real `json` type with its own storage,
-validation and index. Both work, and the differences are not only speed. Measured 2026-08-28
-against a live engine reporting `EngineEdition` 5 and Edition `SQL Azure`; the Learn pages for
-`OPENJSON`, `JSON_VALUE` and `CREATE JSON INDEX` were re-read 2026-09-03.
+Two generations of JSON support exist here and far more has been written about the first: a
+document in `nvarchar(max)` read with functions. The second is a real `json` type with its own
+storage, validation and index. Both work, and the differences are not only speed.
 Open [references/json-type-errors-and-timings.md](references/json-type-errors-and-timings.md) when
 an error number you hit is not listed here, or before you change one that is.
+
+## Scope
+
+- Where a document column belongs in a table design is `design-azure-sql-schema`.
+- General T-SQL dialect is `t-sql-correctness`.
 
 ## What the json type actually changes
 
@@ -63,11 +56,14 @@ The same statement against `dbo.doc_nv` returns `Msg 13680`. Learn adds the fenc
 a clustering key, one index per `json` column and 249 per table, the default path set is `$`,
 listed paths may not overlap, builds are offline only. It serves `JSON_PATH_EXISTS`,
 `JSON_CONTAINS` and `JSON_VALUE` compared with `=`, `RETURNING` cast included, but not `LIKE` or
-`IS [NOT] NULL`. Learn's page omits Azure SQL Database from its applies-to banner
-and calls the feature preview, yet it built and served queries on the engine measured here.
+`IS [NOT] NULL`. Learn's `CREATE JSON INDEX` page lists Azure SQL Database in its applies-to
+banner, and its `json` data type page states that the type and JSON indexes are generally
+available on Azure SQL Database. The index builds and serves queries on the local Azure SQL
+Database container.
 
-One equality predicate on a nested property over 20,000 documents: 958 logical reads and 29 ms of
-CPU on `nvarchar(max)`, 915 and 23 ms on `json` without a JSON index, **142 and 5 ms** with one.
+For one equality predicate on a nested property, `nvarchar(max)` and `json` without a JSON index
+cost about the same, because both read every page of the base table. **With a JSON index the same
+query takes a small fraction of the reads and the CPU.**
 
 The alternative on either storage is the promoted column, a `PERSISTED` computed column over
 `JSON_VALUE` with an ordinary index, which `design-azure-sql-schema` owns. Converting is close to
@@ -89,26 +85,24 @@ CROSS APPLY OPENJSON(o.payload, '$.lines')
 ```
 
 A path is optional where the column name equals the property name, as `sku` and `qty` show.
-Shredding 40,000 array elements out of 20,000 `nvarchar(max)` documents cost **94 to 130 ms of CPU
-with `WITH`, against 375 to 395 ms** for the default output plus a `JSON_VALUE` per field, across
-three runs. The plans differ too, and reading them is `read-execution-plan`. Performance is the
-smaller half:
+Shredding an array out of `nvarchar(max)` documents **costs several times less CPU with `WITH`**
+than the default output plus a `JSON_VALUE` per field. The plans differ too, and reading them is
+`read-execution-plan`. Performance is the smaller half:
 
 1. **A bad value fails loudly instead of arriving as text.** `WITH (qty int '$.qty')` over
    `"qty": "abc"` raises `Msg 245`; the default output hands back `abc` as `nvarchar(max)`.
 2. **A nested object or array needs `AS JSON`**, which requires `nvarchar(max)`; anything else is
    `Msg 13618`. Without it the column is `NULL` in lax mode rather than the nested document.
 3. **Paths and `key` are case-sensitive**, matched BIN2 and collation-unaware, so on a
-   case-insensitive database `WHERE [key] = N'orderid'` matched nothing against `orderId`.
+   case-insensitive database `WHERE [key] = N'orderid'` matches nothing against `orderId`.
 4. **A missing property is `NULL` in lax mode and `Msg 13608` under `strict`**, and lax is the
    default when no mode is written. Choose deliberately.
 
 ## The 4000 character cliff, and the two ways past it
 
 `JSON_VALUE` without `RETURNING` is typed `nvarchar(4000)`, and Learn is explicit that above 4000
-characters it returns `NULL` in lax mode and an error in strict mode; measured, strict raised
-`Msg 13625`, "would be truncated". That is data loss dressed as a missing key, and both escapes
-fit in one statement:
+characters it returns `NULL` in lax mode and an error in strict mode, `Msg 13625`, "would be
+truncated". That is data loss dressed as a missing key, and both escapes fit in one statement:
 
 ```sql
 DECLARE @j json = JSON_OBJECT('big': REPLICATE(CAST(N'x' AS nvarchar(max)), 5000));
@@ -123,18 +117,18 @@ cosmetic; `OPENJSON ... WITH` works on both. It also takes the numeric, date and
 
 ## Compatibility level 130 is real, and almost never your problem
 
-`OPENJSON` is hidden below level 130 and returns `Msg 208`, `Invalid object name 'OPENJSON'`:
-measured failing at 100 and 120, working at 130, while the `json` type and `CREATE JSON INDEX`
-worked at 120. The requirement is real and nearly never the fault, because a database created on
-Azure SQL Database today starts far above 130.
+`OPENJSON` is hidden below level 130 and returns `Msg 208`, `Invalid object name 'OPENJSON'`: it
+fails at 100 and 120 and works at 130, while the `json` type and `CREATE JSON INDEX` work at 120.
+The requirement is real and nearly never the fault, because a database created on Azure SQL
+Database today starts far above 130.
 
 ```sql
 SELECT DATABASEPROPERTYEX(DB_NAME(), 'CompatibilityLevel') AS level;
 ```
 
-Read it that way rather than from `sys.databases`, observed stale in the same session as an
-`ALTER DATABASE`. Treat raising the level as a separate migration change that requires workload
-testing. If it cannot move, Learn documents a second door:
+Read it that way rather than from `sys.databases`, which can return a stale value in the same
+session as an `ALTER DATABASE`. Treat raising the level as a separate migration change that
+requires workload testing. If it cannot move, Learn documents a second door:
 `ALLOW_BUILTIN_TVF_IN_ALL_COMPAT_LEVELS`, a database-scoped configuration that exempts `OPENJSON`
 and the other built-in table-valued functions.
 
@@ -169,9 +163,9 @@ sqlcmd -S <server>,1433 -d <database> -b -m-1 -i check-json.sql
 ```
 
 **`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
-Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
-`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
-message at any `-m` value, so on that build there is no number to grep for whatever `-m` says. The
+Microsoft command line utilities. go-sqlcmd 1.x, the build `brew install sqlcmd` and
+`winget install sqlcmd` install, prints no `Msg` header on a severity 10 message at any `-m` value,
+so on that build there is no number to grep for whatever `-m` says. The
 numbers in this skill that matter most, `13609`, `13618`, `13608` and `13625`, are all severity 16
 and print on either build; it is the severity 10 case this flag is for.
 
@@ -180,8 +174,8 @@ and print on either build; it is the severity 10 case this flag is for.
 - Do not default to `nvarchar(max)` because it is familiar: it accepts invalid JSON, cannot carry
   a JSON index, and `RETURNING` is closed to it.
 - Do not call `nvarchar(max)` plus functions deprecated. It is not, and on scalar reads it is the
-  cheaper plan: four properties from each of 20,000 rows cost **81 ms** of CPU with `JSON_VALUE`
-  against **735 ms** for `OPENJSON ... WITH`.
+  cheaper plan: reading four properties from every row costs **several times less CPU** with
+  `JSON_VALUE` than with `OPENJSON ... WITH`.
 - Do not reach for `OPENJSON` to read one scalar property, and do not lower-case a path or a `key`
   comparison, which quietly matches nothing.
 - Do not assume a `json` column hands back the text that went in. It is reparsed, whitespace goes

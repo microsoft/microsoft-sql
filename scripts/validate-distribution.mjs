@@ -7,6 +7,9 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const errors = [];
+const allowDevelopmentMcp = process.argv.includes("--allow-development-mcp");
+// The published repository requires signed PowerShell scripts; a layout that has not been signed yet does not.
+const requireSignedScripts = process.argv.includes("--require-signed-scripts");
 
 const expectedSkills = {
   "microsoft-azuresqldb-container": [
@@ -50,19 +53,16 @@ const expectedSkills = {
     "azuresql-db-testing",
     "build-app-on-azure-sql",
     "bulk-load-and-bulk-copy",
-    "capture-with-extended-events",
     "connect-from-dotnet",
     "connect-from-python",
     "connect-from-typescript-and-node",
     "connect-to-azure-sql",
+    "dab-mcp-endpoint",
     "dab-rest-and-graphql",
     "deploy-app-to-azure",
+    "deploy-dab-to-azure",
     "design-azure-sql-schema",
     "dev-container-templates",
-    "diagnose-blocking-and-deadlocks",
-    "diagnose-connection-errors",
-    "diagnose-resource-pressure",
-    "diagnose-slow-query",
     "ef-core-azure-sql",
     "embeddings-and-external-models",
     "entra-id-auth",
@@ -87,6 +87,55 @@ const expectedSkills = {
     "t-sql-upserts-merge",
     "vector-search-azure-sql",
   ],
+  "microsoft-sql-admin": [
+    "active-connections",
+    "always-encrypted-columns",
+    "authentication-diagnostics",
+    "backup-history-azuresql",
+    "backup-strategy-sqlserver",
+    "blocking-root-cause-analysis",
+    "check-live-blocking",
+    "code-analysis",
+    "connectivity-troubleshoot",
+    "create-xe-session",
+    "database-config-azuresql",
+    "database-settings-review",
+    "deadlock-analysis",
+    "deadlock-analysis-azuresql",
+    "geo-dr-assessment-health-check",
+    "ha-assessment-health-check",
+    "health-audit-sqlserver",
+    "improve-query-performance",
+    "investigate-geo-dr-issues",
+    "investigate-ha-issues",
+    "investigate-sql-cpu-pressure",
+    "investigate-sql-data-io-pressure",
+    "investigate-sql-log-io-pressure",
+    "investigate-sql-memory-issues",
+    "investigate-statistics-issues",
+    "ledger-tables",
+    "missing-index-analysis",
+    "partitioned-tables",
+    "plan-analysis",
+    "plan-cache-analysis",
+    "plan-cache-qds-bridge",
+    "query-hint-tuning",
+    "query-rewrite",
+    "query-store-investigation",
+    "query-store-volatile-historical-slow-queries-comparison",
+    "resource-usage-sqlserver",
+    "schema-design-guidance",
+    "slow-query-investigation",
+    "sql-admin-analyze-readiness-at-scale",
+    "sql-admin-evaluate-azure-migration-assessment",
+    "sql-admin-get-migration-assessment",
+    "sql-agent-job-failure-investigator",
+    "sql-tools-mcp-setup",
+    "table-access-analysis",
+    "table-health-check",
+    "top-queries-noqds",
+    "wait-category-analysis",
+  ],
   "microsoft-sql-fdh": ["databasehub-cli"],
   "microsoft-sql-migration": [
     "analyze-readiness-at-scale",
@@ -105,18 +154,20 @@ const expectedSkills = {
   "microsoft-sql-vscode": [
     "azure-functions-sql-bindings",
     "bulk-load-and-bulk-copy",
-    "capture-with-extended-events",
+    "create-xe-session",
     "connect-from-dotnet",
     "connect-from-python",
     "connect-from-typescript-and-node",
     "connect-to-azure-sql",
+    "dab-mcp-endpoint",
     "deploy-app-to-azure",
+    "deploy-dab-to-azure",
     "design-azure-sql-schema",
     "dev-container-templates",
-    "diagnose-blocking-and-deadlocks",
-    "diagnose-connection-errors",
-    "diagnose-resource-pressure",
-    "diagnose-slow-query",
+    "check-live-blocking",
+    "connectivity-troubleshoot",
+    "resource-usage-sqlserver",
+    "slow-query-investigation",
     "ef-core-azure-sql",
     "embeddings-and-external-models",
     "entra-id-auth",
@@ -139,6 +190,12 @@ const expectedSkills = {
     "t-sql-json-and-openjson",
     "t-sql-upserts-merge",
     "vector-search-azure-sql",
+    "deadlock-analysis-azuresql",
+    "authentication-diagnostics",
+    "investigate-sql-cpu-pressure",
+    "investigate-sql-data-io-pressure",
+    "investigate-sql-log-io-pressure",
+    "investigate-sql-memory-issues",
   ],
 };
 
@@ -146,6 +203,7 @@ const expectedPlugins = Object.keys(expectedSkills).sort();
 const expectedVersions = {
   "microsoft-azuresqldb-container": "1.0.0",
   "microsoft-sql": "1.0.0",
+  "microsoft-sql-admin": "1.0.0",
   "microsoft-sql-fdh": "1.0.0",
   "microsoft-sql-migration": "1.0.0",
   "microsoft-sql-vscode": "1.0.0",
@@ -181,6 +239,7 @@ const issueFormIds = [
   "what-happened",
 ];
 const forbiddenSidecars = new Set([
+  "loader-test-fixture.md",
   "skill-contract.yml",
   "skill.spec.jsonc",
   "suppression.json",
@@ -212,6 +271,13 @@ const sourceHeaderPrefixes = new Map([
   [".ts", "//"],
   [".tsx", "//"],
 ]);
+// Authenticode signs a PowerShell script by appending a comment block with CRLF line endings. PowerShell
+// treats a script as unsigned once those line endings are rewritten, so signed scripts are published byte for byte.
+const signableScriptExtensions = [".ps1", ".psm1", ".psd1"];
+const signatureBlock =
+  /\r\n# SIG # Begin signature block\r\n(?:#[^\r\n]*\r\n)+# SIG # End signature block(?:\r\n)?$/u;
+const rewrittenSignatureBlock =
+  /\n# SIG # Begin signature block\r?\n(?:#[^\r\n]*\r?\n)+# SIG # End signature block\r?\n?$/u;
 const forbiddenBinaryExtensions = new Set([
   ".a",
   ".bin",
@@ -296,6 +362,178 @@ async function exists(file) {
   }
 }
 
+async function validateCoordinatedKnowledgeBase(skillDirectory) {
+  const skillFile = path.join(skillDirectory, "SKILL.md");
+  const skillText = await readFile(skillFile, "utf8");
+  const coordinated = /Current coordinated knowledge-base line:\s*\*\*(v\d+\.\d+)\*\*/u.exec(skillText);
+  if (!coordinated) {
+    if (/If the versions disagree/iu.test(skillText)) {
+      fail(`${relative(skillFile)}: version-stop policy has no coordinated knowledge-base line`);
+    }
+    return;
+  }
+
+  const expected = coordinated[1];
+  const declarations = [];
+  const requireVersions = async (file, pattern, label) => {
+    let text;
+    try {
+      text = await readFile(file, "utf8");
+    } catch (error) {
+      fail(`${relative(file)}: cannot read coordinated knowledge-base declaration (${error.message})`);
+      return;
+    }
+    const match = pattern.exec(text);
+    if (!match) {
+      fail(`${relative(file)}: missing coordinated knowledge-base declaration (${label})`);
+      return;
+    }
+    for (const version of match.slice(1)) declarations.push({ file, label, version });
+  };
+
+  await requireVersions(
+    skillFile,
+    /input\/output schemas, and knowledge base (v\d+\.\d+)\./u,
+    "checked-against statement",
+  );
+  await requireVersions(
+    skillFile,
+    /Knowledge base (v\d+\.\d+) \(bundled[^\n]*rules (v\d+\.\d+)/u,
+    "startup announcement",
+  );
+  await requireVersions(
+    skillFile,
+    /"knowledgeBaseVersion": "(v\d+\.\d+)",[\s\S]*?"decisionRulesVersion": "(v\d+\.\d+)"/u,
+    "structured output example",
+  );
+  await requireVersions(
+    skillFile,
+    /> KB \*\*(v\d+\.\d+)\*\*/u,
+    "recommendation example",
+  );
+
+  const references = path.join(skillDirectory, "references");
+  await requireVersions(
+    path.join(references, "knowledge-base.md"),
+    /^> \*\*Version\.\*\* (v\d+\.\d+)/mu,
+    "knowledge-base header",
+  );
+  await requireVersions(
+    path.join(references, "knowledge-base.md"),
+    /^Current version: \*\*(v\d+\.\d+)\*\*/mu,
+    "knowledge-base current version",
+  );
+  await requireVersions(
+    path.join(references, "decision-rules.md"),
+    /^Source of truth:.*\*\*(v\d+\.\d+)\*\*/mu,
+    "decision-rules source",
+  );
+  await requireVersions(
+    path.join(references, "sample-recommendation.md"),
+    /> KB \*\*(v\d+\.\d+)\*\*[^\n]*rules \*\*(v\d+\.\d+)\*\*/u,
+    "sample recommendation",
+  );
+  await requireVersions(
+    path.join(references, "sample-recommendation.md"),
+    /"knowledgeBaseVersion": "(v\d+\.\d+)",[\s\S]*?"decisionRulesVersion": "(v\d+\.\d+)"/u,
+    "sample structured output",
+  );
+
+  for (const { file, label, version } of declarations) {
+    if (version !== expected) {
+      fail(`${relative(file)}: ${label} declares ${version}; coordinated version is ${expected}`);
+    }
+  }
+}
+
+async function validatePrerequisitePolicy(skillDirectory) {
+  const refs = path.join(skillDirectory, "references");
+  const skill = await readFile(path.join(skillDirectory, "SKILL.md"), "utf8");
+  const declared = /schema\/KB line `([^`]+)`\/`([^`]+)`/u.exec(skill);
+  if (!declared) {
+    fail(`${relative(skillDirectory)}: missing prerequisite schema/KB declaration`);
+    return;
+  }
+  const [, schemaVersion, knowledgeBaseVersion] = declared;
+  const check = (file, label, actual, expected) => {
+    if (actual !== expected) fail(`${relative(skillDirectory)}/${file}: ${label} is ${actual}; expected ${expected}`);
+  };
+  const catalog = await readJson(path.join(refs, "path-catalog.json"));
+  const questions = await readJson(path.join(refs, "questions.json"));
+  const input = await readJson(path.join(refs, "input.schema.json"));
+  const output = await readJson(path.join(refs, "output.schema.json"));
+  check("references/path-catalog.json", "schema version", catalog?.schemaVersion, schemaVersion);
+  check("references/path-catalog.json", "knowledge-base version", catalog?.knowledgeBaseVersion, knowledgeBaseVersion);
+  check("references/questions.json", "schema version", questions?.schemaVersion, schemaVersion);
+  check("references/input.schema.json", "schema version", input?.properties?.schemaVersion?.const, schemaVersion);
+  const metadata = output?.properties?.metadata?.properties;
+  check("references/output.schema.json", "schema version", metadata?.schemaVersion?.const, schemaVersion);
+  check("references/output.schema.json", "knowledge-base version", metadata?.prerequisiteKnowledgeBaseVersion?.const, knowledgeBaseVersion);
+  check("references/output.schema.json", "path catalog version", metadata?.pathCatalogVersion?.const, catalog?.schemaVersion);
+  for (const name of ["input-contract.md", "output-contract.md"]) {
+    const text = await readFile(path.join(refs, name), "utf8");
+    check(`references/${name}`, "schema version", /\*\*Schema version:\*\* `([^`]+)`/u.exec(text)?.[1], schemaVersion);
+    check(`references/${name}`, "knowledge-base version", /\*\*Prerequisite knowledge-base line:\*\* `([^`]+)`/u.exec(text)?.[1], knowledgeBaseVersion);
+  }
+  const kb = await readFile(path.join(refs, "knowledge-base.md"), "utf8");
+  check("references/knowledge-base.md", "knowledge-base version", /\*\*Version:\*\* (v\d+\.\d+)/u.exec(kb)?.[1], knowledgeBaseVersion);
+  const announcement = /Prerequisite knowledge base (v\d+\.\d+) \(bundled\) · schema ([\d.]+)/u.exec(skill);
+  check("SKILL.md", "startup knowledge-base version", announcement?.[1], knowledgeBaseVersion);
+  check("SKILL.md", "startup schema version", announcement?.[2], schemaVersion);
+  // Advisor versions and mappingsVersion describe separate policies; do not compare them to these lines.
+}
+
+async function validateCompanionMcp(directory, pluginName, readme) {
+  const configFiles = ["mcp.json", ".mcp.json", "mcp-installation.json"];
+  if (pluginName !== "microsoft-sql-admin") {
+    for (const name of configFiles) {
+      if (await exists(path.join(directory, name))) fail(`${pluginName}/${name}: unexpected companion server`);
+    }
+    return;
+  }
+  const portable = await readJson(path.join(directory, "mcp.json"));
+  const legacy = await readJson(path.join(directory, ".mcp.json"));
+  const installation = await readJson(path.join(directory, "mcp-installation.json"));
+  equalList(`${pluginName} MCP roles`, Object.keys(portable?.mcpServers ?? {}), ["sql-tools"]);
+  if (JSON.stringify(portable?.mcpServers) !== JSON.stringify(legacy?.mcpServers)) {
+    fail(`${pluginName}: MCP client configurations disagree`);
+  }
+  const entry = portable?.mcpServers?.["sql-tools"];
+  const server = installation?.servers?.[0];
+  const pkg = server?.package;
+  if (installation?.servers?.length !== 1 || server?.role !== "sql-tools" || server?.serverId !== "sql-tools-mcp" || server?.kind !== "nuget") {
+    fail(`${pluginName}: unexpected MCP installation metadata`);
+  }
+  if (pkg?.id !== "Microsoft.SqlServer.SQLtools.MCPserver" || !/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/u.test(pkg?.version ?? "")) {
+    fail(`${pluginName}: MCP package must have the expected ID and an exact version`);
+  }
+  const expectedArgs = [`${pkg?.id}@${pkg?.version}`, "--yes"];
+  if (pkg?.development) {
+    if (!allowDevelopmentMcp) fail(`${pluginName}: development MCP feed must not be published`);
+    const feed = pkg.source?.replace(/^development feed /u, "");
+    expectedArgs.push("--add-source", feed);
+  } else if (pkg?.source !== "the client host's NuGet sources") {
+    fail(`${pluginName}: unexpected published MCP package source`);
+  }
+  if (entry?.type !== "stdio" || entry?.command !== "dnx" || JSON.stringify(entry?.args) !== JSON.stringify(expectedArgs)) {
+    fail(`${pluginName}: MCP launch arguments disagree with the pinned package`);
+  }
+  const expectedEnv = {
+    SQLTOOLS__CONNECTIONPROVIDER: "EnvVar",
+    SQLTOOLS__INCLUDEPREVIEWFEATURES: "Disabled",
+    SQLTOOLS__SKILLCONTENTPROVIDER: "External",
+  };
+  for (const [label, actual] of [["launch", entry?.env], ["metadata", server?.configuration]]) {
+    if (Object.keys(actual ?? {}).length !== 3 || Object.entries(expectedEnv).some(([key, value]) => actual?.[key] !== value)) {
+      fail(`${pluginName}: ${label} must select EnvVar, preview Disabled, and External skills without credentials`);
+    }
+  }
+  equalList(`${pluginName} required environment`, server?.requiredEnv ?? [], ["CONNECTION_STRING"]);
+  if (!readme.includes(`${pkg?.id}@${pkg?.version}`) || !readme.includes(`https://www.nuget.org/packages/${pkg?.id}/${pkg?.version}/License`)) {
+    fail(`${pluginName}: README package pin or license link disagrees with MCP metadata`);
+  }
+}
+
 async function walk(directory) {
   const files = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -345,10 +583,14 @@ for (const pluginName of expectedPlugins) {
   equalList(`${pluginName} skills`, skillDirectories, expectedSkills[pluginName]);
 
   for (const skillName of skillDirectories) {
-    const skillFile = path.join(skillsDirectory, skillName, "SKILL.md");
+    const skillDirectory = path.join(skillsDirectory, skillName);
+    const skillFile = path.join(skillDirectory, "SKILL.md");
     if (!(await exists(skillFile))) {
       fail(`${relative(skillFile)}: missing`);
+      continue;
     }
+    await validateCoordinatedKnowledgeBase(skillDirectory);
+    if (skillName === "generate-migration-prerequisite-plan") await validatePrerequisitePolicy(skillDirectory);
   }
 
   for (const manifestName of manifestFiles) {
@@ -377,6 +619,12 @@ for (const pluginName of expectedPlugins) {
   const pluginReadme = path.join(directory, "README.md");
   if (!(await exists(pluginReadme))) {
     fail(`${relative(pluginReadme)}: missing`);
+  } else {
+    const text = await readFile(pluginReadme, "utf8");
+    if (!text.includes(`Version ${expectedVersions[pluginName]}`)) fail(`${relative(pluginReadme)}: stale plugin version`);
+    const rows = [...text.matchAll(/^\| `([^`]+)` \|/gmu)].map((match) => match[1]);
+    equalList(`${relative(pluginReadme)} skill inventory`, rows, skillDirectories);
+    await validateCompanionMcp(directory, pluginName, text);
   }
 }
 
@@ -401,7 +649,12 @@ for (const marketplaceName of marketplaceFiles) {
       "skill-feedback",
     );
     for (const feedbackFile of ["SKILL.md", "references/issue-fields.md"]) {
-      const expected = await readFile(path.join(feedbackBaseline, feedbackFile), "utf8");
+      let expected = await readFile(path.join(feedbackBaseline, feedbackFile), "utf8");
+      // The VS Code package omits container skills. Permit only its declared
+      // feedback handoff substitution; every other byte must still match.
+      if (pluginName === "microsoft-sql-vscode" && feedbackFile === "SKILL.md") {
+        expected = expected.replaceAll("`azuresql-db-feedback`", "the Azure SQL Database container product feedback channel");
+      }
       const actual = await readFile(path.join(feedbackDirectory, feedbackFile), "utf8");
       if (actual !== expected) {
         fail(`${pluginName}/skills/skill-feedback/${feedbackFile}: copies have drifted`);
@@ -461,10 +714,16 @@ for (const file of allFiles) {
   if (forbiddenSidecars.has(path.basename(file))) {
     fail(`${relative(file)}: source-only sidecar must not be published`);
   }
+  if (relative(file).split(/[\\/]/).includes("live-tests")) {
+    fail(`${relative(file)}: live-test setup is an eval fixture and must not be published`);
+  }
   if (!textExtensions.has(extension)) {
     continue;
   }
   const contents = buffer.toString("utf8");
+  if (path.basename(file) === "SKILL.md" && /bundled `skill-contract\.yml`/u.test(contents)) {
+    fail(`${relative(file)}: refers to a bundled source-only skill contract`);
+  }
   if (obsoleteRepositoryPattern.test(contents)) {
     fail(`${relative(file)}: contains the obsolete ${obsoleteRepositoryName} repository`);
   }
@@ -475,6 +734,36 @@ for (const file of allFiles) {
     if (pattern.test(contents)) {
       fail(`${relative(file)}: contains ${description}`);
     }
+  }
+}
+
+const gitAttributes = await readFile(path.join(root, ".gitattributes"), "utf8").catch(() => "");
+const untouchedByGit = new Set(
+  gitAttributes
+    .split(/\r?\n/u)
+    .map((line) => line.trim().split(/\s+/u))
+    .filter(([pattern, ...attributes]) => pattern.startsWith("*.") && attributes.includes("-text"))
+    .map(([pattern]) => pattern.slice(1).toLowerCase()),
+);
+for (const extension of signableScriptExtensions) {
+  if (!untouchedByGit.has(extension)) {
+    fail(`.gitattributes: *${extension} must be marked -text so that git never rewrites a signed script`);
+  }
+}
+if (requireSignedScripts) {
+  for (const file of allFiles) {
+    if (!signableScriptExtensions.includes(path.extname(file).toLowerCase())) {
+      continue;
+    }
+    const contents = (await readFile(file)).toString("latin1");
+    if (signatureBlock.test(contents)) {
+      continue;
+    }
+    fail(
+      rewrittenSignatureBlock.test(contents)
+        ? `${relative(file)}: the line endings of the Authenticode signature block were rewritten; publish the signed file byte for byte`
+        : `${relative(file)}: PowerShell script carries no Authenticode signature block; publish scripts from a signed build`,
+    );
   }
 }
 

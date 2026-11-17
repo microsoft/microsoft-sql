@@ -12,8 +12,7 @@ before declaring readiness.
   user database alike, alongside `master`, `tempdb` and `model`. Do not read that as
   an Agent: `OBJECT_ID('msdb.dbo.sysjobs')` is `NULL`, and a three-part reference to
   another database is refused with `Msg 40515` in any case. Presence of the database
-  is not presence of the job store. Measured 2026-09-19 on image tag
-  `18.0.226_4_147`, `EngineEdition` 5, Edition `SQL Azure`, build `12.0.2000.8`.
+  is not presence of the job store.
 - **FILESTREAM / FileTable**: not available.
 - **Full Service Broker**: not the full SQL Server Service Broker surface; do
   not assume cross-instance broker messaging.
@@ -41,10 +40,10 @@ before declaring readiness.
   with "Incorrect syntax near '@P3'". The inner `CAST(? AS NVARCHAR(MAX))` keeps
   a real embedding's JSON (which exceeds the driver's 4000-char threshold) from
   being sent as ntext, which the engine rejects (error 529).
-- `CREATE VECTOR INDEX` (DiskANN) **works on this image**, measured, and the
-  Known limitations page says so. It needs `SET QUOTED_IDENTIFIER ON`
-  in the session running the DDL (`Msg 1934` without it, and that message never
-  names the setting) and at least 100 rows with non-null vectors (`Msg 42266`
+- `CREATE VECTOR INDEX` (DiskANN) **works on this image**, and the Known
+  limitations page says so. It needs `SET QUOTED_IDENTIFIER ON`
+  in the session running the DDL (`Msg 1934` without it, which names the setting
+  among a long list of index features) and at least 100 rows with non-null vectors (`Msg 42266`
   below that). Once it exists, `TRUNCATE TABLE` on that table is refused
   (`Msg 42232`).
 - Full-scan top-k with `ORDER BY VECTOR_DISTANCE(...)` stays exact and stays the
@@ -83,8 +82,8 @@ source of truth:
 3. For features still in development (GUI tooling, full PaaS restriction
    enforcement), use the documented interim approach and re-check before
    declaring production readiness. Where a published limitation and the engine
-   disagree, as they do for vector index DDL, say so and give the measured
-   behavior rather than picking one silently.
+   disagree, say so and give the engine's actual behavior rather than picking one
+   silently.
 
 ## Do not
 
@@ -95,6 +94,7 @@ source of truth:
 - Do not pass the `VECTOR` dimension as a bind parameter.
 - Do not run `CREATE VECTOR INDEX` without `SET QUOTED_IDENTIFIER ON`, and do not
   build it on fewer than 100 rows with non-null vectors.
-- Do not put a security policy and a vector index on the same table here; the
-  container refuses both orders (`Msg 37579` and `Msg 42244`) while Azure SQL
-  Database in the cloud allows them. This is a parity gap.
+- Do not rely on a security policy and a vector index sharing a table here
+  without checking the build: earlier container builds refuse both orders
+  (`Msg 37579` and `Msg 42244`), while build 18.0.310.0_253 and Azure SQL Database
+  accept them and then do not use the index under the policy.

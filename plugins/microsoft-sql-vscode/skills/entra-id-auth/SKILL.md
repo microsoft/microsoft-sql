@@ -1,16 +1,6 @@
 ---
 name: entra-id-auth
-description: >-
-  Takes an application identity to a passwordless connection to Azure SQL Database, and diagnoses
-  it when that fails: sets the Microsoft Entra administrator, creates the database user for a
-  managed identity or service principal, and grants roles. Use for "set up Microsoft Entra
-  authentication for Azure SQL", "connect with a managed identity", "stop putting the database
-  password in configuration", or "turn on Microsoft Entra-only authentication", and for the
-  container once its MSSQL_AAD_ variables are set. Owns failures after a credential was
-  evaluated: Msg 33134 "Principal could not be resolved", Msg 33131 "duplicate display name",
-  18456 "Login failed for user", 4060 "Cannot open database". What fails before that is
-  diagnose-connection-errors; the connection code itself is connect-from-dotnet,
-  connect-from-python or connect-from-typescript-and-node.
+description: "Use when setting up passwordless Microsoft Entra ID or managed identity access to Azure SQL Database or the container (CREATE USER FROM EXTERNAL PROVIDER), or it fails: Msg 33134, 18456 login failed, 4060."
 ---
 
 # Microsoft Entra ID authentication for an application identity
@@ -18,9 +8,7 @@ description: >-
 Passwordless connection is an ordered procedure whose failures do not arrive in order: steps succeed
 while achieving nothing, and the errors name the wrong component.
 
-Every flag below was read from the tool on 2026-09-03: Azure CLI 2.90.0, `sqlcmd` 1.10.0, `azd`
-1.32.0, and the container behaviour was measured the same day. Cloud engine behaviour and message
-text are from Microsoft Learn, cited in `references/`.
+Cloud engine behaviour and message text are from Microsoft Learn, cited in `references/`.
 
 ## What this skill owns, and what it does not
 
@@ -32,14 +20,14 @@ keyword, and every failure about **who the caller is**. Route the rest.
 | Retry, encryption, pooling, and whether the container has Entra ID configured at all | `connect-to-azure-sql` |
 | Drivers and per-language syntax | `connect-from-dotnet`, `connect-from-python`, `connect-from-typescript-and-node` |
 | The server, the database, the firewall rule | `provision-azure-sql-db` |
-| Transport, pre-login, certificates, timeouts, the `40xxx` gateway family | `diagnose-connection-errors` |
+| Transport, pre-login, certificates, timeouts, the `40xxx` gateway family | `connectivity-troubleshoot` |
 | Which roles the application should hold | Define a custom role containing only the permissions the application uses |
 | Server-level Entra logins and fixed server roles | Outside this database-user workflow; use the current Microsoft Learn guidance |
 | Identity through a hosting service, and the deployment | `deploy-app-to-azure` |
 
-**The split, stated once.** `diagnose-connection-errors` owns failures before a credential is
-evaluated; this skill owns those after it: `18456`, `4060`, `33134`, `33131`, `37545`. A failure
-carrying no SQL error number is neither.
+**The split, stated once.** `connectivity-troubleshoot` owns failures before a credential is
+evaluated; this skill owns those after it: `18456`, `4060`, `33130`, `33134`, `33131`, `37545`.
+A failure carrying no SQL error number is neither.
 
 ## 18456 and 4060 arrive after the credential
 
@@ -54,7 +42,7 @@ encryption or timeout fixes either one.
   deployment tooling creates neither.
 
 Both are answered by step 5, run on the user database. `40532` reads the same and is the gateway
-refusing before a database was reached, so it is `diagnose-connection-errors`.
+refusing before a database was reached, so it is `connectivity-troubleshoot`.
 
 ## The order that works
 
@@ -122,8 +110,8 @@ Principal 'test-user' could not be resolved.
 Error message: 'Server identity is not configured. ...'
 ```
 
-The first line sends an agent to check the principal name, which is almost always fine. **The fault
-is on the logical server.** A **Microsoft Entra user** running `CREATE USER` is impersonated and
+The first line points at the principal name, which is almost always fine. **The fault is on the
+logical server.** A **Microsoft Entra user** running `CREATE USER` is impersonated and
 Graph queried with that user's permissions; an application cannot impersonate another application,
 so a **service principal** falls back to the **server identity**. With no server identity, or one
 that cannot read Graph, the lookup fails and the message blames the principal, which is why the same
@@ -134,9 +122,9 @@ az sql server update -g <resource-group> -n <server> -i
 az sql server show -g <resource-group> -n <server> --query identity
 ```
 
-**The flag is `-i`, long form `--assign_identity` with an underscore.** Measured 2026-09-03 on Azure
-CLI 2.90.0: the hyphenated `--assign-identity` exits with `unrecognized arguments`, so a script
-carrying it assigns nothing and the next `CREATE USER` still raises `33134`.
+**The flag is `-i`, long form `--assign_identity` with an underscore.** With Azure CLI 2.90.0 the
+hyphenated `--assign-identity` exits with `unrecognized arguments`, so a script carrying it assigns
+nothing and the next `CREATE USER` still raises `33134`.
 
 Then, in order of tenant privilege needed: grant that identity Microsoft Graph read, either three
 application permissions or the broader `Directory Readers` role, both needing a `Privileged Role
@@ -152,11 +140,11 @@ because it names the exact Graph permissions.
 |---|---|---|
 | `CREATE USER [<name>] FROM EXTERNAL PROVIDER;` | Yes | The default. A person is running it, or the server identity is configured |
 | `CREATE USER [<alias>] FROM EXTERNAL PROVIDER WITH OBJECT_ID = '<object-id>';` | Yes | The display name is **not unique** in the tenant, so the plain form fails |
-| `CREATE USER [<name>] WITH SID = <id-as-binary>, TYPE = E;` | **No** | No Graph permission is available, or Msg 33134 has to be worked around. Needs an engine that has Microsoft Entra configured, so on a bare container it raises `40530` |
+| `CREATE USER [<name>] WITH SID = <id-as-binary>, TYPE = E;` | **No** | No Graph permission is available, or Msg 33134 has to be worked around. Needs an engine that has Microsoft Entra configured, so a bare container refuses it: `40530` on earlier builds, `102` on build 18.0.310.0_253 |
 
-Agents paraphrase the third form into something that does not run, because the id must be converted
-to binary. Open [references/identity-errors.md](references/identity-errors.md) and copy the worked
-block there: `TYPE = E` covers users, applications and managed identities, `TYPE = X` groups.
+The third form is easy to paraphrase into something that does not run, because the id must be
+converted to binary. Open [references/identity-errors.md](references/identity-errors.md) and copy
+the worked block there: `TYPE = E` covers users, applications and managed identities, `TYPE = X` groups.
 
 **Nothing validates that id**, so a wrong value creates a user no token will ever match and it reads
 back as a healthy row. For a **user or group** it is the **object id**; for a **service principal or
@@ -173,8 +161,8 @@ Principal 'myapp' has a duplicate display name.
 
 Three traps. **`WITH OBJECT_ID` is a modifier on `FROM EXTERNAL PROVIDER`, not an alternative to
 it**: on its own the statement is `Msg 37546, Can only specify object_id when creating user from
-external provider`, measured 2026-09-08. The object id must exist in this tenant or the statement
-fails with `Msg 37545`. And the **Object ID on an app registration is not the one on its service
+external provider`. The object id must exist in this tenant or the statement fails with
+`Msg 37545`. And the **Object ID on an app registration is not the one on its service
 principal**: this clause wants the enterprise application one, `objectId` in step 3.
 
 ## A SQL-authenticated administrator cannot do any of this
@@ -188,12 +176,12 @@ exception: it performs no external lookup.
 ## The name to put in the brackets
 
 A wrong name produces **`Msg 33130`**, `Principal '<name>' could not be found or this principal type
-is not supported`, and reads as a permissions problem. Measured on two different logical servers, on
-2026-09-05 and again on 2026-09-08: an unknown address, a bare guid and a non-existent application
-name all answered 33130. `Msg 33134` is a different path, above; `Msg 33131` is the duplicate
-display name, confirmed 2026-09-08 by `CREATE USER [Microsoft Graph] FROM EXTERNAL PROVIDER`. The one
-nobody guesses: a **system-assigned** identity on a deployment slot is `<app-name>/slots/<slot-name>`,
-which is why an application works in production and fails in staging. Open
+is not supported`, and reads as a permissions problem. An unknown address, a bare guid and a
+non-existent application name all return 33130. `Msg 33134` is a different path, above; `Msg 33131`
+is the duplicate display name, which `CREATE USER [Microsoft Graph] FROM EXTERNAL PROVIDER` can
+raise. The one nobody guesses: a **system-assigned** identity on a deployment slot is
+`<app-name>/slots/<slot-name>`, which is why an application works in production and fails in
+staging. Open
 [references/identity-errors.md](references/identity-errors.md) before typing a name you inferred,
 because it tables all five principal kinds.
 
@@ -268,18 +256,24 @@ CREATE USER [<upn>] FROM LOGIN [<upn>];
 
 ### Msg 40530 blames the batch, and the batch is fine
 
-In the `0` case the no-lookup form is refused too, by a message naming the wrong thing. Measured
-2026-09-03 with no `MSSQL_AAD_` variables:
+In the `0` case the no-lookup form is refused too, by a message naming the wrong thing. With no
+`MSSQL_AAD_` variables:
 
 ```output
 Msg 40530, Level 16, State 1, Line 1
 The CREATE USER statement must be the only statement in the batch.
 ```
 
-It **was** the only statement in the batch. `TYPE = X` fails identically, and so does every rewrite
-tried, `EXEC (@cmd)` and `GO` separation included, so a reader who trusts the text rewrites the batch
-forever and never succeeds. `CREATE USER [<name>] WITHOUT LOGIN;`, the same batch shape, succeeds,
-which rules the batch out. **The fix is server configuration, not SQL**: the engine has no Microsoft
+The text depends on the image. On container build 18.0.310.0_253 the same
+`WITH SID = ..., TYPE = E` statement fails with `Msg 102, Incorrect syntax near 'type'`, and
+`CREATE USER ... FROM EXTERNAL PROVIDER` ends the session with `Msg 596, Cannot continue the
+execution because the session is in the kill state`. Both name the wrong cause, and the cause is
+the same: no Microsoft Entra configuration.
+
+It **is** the only statement in the batch. `TYPE = X` fails identically, and so do the obvious
+rewrites, `EXEC (@cmd)` and `GO` separation included, so a reader who trusts the text rewrites the
+batch forever and never succeeds. `CREATE USER [<name>] WITHOUT LOGIN;`, the same batch shape,
+succeeds, which rules the batch out. **The fix is server configuration, not SQL**: the engine has no Microsoft
 Entra configuration and refuses the external principal types. Set the three variables and recreate
 the container, or run against Azure SQL Database. Open
 [references/identity-errors.md](references/identity-errors.md) before believing the number, because
@@ -376,7 +370,7 @@ articles rather than recalling them.
 - Do not enable Entra-only authentication on a shared server without naming what it turns off, or
   assign one Azure Policy definition and call the estate enforced.
 - Do not conclude a grant failed until the identity token cache has turned over.
-- Do not answer `Msg 40530` by rewriting the batch. On a bare container it means the engine has no
-  Entra configuration.
+- Do not answer `Msg 40530`, or `Msg 102` near `type` on build 18.0.310.0_253, by rewriting the
+  batch. On a bare container it means the engine has no Entra configuration.
 - Do not read a clean container run as evidence the cloud path works. The server identity, `Msg
   33134` and Entra-only authentication have no local equivalent.

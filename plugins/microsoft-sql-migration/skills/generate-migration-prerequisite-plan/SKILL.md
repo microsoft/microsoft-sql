@@ -6,7 +6,7 @@ allowed-tools: ask_user, view, grep, glob
 
 # Skill: Generate Migration Prerequisite Plan
 
-These claims were checked on 2026-09-15 against the bundled `skill-contract.yml`, path catalog,
+The bundled policy consists of the path catalog, input/output contracts,
 input/output schemas, and prerequisite knowledge base.
 
 ## Description

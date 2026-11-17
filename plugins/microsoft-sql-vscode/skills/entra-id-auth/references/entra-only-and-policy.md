@@ -75,7 +75,7 @@ Check this list against what already runs on the server. Nothing warns at enable
 ## The two Azure Policy definitions
 
 Both are built in, both default to the `Audit` effect, and both accept `Audit`, `Deny` and
-`Disabled`. Read on 2026-08-27 from the live definitions.
+`Disabled`.
 
 | Display name | Definition id | Evaluates |
 |---|---|---|
@@ -130,11 +130,11 @@ az policy set-definition list \
   -o json
 ```
 
-Do the same before quoting a policy name in a plan. The names in this file were read that way, not
-recalled, and they should be re-read rather than trusted after a few months.
+Do the same before quoting a policy name in a plan, and re-read the names in this file rather than
+trusting them after a few months.
 
 ## Sources
 
 - Microsoft Entra-only authentication with Azure SQL: `/azure/azure-sql/database/authentication-azure-ad-only-authentication`, which carries the feature description, the permission split and the unsupported feature list.
 - Azure Policy for Microsoft Entra-only authentication: `/azure/azure-sql/database/authentication-azure-ad-only-authentication-policy`, which carries the effects and the compliance behaviour, and whose policy names are behind the live catalog.
-- The live definitions, read with Azure CLI 2.89.1 on 2026-08-27.
+- The live definitions, read with the `az policy` commands above.

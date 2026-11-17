@@ -1,21 +1,21 @@
-# The shipped prompts, the vector store table and the guardrails, as measured
+# The shipped prompts, the vector store table and the guardrails: checks you can run
 
-Everything asserted in SKILL.md, with the command that produced it. Run on 2026-08-28 against a
-local Azure SQL Database container, `SERVERPROPERTY('EngineEdition')` = 5, `@@VERSION` reporting
-Microsoft SQL Azure.
+Everything asserted in SKILL.md, with the command that shows it. Run the engine checks against
+an Azure SQL Database or the Azure SQL Database container: `SERVERPROPERTY('EngineEdition')` = 5,
+`@@VERSION` reporting Microsoft SQL Azure.
 
-Two kinds of evidence, separated on purpose. **Read** is the shipped source of an installed package.
-**Ran** is a statement that went to the engine and returned what is quoted.
+Two kinds of check, kept apart on purpose. **In the source** reads the shipped source of an
+installed package. The others send a statement to the engine and show what comes back.
 
 ## Contents
 
-- [Setup](#setup) and [the four prompt surfaces](#read-the-four-prompt-surfaces)
-- [The dialect string and the rendered prompt](#ran-the-dialect-string-and-the-rendered-prompt)
-- [What LIMIT actually returns](#ran-what-limit-actually-returns)
-- [The vector store table and its index](#ran-the-vector-store-table-and-its-index)
-- [Dimensions, metadata filters and batching](#ran-dimensions-metadata-filters-and-batching)
-- [No approximate search, no LlamaIndex integration](#read-no-approximate-search-no-llamaindex-integration)
-- [The guardrails](#ran-the-guardrails) and [what was not verified](#what-was-not-verified)
+- [Setup](#setup) and [the four prompt surfaces](#in-the-source-only-the-chain-prompt-knows-t-sql)
+- [The dialect string and the rendered prompt](#the-dialect-string-comes-from-the-url-and-the-prompt-says-limit)
+- [What LIMIT actually returns](#limit-fails-on-the-number-after-it)
+- [The vector store table and its index](#the-vector-store-table-is-a-heap-and-refuses-a-vector-index)
+- [Dimensions, metadata filters and batching](#dimensions-metadata-filters-and-batching)
+- [No approximate search, no LlamaIndex integration](#in-the-source-no-approximate-search-no-llamaindex-integration)
+- [The guardrails](#the-guardrails-are-the-login-not-the-framework) and [the scope of these checks](#scope-of-these-checks)
 
 ## Setup
 
@@ -25,11 +25,12 @@ python -m venv .venv && .venv/bin/pip install \
 .venv/bin/pip freeze | grep -Ei 'langchain|llama-index|sqlalchemy|pyodbc'
 ```
 
-Resolved to `langchain==1.3.18`, `langchain-core==1.6.1`, `langchain-community==0.4.2`,
-`langchain-classic==1.0.8`, `langchain-sqlserver==1.0.1`, `llama-index-core==0.14.24`,
-`sqlalchemy==2.0.52`, `pyodbc==5.3.0`.
+The checks below hold for `langchain==1.3.18`, `langchain-core==1.6.1`,
+`langchain-community==0.4.2`, `langchain-classic==1.0.8`, `langchain-sqlserver==1.0.1`,
+`llama-index-core==0.14.24`, `sqlalchemy==2.0.52` and `pyodbc==5.3.0`. Compare the freeze output
+against that list.
 
-The engine, and a table with fake rows:
+A database, and a table with fake rows:
 
 ```sql
 CREATE DATABASE appdb;
@@ -47,7 +48,7 @@ INSERT INTO dbo.customers (full_name, email, ssn_last4, city) VALUES
  (N'Di Example',  N'di@example.com',  '0004', N'North Haverbrook');
 ```
 
-Connection used by every Python probe, with the secret supplied from the environment:
+The connection for every Python check, with the secret supplied from the environment:
 
 ```python
 odbc = urllib.parse.quote_plus(
@@ -56,7 +57,7 @@ odbc = urllib.parse.quote_plus(
 uri = f"mssql+pyodbc:///?odbc_connect={odbc}"
 ```
 
-## Read: the four prompt surfaces
+## In the source: only the chain prompt knows T-SQL
 
 ```bash
 cat .venv/lib/python3.12/site-packages/langchain_community/agent_toolkits/sql/prompt.py
@@ -76,16 +77,16 @@ sed -n '185,215p' .venv/lib/python3.12/site-packages/llama_index/core/prompts/de
 - `DEFAULT_TEXT_TO_SQL_TMPL` in LlamaIndex takes `{dialect}` and has no row cap sentence at all, and
   there is no per-dialect table in that module.
 
-The hub prompt the toolkit docstring recommends was fetched and compared:
+Fetch the hub prompt the toolkit docstring recommends and compare it:
 
 ```bash
 curl -s https://api.smith.langchain.com/commits/langchain-ai/sql-agent-system-prompt/latest
 ```
 
-Commit `31156d5f...`. Its template contains `always limit your query to at most {top_k} results`,
+At commit `31156d5f...` its template contains `always limit your query to at most {top_k} results`,
 identical wording to `SQL_PREFIX`.
 
-## Ran: the dialect string and the rendered prompt
+## The dialect string comes from the URL, and the prompt says limit
 
 ```python
 db = SQLDatabase.from_uri(uri)
@@ -107,11 +108,11 @@ by the server, so it is the same string for the container and for the cloud. Lla
 database also returns `'mssql'`, and its default template renders `create a syntactically correct
 mssql query` with no row-cap sentence following it.
 
-## Ran: what LIMIT actually returns
+## LIMIT fails on the number after it
 
 Through `QuerySQLDatabaseTool.invoke`, which is what the model sees:
 
-| Statement | Returned |
+| Statement | Returns |
 |---|---|
 | `SELECT customer_id, full_name FROM customers LIMIT 10` | `Incorrect syntax near '10'. (102)` |
 | `SELECT customer_id, full_name FROM customers ORDER BY full_name LIMIT 10` | `Incorrect syntax near 'LIMIT'. (102)` |
@@ -128,10 +129,10 @@ SELECT LIMIT.customer_id FROM customers LIMIT;   -- succeeds, returns all four r
 `LIMIT` is a legal table alias in T-SQL, so with no `ORDER BY` the parser accepts it and fails on the
 integer that follows.
 
-## Ran: the vector store table and its index
+## The vector store table is a heap and refuses a vector index
 
-Constructed `SQLServer_VectorStore` with a deterministic fake embedding function,
-`embedding_length=8`, `table_name="lcv_docs"`, then read the DDL back off the connection:
+Construct `SQLServer_VectorStore` with a deterministic fake embedding function,
+`embedding_length=8` and `table_name="lcv_docs"`, then read the DDL back off the connection:
 
 ```sql
 CREATE TABLE lcv_docs (
@@ -145,7 +146,8 @@ CREATE TABLE lcv_docs (
 CREATE UNIQUE NONCLUSTERED INDEX idx_custom_id ON lcv_docs (custom_id)
 ```
 
-`sys.indexes`: one `HEAP` row, one `NONCLUSTERED` primary key, one nonclustered unique index. Then:
+`sys.indexes` shows one `HEAP` row, one `NONCLUSTERED` primary key and one nonclustered unique
+index. Then:
 
 ```sql
 CREATE VECTOR INDEX vi_lcv ON dbo.lcv_docs(embeddings) WITH (METRIC='cosine', TYPE='diskann');
@@ -163,7 +165,8 @@ CREATE VECTOR INDEX vi_lcv ON dbo.lcv_docs(embeddings) WITH (METRIC='cosine', TY
 The second message is the expected row-count gate, proving the clustered index cleared the first.
 The session needs `QUOTED_IDENTIFIER ON`, or the statement fails with `Msg 1934` before either gate.
 
-The search SQL, captured with a `before_cursor_execute` listener on `similarity_search_with_score(k=2)`:
+Capture the search SQL with a `before_cursor_execute` listener on
+`similarity_search_with_score(k=2)`:
 
 ```sql
 SELECT TOP 2 lcv_docs.id, lcv_docs.custom_id, lcv_docs.content_metadata, lcv_docs.content,
@@ -175,9 +178,9 @@ FROM lcv_docs ORDER BY distance ASC;
 
 `TOP`, not `LIMIT`, because SQLAlchemy compiles `.limit(k)` for the dialect. No `VECTOR_SEARCH`,
 no `WITH APPROXIMATE`. The bound vector literal is written out above so the statement runs as
-pasted; the capture printed the same query with the 8 floats of the query embedding.
+pasted; the capture prints the same query with the 8 floats of the query embedding.
 
-## Ran: dimensions, metadata filters and batching
+## Dimensions, metadata filters and batching
 
 ```python
 from langchain_sqlserver import SQLServer_VectorStore
@@ -226,7 +229,7 @@ bound does not help. The rows insert without complaint; only the filter fails.
 Batch size is checked in `_validate_batch_size` against `MAX_BATCH_SIZE = 419`, raising before any
 round trip.
 
-## Read: no approximate search, no LlamaIndex integration
+## In the source: no approximate search, no LlamaIndex integration
 
 ```bash
 grep -n "VECTOR_SEARCH\|APPROXIMATE\|CREATE VECTOR INDEX\|diskann" \
@@ -244,7 +247,7 @@ neighbours such as `llama-index-vector-stores-postgres` return 200, so the 404s 
 and not a broken probe. The integrations directory confirms it: the Azure entries there are for
 other services, none of them this engine.
 
-## Ran: the guardrails
+## The guardrails are the login, not the framework
 
 A dedicated login granted `db_datareader` and nothing else, through `QuerySQLDatabaseTool.invoke`:
 
@@ -255,9 +258,10 @@ A dedicated login granted `db_datareader` and nothing else, through `QuerySQLDat
 | `DROP TABLE customers` | `Cannot drop the table 'customers', because it does not exist or you do not have permission. (3701)` |
 | `EXEC sp_executesql N'SELECT 1'` | `[(1,)]` |
 
-With the high-privilege login instead, `db.run` executed and committed an `INSERT` (row count 4 to
-5) and a `CREATE TABLE dbo.scratch_probe (i INT); DROP TABLE dbo.scratch_probe;` pair in one call.
-LlamaIndex's `run_sql` executed an `UPDATE` and the new value was visible on the next `SELECT`.
+With the high-privilege login instead, `db.run` executes and commits an `INSERT` (the row count
+goes from 4 to 5) and a `CREATE TABLE dbo.scratch_probe (i INT); DROP TABLE dbo.scratch_probe;` pair
+in one call. LlamaIndex's `run_sql` executes an `UPDATE`, and the new value is visible on the next
+`SELECT`.
 
 Table scoping:
 
@@ -268,11 +272,11 @@ QuerySQLDatabaseTool(db=db).invoke("SELECT TOP (1) id FROM lcv_docs")
 # [('CDD8DCEF-...',)]   an excluded table, queried successfully
 ```
 
-Schema exposure, `InfoSQLDatabaseTool.invoke("customers")`. By default the `CREATE TABLE` text then
-a comment block headed `3 rows from customers table:` carrying all five columns of three real rows,
-including the column standing in for sensitive data; with `sample_rows_in_table_info=0`, the
-`CREATE TABLE` text only. LlamaIndex's `get_single_table_info("customers")` returns one line of
-column names and types, no rows.
+Schema exposure, `InfoSQLDatabaseTool.invoke("customers")`. By default it returns the
+`CREATE TABLE` text, then a comment block headed `3 rows from customers table:` carrying all five
+columns of three real rows, including the column standing in for sensitive data; with
+`sample_rows_in_table_info=0`, the `CREATE TABLE` text only. LlamaIndex's
+`get_single_table_info("customers")` returns one line of column names and types, no rows.
 
 Error handling differs between the frameworks and it matters for the retry loop:
 
@@ -283,15 +287,14 @@ Error handling differs between the frameworks and it matters for the retry loop:
   the second line, but the exception type does not, so an `except ProgrammingError` around it never
   fires.
 
-## What was not verified
+## Scope of these checks
 
-- **Everything above ran against the container, not a cloud database.** The package behaviour is
-  substrate-independent because it is source. Engine messages carry their numbers so they can be
-  re-checked in the cloud in minutes, and the vector index numbers (`42254`, `42266`) match what
-  `vector-search-azure-sql` measured on both engines.
-- **No model was called.** The prompts are quoted as rendered, not as followed. What is measured is
-  that the prompt says "limit", that the engine rejects `LIMIT`, and that the rejection names the
-  wrong token.
-- **The checker tool was not exercised end to end**, only its prompt read. The claim is that its
-  list of mistakes omits pagination, which is a property of the text.
-- **Re-ranking, streaming and the async paths** were not touched.
+- **The engine does not change the package behaviour**, because that behaviour is source. Engine
+  messages carry their numbers, and the vector index numbers (`42254`, `42266`) are the same on
+  Azure SQL Database and the container, as `vector-search-azure-sql` records.
+- **No model is called.** The prompts are quoted as rendered, not as followed. The checks show that
+  the prompt says "limit", that the engine rejects `LIMIT`, and that the rejection names the wrong
+  token.
+- **The checker tool is not exercised end to end.** The claim is about its prompt: its list of
+  mistakes omits pagination, which is a property of the text.
+- **Re-ranking, streaming and the async paths** are not covered.

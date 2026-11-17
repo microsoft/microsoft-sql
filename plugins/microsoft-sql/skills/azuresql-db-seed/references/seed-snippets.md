@@ -4,7 +4,7 @@ Copy-pasteable recipes to fill **appdb** with realistic sample data. Every snipp
 container is running (named `sqldb`) and **appdb is already provisioned on a master connection**:
 
 ```bash
-docker exec sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "YourStr0ng_Passw0rd" -C -b \
+docker exec sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -b \
   -Q "IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;"
 ```
 
@@ -12,8 +12,11 @@ Image is `sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest` (NOT
 `mcr.microsoft.com/mssql/server` SQL Server image). Apps and drivers read `SQL_CONNECTION_STRING`:
 
 ```
-Server=localhost,1433;Database=appdb;User Id=sa;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true
+Server=localhost,1433;Database=appdb;User Id=sa;Password=<sa-password>;TrustServerCertificate=true
 ```
+
+`<sa-password>` and `$MSSQL_SA_PASSWORD` below are the password you started the container with,
+read from the environment.
 
 Always insert parents before children (foreign-key order), never real PII or secrets, and use
 parameters for programmatic inserts.
@@ -52,7 +55,7 @@ CREATE TABLE dbo.book (
     published DATE NULL
 );
 
--- Idempotent reset: children before parents (reverse FK order).
+-- Idempotent reset, local container only: it deletes every row. Children before parents (reverse FK order).
 DELETE FROM dbo.book;
 DELETE FROM dbo.author;
 
@@ -89,7 +92,7 @@ Run it against appdb (note `-d appdb`, and `-i` to read the file piped in):
 
 ```bash
 docker exec -i sqldb /opt/mssql-tools18/bin/sqlcmd \
-  -S localhost -U sa -P "YourStr0ng_Passw0rd" -C -b -d appdb -i /dev/stdin < seed.sql
+  -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -b -d appdb -i /dev/stdin < seed.sql
 ```
 
 If you would rather copy the file into the container first:
@@ -97,31 +100,43 @@ If you would rather copy the file into the container first:
 ```bash
 docker cp seed.sql sqldb:/tmp/seed.sql
 docker exec sqldb /opt/mssql-tools18/bin/sqlcmd \
-  -S localhost -U sa -P "YourStr0ng_Passw0rd" -C -b -d appdb -i /tmp/seed.sql
+  -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -b -d appdb -i /tmp/seed.sql
 ```
 
 ## T-SQL: generate 1000 rows (set-based tally)
 
 For volume, fan out rows set-based instead of looping. A tally (numbers) table derived from
 `sys.all_objects` gives you a sequence to join against. This inserts 1000 books spread across the
-existing authors in one statement. Run it after the multi-table seed above so parents exist.
+existing authors in one statement. Run it after parents exist. Their identity values may have
+gaps: rank the actual keys instead of calculating a key from the minimum ID.
+
+This volume example appends 1000 books on every run; it is not an idempotent seed. Use stable
+seed keys and an existence guard when repeated runs must preserve the same data set.
 
 ```sql
+SET XACT_ABORT ON;
+IF NOT EXISTS (SELECT 1 FROM dbo.author)
+    THROW 50001, 'Create at least one author before generating books.', 1;
+
 BEGIN TRANSACTION;
 
 ;WITH n AS (
     -- ROW_NUMBER over a system view yields a gap-free 1..N sequence with no loop.
     SELECT TOP (1000) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rn
     FROM sys.all_objects a CROSS JOIN sys.all_objects b
+), authors AS (
+    SELECT author_id,
+           ROW_NUMBER() OVER (ORDER BY author_id) AS parent_rank,
+           COUNT(*) OVER () AS parent_count
+    FROM dbo.author
 )
 INSERT INTO dbo.book (author_id, title, published)
 SELECT
-    -- Round-robin the rows across whatever authors exist.
-    (SELECT MIN(author_id) FROM dbo.author)
-        + (n.rn % (SELECT COUNT(*) FROM dbo.author)),
+    authors.author_id,
     CONCAT(N'Generated Title #', n.rn),
     DATEADD(DAY, -(n.rn % 3650), CAST(SYSUTCDATETIME() AS DATE))
-FROM n;
+FROM n
+JOIN authors ON authors.parent_rank = 1 + ((n.rn - 1) % authors.parent_count);
 
 COMMIT TRANSACTION;
 
@@ -133,7 +148,7 @@ The `CROSS JOIN` of a system view against itself guarantees far more than 1000 c
 
 ## Bulk load: BULK INSERT reads from Azure Blob Storage, not local files
 
-`BULK INSERT` and `OPENROWSET(BULK ...)` do **not** read a local path on the container: pointing
+`BULK INSERT` and `OPENROWSET(BULK ...)` do **not** read a local path in the container: pointing
 them at a file inside the container fails with **`Msg 12713` "OPENROWSET is not allowed to read
 local files."** This is Azure SQL Database parity: the engine reads bulk data only from **Azure
 Blob Storage**. There is no local-file `BULK INSERT` here.
@@ -175,17 +190,17 @@ columns match the CSV so the `IDENTITY` column is not in the mapping:
 docker cp authors.csv sqldb:/tmp/authors.csv
 
 # Create a staging table that matches the CSV (no identity column).
-docker exec sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "YourStr0ng_Passw0rd" -C -b -d appdb \
+docker exec sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -b -d appdb \
   -Q "DROP TABLE IF EXISTS dbo.author_stage; CREATE TABLE dbo.author_stage (full_name NVARCHAR(200), country NVARCHAR(100));"
 
 # -c character mode, -t field terminator, -F 2 first data row (skip header), -d appdb target db,
 # -u trusts the container's self-signed cert (bcp uses ODBC Driver 18, which validates certs by default).
 docker exec sqldb /opt/mssql-tools18/bin/bcp dbo.author_stage in /tmp/authors.csv \
-  -S localhost -U sa -P "YourStr0ng_Passw0rd" -d appdb -u \
+  -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d appdb -u \
   -c -t ',' -F 2 -b 10000
 
 # Move staged rows into the real table so author_id auto-generates.
-docker exec sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "YourStr0ng_Passw0rd" -C -b -d appdb \
+docker exec sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -b -d appdb \
   -Q "INSERT INTO dbo.author (full_name, country) SELECT full_name, country FROM dbo.author_stage; DROP TABLE dbo.author_stage;"
 ```
 
@@ -210,11 +225,12 @@ import sql from "mssql";
 import { faker } from "@faker-js/faker";
 
 // Parse from the single canonical env var, or set the fields directly.
+if (!process.env.MSSQL_SA_PASSWORD) throw new Error("Set MSSQL_SA_PASSWORD"); // fail fast, no fallback
 const pool = await sql.connect({
   server: "localhost",
   port: 1433,
   user: "sa",
-  password: process.env.MSSQL_SA_PASSWORD ?? "YourStr0ng_Passw0rd",
+  password: process.env.MSSQL_SA_PASSWORD,
   database: "appdb",                       // selected here, never via USE
   options: { trustServerCertificate: true, encrypt: true },
 });
@@ -270,7 +286,7 @@ conn = pyodbc.connect(
     "Server=localhost,1433;"
     "Database=appdb;"                       # selected here, never via USE
     "Uid=sa;"
-    f"Pwd={os.environ.get('MSSQL_SA_PASSWORD', 'YourStr0ng_Passw0rd')};"
+    f"Pwd={os.environ['MSSQL_SA_PASSWORD']};"   # KeyError when unset: fail fast, no fallback
     "TrustServerCertificate=yes;"
 )
 cur = conn.cursor()

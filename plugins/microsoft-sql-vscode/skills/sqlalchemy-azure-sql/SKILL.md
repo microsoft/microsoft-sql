@@ -1,28 +1,16 @@
 ---
 name: sqlalchemy-azure-sql
-description: >-
-  Uses SQLAlchemy correctly against Azure SQL Database, where the dialect appends an OUTPUT
-  clause to INSERT statements and that single clause explains two failures agents never connect:
-  a hard error on any table carrying a trigger, and fast_executemany appearing to do nothing. Use
-  when a user says "SQLAlchemy with Azure SQL", "mssql+pyodbc", "implicit_returning",
-  "fast_executemany", "insertmanyvalues", "Alembic against Azure SQL", or pastes "the target
-  table of the DML statement cannot have any enabled triggers if the statement contains an OUTPUT
-  clause without INTO clause". Also use when an ORM insert fails on one table only, or a bulk
-  load is no faster after fast_executemany was set. Covers the engine URL, the generated DML,
-  type mapping and Alembic. Driver choice is connect-from-python and retry connect-to-azure-sql.
+description: "Use when using SQLAlchemy or Alembic with Azure SQL Database: mssql+pyodbc URL, insert fails on a table with a trigger (OUTPUT clause), fast_executemany no faster, implicit_returning."
 ---
 
 # SQLAlchemy on Azure SQL Database
 
 SQLAlchemy reaches Azure SQL Database through a dialect whose generated SQL differs from every other
-backend in one specific way, and almost every surprise here traces back to it. Every Python block
-below was verified on 2026-09-03 against SQLAlchemy 2.0.52 and pyodbc 5.3.0 and its output quoted
-verbatim; the version boundary below was measured the same day against 2.0.8, 2.0.9 and 2.0.10.
-Engine error numbers are from Microsoft Learn.
+backend in one specific way, and almost every surprise here traces back to it.
 
 The dialect is named `mssql` and that name belongs only in the URL scheme. Everywhere else the
-product is **Azure SQL Database**, and an agent that adopts the dialect name has begun giving advice
-for a different product with different limits.
+product is **Azure SQL Database**, and advice that adopts the dialect name has drifted to a
+different product with different limits.
 
 ## The engine URL
 
@@ -95,7 +83,7 @@ The target table 'dbo.audited_orders' of the DML statement cannot have any enabl
 if the statement contains an OUTPUT clause without INTO clause.
 ```
 
-Four properties decide how this plays out, and each is where agents guess wrong.
+Four properties decide how this plays out, and each is a common wrong guess.
 
 1. **It is per table, and nothing detects it.** The dialect has no trigger reflection and does not
    probe for one, so a codebase where 40 models work and one fails is the normal shape of the bug.
@@ -121,7 +109,7 @@ is the case the flag does not reach, so by default it changes nothing for exactl
 inserts people set it for.
 
 `fast_executemany=True` has existed since SQLAlchemy 1.3; what changed is what it does, and the
-boundary is measurable with no database:
+boundary shows with no database:
 
 ```bash
 python3 -c "import sqlalchemy; from sqlalchemy.dialects import mssql; \
@@ -198,9 +186,8 @@ them:
   `mssql_drop_default`, `mssql_drop_check` or `mssql_drop_foreign_key` to drop the unnamed
   constraint first.
 
-These come from the Alembic documentation, not from a run: Alembic was not installed on the machine
-that produced the numbers above. Whether a migration is safe to run at all,
-expand and contract, and never migrating on startup, are `schema-migrations-safely`.
+Whether a migration is safe to run at all, expand and contract, and never migrating on startup, are
+`schema-migrations-safely`.
 
 ## Check it worked
 
@@ -208,7 +195,7 @@ Three checks, in the order they catch things. **Which tables carry an enabled tr
 because nothing in Python will tell you:
 
 ```bash
-sqlcmd -S <server-name>.database.windows.net,1433 -d <database> -U <user> -C -b -m-1 -Q \
+sqlcmd -S <server-name>.database.windows.net,1433 -d <database> -U <user> -b -m-1 -Q \
   "SELECT OBJECT_SCHEMA_NAME(parent_id) + '.' + OBJECT_NAME(parent_id) AS triggered_table
    FROM sys.triggers WHERE parent_class = 1 AND is_disabled = 0 ORDER BY 1;"
 ```
@@ -218,10 +205,10 @@ Keep `-m-1`: a severity 10 message otherwise prints with no `Msg` number, and `-
 not fail on one.
 
 **`-m-1` is an ODBC `sqlcmd` instruction**, meaning the 18.x build from `mssql-tools18` or the
-Microsoft command line utilities. Measured 2026-09-05, go-sqlcmd 1.10.0, the 1.x build
-`brew install sqlcmd` and `winget install sqlcmd` install, prints no `Msg` header on a severity 10
-message at any `-m` value, so on that build a severity 10 message prints with no number whether you
-keep the flag or not. Query `sys.messages` or use the ODBC build when the number matters.
+Microsoft command line utilities. go-sqlcmd, the 1.x build `brew install sqlcmd` and
+`winget install sqlcmd` install, prints no `Msg` header on a severity 10 message at any `-m`
+value, so on that build a severity 10 message prints with no number whether you keep the flag or
+not. Query `sys.messages` or use the ODBC build when the number matters.
 
 **Every model that needs the flag has it.** Print the other list and compare:
 
@@ -248,7 +235,7 @@ accepts both without complaint, which is why nothing else catches them.
 ## Do not
 
 - Do not claim `fast_executemany=True` sped up an ORM bulk insert without first checking that the
-  statement carries no returning clause. On the default configuration it did not.
+  statement carries no returning clause. On the default configuration it does not.
 - Do not inline a credential in an engine URL, and do not call the product `mssql`.
 
 ## References

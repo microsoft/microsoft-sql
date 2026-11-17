@@ -1,16 +1,6 @@
 ---
 name: azuresql-db-sidecar
-description: >-
-  Adds the Azure SQL Database container as a sidecar service in an existing Docker Compose
-  stack or Dev Container. Use when wiring the local Azure SQL Database engine
-  into compose or devcontainer.json, when an app needs a SQL backend via a
-  service name (not localhost), or for prompts like "add SQL to my compose",
-  "add a database service", "depends_on database", "devcontainer SQL sidecar",
-  "compose healthcheck for SQL", "wait for the database before starting the
-  app". Handles platform linux/amd64, the private registry login, the
-  healthcheck wait-until-ready, and a one-shot init service that creates appdb
-  (the engine does not auto-create databases). Not the SQL Server image. Prefer
-  this for any compose or Dev Container SQL wiring.
+description: "Use when adding the local Azure SQL Database container to an existing docker-compose or devcontainer.json: database service, healthcheck, depends_on, app waits for the database, appdb init."
 ---
 
 # The Azure SQL Database container as a sidecar (Compose / Dev Container)
@@ -20,22 +10,12 @@ Dev Container as a service the app reaches by **service name** (`sqldb,1433`),
 never `localhost`. Keep existing services intact; add the database, an init
 one-shot that creates `appdb`, and a `depends_on` gate.
 
-Verified on 2026-09-05 against the container image
-`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
-5, Edition `SQL Azure`, build `12.0.2000.8`. The four executable checks behind this skill
-passed: `docker compose config` accepting the file this skill emits, with the platform
-override, the escaped health check and both `depends_on` conditions; the same parse refusing
-an invented condition name, which is the control that stops the first check being vacuous;
-`sqlcmd` at `/opt/mssql-tools18/bin/sqlcmd` inside the engine image; and a running stack
-reporting the database container as `Running` before it is `healthy`, with its health log
-beginning on a failed check. The Compose parse was measured on 2026-09-04 on the Docker
-Compose CLI of the authoring host, not inside the image.
-
 ## Load-bearing facts (inlined; full detail in azuresql-db-container)
 
 - This is the **Azure SQL Database engine** (Private Preview), not the SQL
   Server image `mcr.microsoft.com/mssql/server`. `SERVERPROPERTY('EngineEdition')`
-  returns `5`, `SERVERPROPERTY('Edition')` returns `'SQL Azure'`. If you were
+  returns `5`, `SERVERPROPERTY('Edition')` returns `'SQL Azure'`, and the build
+  reports as `12.0.2000.8`. If you were
   about to use the SQL Server image, stop and use this instead.
 - Image: `sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`
   (x64, `linux/amd64`). Registry and tag are provisional during Private Preview.
@@ -58,7 +38,8 @@ Compose CLI of the authoring host, not inside the image.
   only, not application work. Always select the target database in the connection
   string (`Database=appdb`, or `-d appdb` for sqlcmd).
 - App connection string (single `SQL_CONNECTION_STRING` env var, service name host):
-  `Server=sqldb,1433;Database=appdb;User Id=sa;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true`
+  `Server=sqldb,1433;Database=appdb;User Id=sa;Password=<sa-password>;TrustServerCertificate=true`
+  (`<sa-password>` is `MSSQL_SA_PASSWORD`; the compose and Dev Container files below interpolate it)
   (house style spells it `User Id=`/`Password=`/`Database=`; `Uid=`/`Pwd=` are
   valid synonyms).
 - The image does **NOT** auto-run `/docker-entrypoint-initdb.d/*.sql` (a
@@ -124,7 +105,7 @@ services:
         condition: service_completed_successfully
     environment:
       # Host is the SERVICE NAME sqldb, not localhost.
-      SQL_CONNECTION_STRING: "Server=sqldb,1433;Database=appdb;User Id=sa;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true"
+      SQL_CONNECTION_STRING: "Server=sqldb,1433;Database=appdb;User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=true"
 ```
 
 Bring it up (after `docker login`, see above):
@@ -134,6 +115,12 @@ docker login sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io   # pull-only creds by sig
 docker compose pull                                      # refresh the daily-rebuilt :latest (compose reuses a cached image otherwise)
 docker compose up -d
 ```
+
+`docker compose config` accepts this file, including the platform override, the escaped
+health check and both `depends_on` conditions, and rejects an unknown condition name. The
+engine image ships `sqlcmd` at `/opt/mssql-tools18/bin/sqlcmd`, which the health check and
+the init one-shot call. After `up`, the database container shows as `Running` before it is
+`healthy`, and its health log begins with a failed check.
 
 ### Seeding (optional)
 
@@ -162,7 +149,7 @@ Use Docker Compose as the Dev Container backend so the same `sqldb` +
   "workspaceFolder": "/workspace",
   "runServices": ["sqldb", "sqldb-init"],
   "remoteEnv": {
-    "SQL_CONNECTION_STRING": "Server=sqldb,1433;Database=appdb;User Id=sa;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true"
+    "SQL_CONNECTION_STRING": "Server=sqldb,1433;Database=appdb;User Id=sa;Password=${localEnv:MSSQL_SA_PASSWORD};TrustServerCertificate=true"
   }
 }
 ```

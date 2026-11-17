@@ -1,16 +1,6 @@
 ---
 name: azuresql-db-auth
-description: >-
-  Connects an app to the Azure SQL Database container securely, with a least-privilege
-  database user instead of the sa login, the right auth method per environment,
-  and safe handling of the connection secret. Use when a user asks "don't use sa
-  in my app", "create a least-privilege database user", "app login for SQL",
-  "which authentication should my app use", "secure the connection string",
-  "Encrypt / TrustServerCertificate", "store the connection string in Key Vault",
-  "dotnet user-secrets", "managed identity for Azure SQL", or "grant only the
-  roles my app needs". SQL auth locally, Microsoft Entra or managed identity in
-  the cloud, changing only the connection string. Reach for this before wiring an
-  app to connect as sa, or before committing a connection string to source.
+description: "Use when an app connects to the local Azure SQL Database container as sa: create a least-privilege user, choose auth per environment, keep the connection string out of source (user-secrets, Key Vault)."
 ---
 
 # Connect securely to the Azure SQL Database container (least-privilege user, auth, secrets)
@@ -20,18 +10,6 @@ connect as. This skill wires the app to a **least-privilege user**, picks the
 **auth method per environment** (SQL locally, Microsoft Entra or managed identity
 in the cloud, changing only the connection string), secures the connection, and
 keeps the secret out of source control.
-
-Re-measured on 2026-09-19 against the container image tag `18.0.226_4_147`, reporting
-`EngineEdition` 5, Edition `SQL Azure`, build `12.0.2000.8`. All seven executable checks
-behind this skill pass, and **three of the numbers this skill used to print were wrong**:
-a contained user is refused with `Msg 33233` and not `Msg 15007`, `SET CONTAINMENT =
-PARTIAL` is refused with `Msg 12824` and not `Msg 12844`, and
-`CREATE USER ... FROM EXTERNAL PROVIDER` on a container started without Entra
-configuration is refused with `Msg 33134` and not `Msg 37525`. Each statement is still
-refused, so every instruction here is unchanged; only the numbers to expect are. The fixed
-database roles this skill grants were confirmed on the same run. The cloud side of this
-guidance, Azure Key Vault and managed identity, was not measured and comes from Microsoft
-Learn.
 
 ## Load-bearing facts (inlined; full engine detail in azuresql-db-container)
 
@@ -47,24 +25,28 @@ Learn.
 - Apps read one `SQL_CONNECTION_STRING` env var; strings use `User Id=` /
   `Password=` / `Database=` and `TrustServerCertificate=true` for the local
   self-signed cert.
-- **Container-specific and verified:** a SQL **contained** user
-  (`CREATE USER ... WITH PASSWORD`) does **not** work on the container today, and
-  you cannot turn it on. `CREATE USER ... WITH PASSWORD` fails with `Msg 33233`
-  ("You can only create a user with a password in a contained database").
+- **Container-specific:** on builds through image tag `18.0.226_4_147`, a SQL
+  **contained** user (`CREATE USER ... WITH PASSWORD`) does **not** work on the
+  container, and you cannot turn it on. `CREATE USER ... WITH PASSWORD` fails with
+  `Msg 33233` ("You can only create a user with a password in a contained database").
   `ALTER DATABASE ... SET CONTAINMENT = PARTIAL` fails with `Msg 12824`, which asks
   for the `contained database authentication` setting to be 1, and `sp_configure`
   does not exist on this engine (`Msg 2812`), so there is nothing to set. Create a SQL
   app identity as a **server login mapped to a database user** instead. This is the
   inverse of Azure SQL Database in the cloud, where the contained user is the norm.
-  Measured 2026-09-19 on image tag `18.0.226_4_147`.
+  **Newer builds differ:** on image tag `18.0.302.0_248` `CREATE USER ... WITH PASSWORD`
+  succeeds. The login plus mapped user works on every build, so it stays the local recipe; on a
+  build that accepts the contained user, the cloud recipe works locally too.
 - **Entra has to be configured on the engine before you can use it.** On a
-  container started with no Microsoft Entra ID configuration,
-  `CREATE USER [name] FROM EXTERNAL PROVIDER` is refused with `Msg 33134`,
-  "Principal '...' could not be resolved. Error message: 'Unable to query Azure AD
-  certificate from local cert store.'" That is a missing engine configuration, not a
-  broken statement: enable Entra first (see `references/entra-auth.md` in the
+  container started with no Microsoft Entra ID configuration, `CREATE USER [name] FROM
+  EXTERNAL PROVIDER` fails, and the failure depends on the build: image tag
+  `18.0.226_4_147` refuses it with `Msg 33134`, "Principal '...' could not be resolved.
+  Error message: 'Unable to query Azure AD certificate from local cert store.'", and
+  build `18.0.310.0_253` ends the session with `Msg 596` ("Cannot continue the execution
+  because the session is in the kill state"). Either way it is a missing engine configuration,
+  not a broken statement: enable Entra first (see `references/entra-auth.md` in the
   **azuresql-db-container** skill for how to enable Entra Authentication) and the
-  same statement then works. Measured 2026-09-19 on image tag `18.0.226_4_147`.
+  same statement then works.
 
 ## Step 1: create a least-privilege user (not `sa`)
 
@@ -88,7 +70,8 @@ The app then connects as `applogin`, never `sa`.
 For Entra (which works on the container too, once enabled), use
 `CREATE USER [name] FROM EXTERNAL PROVIDER` in `appdb`. Enable Entra on the engine
 first by following `references/entra-auth.md` in the **azuresql-db-container** skill before running
-the statement; without that configuration the statement is refused with `Msg 33134`. In the
+the statement; without that configuration it fails (`Msg 33134`, or `Msg 596` and a closed
+session on build `18.0.310.0_253`). In the
 cloud with SQL auth, `CREATE USER ... WITH PASSWORD` is the norm there. Full
 recipes for every path are in
 [references/auth-and-secrets.md](references/auth-and-secrets.md) when you need a complete
@@ -140,7 +123,8 @@ per-stack handling for Key Vault, user-secrets or `.env`.
   roles it needs (no `db_owner`/admin).
 - On the container, the SQL app identity is a **server login + mapped database
   user** (`CREATE LOGIN` on master, then `CREATE USER ... FOR LOGIN` in `appdb`),
-  not a contained `CREATE USER ... WITH PASSWORD` (which fails on the container).
+  not a contained `CREATE USER ... WITH PASSWORD` (which fails on container builds
+  through `18.0.226`).
   The database user and its role grants are created on the `appdb` connection, not
   via `USE`.
 - Every connection string sets `Encrypt=true`; `TrustServerCertificate=true`
@@ -161,8 +145,8 @@ per-stack handling for Key Vault, user-secrets or `.env`.
 ## Do not
 
 - Do not connect the application as `sa`; `sa` is for provisioning only.
-- Do not try to create a SQL contained user with `CREATE USER ... WITH PASSWORD` on the container; it fails with `Msg 33233`. Do not try to turn partial containment on either: `ALTER DATABASE ... SET CONTAINMENT = PARTIAL` fails with `Msg 12824`, and the `sp_configure` setting it asks for does not exist on this engine. Use a server login plus a mapped database user locally.
-- Do not run `CREATE USER ... FROM EXTERNAL PROVIDER` against a container with no Entra configuration; it is refused with `Msg 33134`. Configure Entra on the engine first.
+- Do not rely on a SQL contained user (`CREATE USER ... WITH PASSWORD`) on the container: builds through `18.0.226` refuse it with `Msg 33233` (`18.0.302.0_248` accepts it). Do not try to turn partial containment on either: `ALTER DATABASE ... SET CONTAINMENT = PARTIAL` fails with `Msg 12824`, and the `sp_configure` setting it asks for does not exist on this engine. Use a server login plus a mapped database user locally.
+- Do not run `CREATE USER ... FROM EXTERNAL PROVIDER` against a container with no Entra configuration; it fails with `Msg 33134`, or on build `18.0.310.0_253` ends the session with `Msg 596`. Configure Entra on the engine first.
 - Do not grant the app `db_owner` or server admin when read/write roles suffice.
 - Do not commit the connection string or the SA password; use a secret store or a git-ignored env var.
 - Do not set `TrustServerCertificate=true` against Azure SQL Database in the cloud; that disables cert validation on a real certificate.

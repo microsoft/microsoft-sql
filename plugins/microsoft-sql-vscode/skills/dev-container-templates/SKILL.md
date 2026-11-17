@@ -1,16 +1,6 @@
 ---
 name: dev-container-templates
-description: >-
-  Sets up local development from the Azure SQL Database dev container templates in
-  microsoft/azuresql-devcontainers (.NET, .NET Aspire, Node.js, Python), each with a sample database
-  and schema loaded. Use for "start from the Azure SQL Database dev container template", "which
-  Azure SQL Database devcontainer should I pick", or "add a dev container with a database already in
-  it", and for what these templates do: an empty database, a schema project that never deploys, a
-  saved profile prompting for a password, a database at localhost not a service name, a vector index
-  refused, a port on the app service refused, or the local database in a template not behaving the
-  way the Azure SQL Database documentation describes, because it is SQL Server. Covers the SQL
-  Database project whose target platform, not the engine, decides what Azure SQL Database accepts,
-  and the create-time build and publish.
+description: "Use when starting from the microsoft/azuresql-devcontainers templates (.NET, Aspire, Node, Python) or they misbehave: empty database, schema not deployed, behaviour unlike Azure docs. Their database is SQL Server."
 ---
 
 # Start from an Azure SQL Database dev container template
@@ -25,12 +15,9 @@ The SQL Database project's target platform decides what Azure SQL Database will 
 database in these templates is SQL Server, major version 17, which reports EngineEdition 3, not the Azure SQL
 Database engine.
 
-Everything below was measured on 2026-09-17 against template version **2.0.0**, applied from
-`ghcr.io/microsoft/azuresql-devcontainers/dotnet:2.0.0` and brought up with the dev container CLI
-0.89.0 on Docker 29.4.0 and Compose v5.1.2, on an Apple silicon host. The fourteen probes behind
-those claims were run again on 2026-09-18 against a fresh application of the same template and all
-passed; 2.0.0 was still the newest release and the head of `main` that day. Version 2.0.0 replaced the
-engine, the runtimes and the create-time script, so nothing here carries over from 1.2.2.
+Everything below describes template version **2.0.0**, as applied from
+`ghcr.io/microsoft/azuresql-devcontainers/dotnet:2.0.0`. Version 2.0.0 replaced the engine, the
+runtimes and the create-time script, so nothing here carries over from 1.2.2.
 
 **Which version is in front of you.** The applied workspace does not record it: the template
 tooling omits `devcontainer-template.json`, `README.md` and `NOTES.md` when it copies files in, so
@@ -63,7 +50,7 @@ wrong. Two different things are in play.
   statement about the cloud rather than about the local engine, and changing it removes the only
   check in the workspace that looks at the platform you are deploying to.
 
-The gate has teeth, and it was watched failing rather than assumed. A `FILESTREAM` column is
+The gate has teeth. A `FILESTREAM` column is
 ordinary SQL Server and does not exist in Azure SQL Database. Added to the shipped project, the
 build stops:
 
@@ -82,7 +69,7 @@ anything you ran only in an ad hoc session as unproven for Azure SQL Database.**
 succeeds against the local engine proves that SQL Server accepts it and nothing more. `sql-database-projects`
 owns the project itself, its publish options and what a dacpac carries.
 
-## What is actually running, as dated context
+## What is actually running
 
 Read the image out of the compose file, then ask the server, and never infer the engine from a
 template named for Azure SQL Database:
@@ -94,23 +81,22 @@ sqlcmd -S localhost,1433 -U sa -P "$MSSQL_SA_PASSWORD" -C -I -b \
   -Q "SELECT SERVERPROPERTY('EngineEdition'), SERVERPROPERTY('Edition'), SERVERPROPERTY('ProductMajorVersion')"
 ```
 
-Measured: EngineEdition `3`, `Enterprise Developer Edition (64-bit)`, ProductMajorVersion `17`, on
-Ubuntu 24.04. The patch level moves under the `2025-latest` tag without the template changing:
-`17.0.4085.5`, `RTM-CU8-GDR`, on 2026-09-17, and `17.0.5005.3`, `RTM-CU9`, after a fresh pull on
-2026-09-18. Read it rather than quote it. The sample database comes up at compatibility level 170. The Azure SQL Database engine answers `5` and
-`SQL Azure`, so if this query ever returns `5` the templates have changed engine and this section
-needs rewriting rather than reinterpreting.
+It answers EngineEdition `3`, `Enterprise Developer Edition (64-bit)`, ProductMajorVersion `17`, on
+Ubuntu 24.04. The patch level moves under the `2025-latest` tag without the template changing, so
+read it rather than quote it. The sample database comes up at compatibility level 170. The Azure
+SQL Database engine answers `5` and `SQL Azure`, so if this query ever returns `5` the templates
+have changed engine and the rest of this section no longer applies.
 
-Where that difference shows, measured in the same session:
+Where that difference shows:
 
 | Statement | Answer here | Why it matters |
 |---|---|---|
 | `SELECT TOP 1 * FROM sys.dm_db_resource_stats` | `Msg 208, Invalid object name` | a cloud-only view. Resource and throttling questions cannot be rehearsed here |
 | `ALTER DATABASE Library MODIFY (SERVICE_OBJECTIVE = 'S0')` | `Msg 102, Incorrect syntax near '('` | there is no service objective on this engine |
-| `CREATE USER [probe@example.com] FROM EXTERNAL PROVIDER` | `Msg 33134, Unable to query Azure AD certificate from local cert store` | Microsoft Entra principals stay a cloud concern here |
-| `BACKUP DATABASE Library TO DISK = '/var/opt/mssql/probe.bak'` | accepted, 554 pages | Azure SQL Database refuses it outright. Do not learn a backup habit here |
+| `CREATE USER [user@example.com] FROM EXTERNAL PROVIDER` | `Msg 37525, Command 'CREATE USER FROM EXTERNAL PROVIDER' is not supported as Azure Active Directory is not configured for this instance` | Microsoft Entra principals stay a cloud concern here |
+| `BACKUP DATABASE Library TO DISK = '/var/opt/mssql/Library.bak'` | accepted | Azure SQL Database refuses it outright. Do not learn a backup habit here |
 | `USE Library` | accepted | Azure SQL Database refuses a database switch on a connection |
-| `CREATE TABLE #v (id int, e vector(3))` with `VECTOR_DISTANCE('cosine', ...)` | accepted, returned `0.285714328289032` | the vector type and the distance function are present |
+| `CREATE TABLE #v (id int, e vector(3))` with `VECTOR_DISTANCE('cosine', ...)` | accepted, returns a distance | the vector type and the distance function are present |
 | `CREATE VECTOR INDEX` | `Msg 343, Unknown object type 'VECTOR' used in a CREATE, DROP, or ALTER statement` | until `ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON` has run in that database in an earlier batch, after which the same statement is accepted. The templates ship it off |
 
 None of those seven answers tells you what Azure SQL Database will do. Six of them tell you what it
@@ -128,10 +114,9 @@ docker compose -f .devcontainer/docker-compose.yml config | grep -A3 'depends_on
 ```
 
 The database service declares a health check that logs in, and the application service declares
-`condition: service_healthy`, which survives alongside `network_mode`. Measured: the check runs
-every 10 seconds with a 2 second start interval inside a 120 second start period, and the
-application container started 10.1 seconds after the database container, once the login succeeded.
-Nothing has to be added to the template.
+`condition: service_healthy`, which survives alongside `network_mode`. The check runs every 10
+seconds with a 2 second start interval inside a 120 second start period, and the application
+container starts only once the login succeeds. Nothing has to be added to the template.
 
 Two things this does not do. It does not make `docker ps` meaningful: give the engine a password
 it refuses and the database container still reports `Up` while the engine never finishes starting, so a
@@ -161,8 +146,8 @@ and one create-time script, and they differ in the toolchain image and what is l
 
 The variant is the `imageVariant` option and becomes the base image tag, so `24-trixie` builds
 `javascript-node:5-24-trixie` and `3.14-trixie` builds `python:3-3.14-trixie`. The schema project is
-the SDK-style `Microsoft.Build.Sql/2.2.0` in every template. Those pins were read from the files at
-tag `v2.0.0` on 2026-09-18, which is also the head of `main` that day.
+the SDK-style `Microsoft.Build.Sql/2.2.0` in every template. Those pins are from the files at tag
+`v2.0.0`.
 
 Check the toolchain arrived rather than assume the layer ran:
 
@@ -172,18 +157,18 @@ sqlpackage /version  # a .NET tool installed at create time, not part of the ima
 azd version
 ```
 
-Measured in the `dotnet` container: .NET SDK 10.0.401, SqlPackage 170.5.76.0, azd 1.34.0, Azure CLI
-2.90.0, and `sqlcmd` 1.10.0, which is the Go build rather than the ODBC one. The .NET SDK in the
+In the `dotnet` container SqlPackage reports the pinned 170.5.76, and `sqlcmd` is the Go build
+rather than the ODBC one. The .NET SDK in the
 Node.js and Python templates is the price of the schema project; removing it removes the schema
 deployment.
 
 ## Two containers, one network namespace
 
 The application service carries `network_mode: service:db`, so it joins the database container's
-network stack rather than getting its own. Each consequence was checked:
+network stack rather than getting its own. The consequences:
 
 - **`localhost,1433` reaches the database from inside the application container**, and so do `db`
-  and the hostname `SQL-Library`. All three logged in.
+  and the hostname `SQL-Library`. All three accept a login.
 - **The application container's hostname is `SQL-Library`**, so anything deriving identity from
   the hostname sees the database container's name, and so does every message the engine prints.
 - **The database service declares no volume**, so removing that container discards the database,
@@ -200,7 +185,7 @@ network stack rather than getting its own. Each consequence was checked:
   works in a cloud workspace.
 - **Two stacks run at once.** 1.2.2 hardcoded `container_name: SQL-Library` and the second stack
   died on a name conflict. No template carries `container_name` now. A second copy of the same
-  template started while the first was up, with the same `hostname:` value, because a hostname is
+  template starts while the first is up, with the same `hostname:` value, because a hostname is
   scoped to its own network and a container name is not.
 
 ## The create-time contract
@@ -217,10 +202,10 @@ The script waits for a login, builds `database/Library`, then publishes
 1. **The build is no longer inside the deployment gate.** 1.2.2 looked for a dacpac first and
    built only if it found one, so a clean checkout deployed nothing and said nothing. 2.0.0 builds
    every time, which is why no dacpac and no `bin` or `obj` directory is committed any more.
-2. **A failed build never publishes.** Measured: with one line of invalid T-SQL added to
-   `database/Library/Tables/books.sql`, the script printed `Build error SQL46010` and
-   `postCreateCommand.sh failed during: build database/Library (exit 1)`, exited 1, and the
-   `Library` database was not created. An empty database is now an error you can see.
+2. **A failed build never publishes.** With one line of invalid T-SQL added to
+   `database/Library/Tables/books.sql`, the script prints `Build error SQL46010` and
+   `postCreateCommand.sh failed during: build database/Library (exit 1)`, exits 1, and the
+   `Library` database is not created. An empty database is now an error you can see.
 3. **The build is the compatibility check, so read a build failure as a finding.** An error
    such as `SQL70015` is the target platform refusing a construct Azure SQL Database does not
    have, not a broken toolchain.
@@ -242,8 +227,8 @@ create-time script reads it from the environment rather than parsing the file, s
 containing a space or a quote no longer loses everything after the first space.
 
 The saved `LocalDev` connection profile is contributed by `devcontainer.json`, and the placeholder
-it uses is the whole story. Measured with the dev container CLI 0.89.0 against a running container,
-with a different value exported on the host to tell the two sources apart:
+it uses is the whole story. With a different value exported on the host, to tell the two sources
+apart, the forms resolve as follows:
 
 | In the profile | Resolves to |
 |---|---|
@@ -262,24 +247,23 @@ it is committed in plaintext in a public repository.
 
 ## On Apple silicon, one container is emulated
 
-The database image is x64 only, and the compose file says so with `platform: linux/amd64`.
-Measured on an Apple silicon host: the application container reports `aarch64` and runs natively,
-the database container reports `x86_64` and runs under emulation. Microsoft does not test or
-support the engine under emulation, and the project's own release notes record it aborting during
-startup roughly 1 start in 37 under emulation, and once on a native x64 runner. Three starts in
-this session were clean. The symptom is a container that exits or a stack that never reaches
-healthy; recreating it clears it, and nothing is preserved that a second attempt would inherit.
+The database image is x64 only, and the compose file says so with `platform: linux/amd64`. On an
+Apple silicon host the application container reports `aarch64` and runs natively, and the database
+container reports `x86_64` and runs under emulation. Microsoft does not test or support the engine
+under emulation, and the project's own release notes record it aborting during startup roughly 1
+start in 37 under emulation, and once on a native x64 runner. The symptom is a container that
+exits or a stack that never reaches healthy; recreating it clears it, and nothing is preserved that
+a second attempt would inherit.
 
 The database service is also capped at 2 GB, the documented minimum. Raise it in
 `docker-compose.yml` before blaming a query for being slow.
 
 ## On a restricted network, creation fails while installing tools
 
-Not measured here, and stated as a pointer rather than as a result: behind a proxy that blocks
-`api.nuget.org`, the npm registry or PyPI, the image builds and creation then fails inside
-`onCreateCommand` or `postCreateCommand`, with a bare TLS or service-index error that names the
-registry and nothing else. Each template's `NOTES.md` carries a "Troubleshooting: restricted
-networks" section listing the hosts each toolchain needs.
+Behind a proxy that blocks `api.nuget.org`, the npm registry or PyPI, the image can build and
+creation then fail inside `onCreateCommand` or `postCreateCommand`, with a bare TLS or
+service-index error that names the registry and nothing else. Each template's `NOTES.md` carries a
+"Troubleshooting: restricted networks" section listing the hosts each toolchain needs.
 
 ## Check it worked
 
@@ -291,7 +275,7 @@ sqlcmd -S localhost,1433 -U sa -P "$MSSQL_SA_PASSWORD" -C -I -b \
   -Q "SELECT SERVERPROPERTY('EngineEdition') AS engine_edition"
 
 # 2. the build produced exactly one dacpac for the publish step to use
-ls -1 database/Library/bin/Debug/*.dacpac | wc -l
+find database/Library/bin/Debug -maxdepth 1 -name '*.dacpac' | wc -l
 
 # 3. a database named after that dacpac exists
 sqlcmd -S localhost,1433 -U sa -P "$MSSQL_SA_PASSWORD" -C -I -b \
@@ -307,8 +291,8 @@ A database present with zero user tables means the publish half ran and the buil
 which in 2.0.0 also means the create step exited non-zero and said so.
 
 One caveat on reading those answers. The `sqlcmd` on the application container's PATH is the Go
-build, measured at 1.10.0, and it prints a severity 10 message with no `Msg` number whatever `-m`
-is set to. The ODBC build inside the database image, measured at 18.6.0002.1 and reachable as
+build, 1.10.0, and it prints a severity 10 message with no `Msg` number whatever `-m` is set to.
+The ODBC build inside the database image, 18.6.0002.1, reachable as
 `/opt/mssql-tools18/bin/sqlcmd` there, prints `Msg 50000, Level 0` for the same message. When a
 warning matters, run it through the database container.
 

@@ -1,38 +1,25 @@
 ---
 name: restore-and-recover
-description: >-
-  Recovers an Azure SQL Database after data loss, an accidental drop or a bad deployment, using
-  point-in-time restore, geo-restore and long-term retention. Use when someone asks to "restore
-  my Azure SQL database", "undo a dropped table or database", "roll back to before this migration
-  ran", "recover from a region outage", or asks for RESTORE DATABASE or BACKUP DATABASE syntax.
-  There is no backup or restore T-SQL here: BACKUP DATABASE, RESTORE DATABASE and every RESTORE
-  ... ONLY variant are refused, and restoring is a control plane operation. Every restore creates
-  a new database beside the one being recovered rather than overwriting it, so this covers the
-  restore type and the rename or connection swap back. Not a schema rollback
-  (schema-migrations-safely), not a logical export or import (sqlpackage-import-export), not
-  creating it (provision-azure-sql-db).
+description: "Use when Azure SQL Database data is lost: restore to before a bad deployment, a dropped table or database, point-in-time restore, geo-restore, long-term retention, RESTORE DATABASE refused."
 ---
 
 # Recover an Azure SQL Database
 
-Engine behaviour measured 2026-08-29 and 2026-09-03 against an engine reporting
-`SERVERPROPERTY('EngineEdition')` 5, Edition `SQL Azure`, `ProductVersion` 12.0.2000.8. Every command line was taken on 2026-09-03 from
-the help output of `az` 2.90.0 and SqlPackage 170.4.83.3 on this machine; the scope and retention
-limits come from the Microsoft Learn pages in References. The restores need a real logical
-server and were not run, so resource names are placeholders.
+The scope and retention limits come from the Microsoft Learn pages in References. Resource names
+in the commands are placeholders.
 
-## The correction
+## Where the usual answer goes wrong
 
-Asked to recover an Azure SQL Database, an agent trained on the boxed engine reaches for
-`RESTORE DATABASE ... WITH REPLACE`, `BACKUP DATABASE`, `RESTORE HEADERONLY` or
-`ALTER DATABASE ... SET RECOVERY`. None of that surface exists here. Learn is blunt: you recover
-using the portal, PowerShell, the Azure CLI or the REST API, and you can't use Transact-SQL. The
+The habit from the boxed engine is `RESTORE DATABASE ... WITH REPLACE`, `BACKUP DATABASE`,
+`RESTORE HEADERONLY` or `ALTER DATABASE ... SET RECOVERY`. None of that surface exists here. Learn
+is blunt: you recover using the portal, PowerShell, the Azure CLI or the REST API, and you can't
+use Transact-SQL. The
 second wrong belief compounds the first. Learn again: **you can't overwrite an existing database
 during restore.** Every restore creates a new database under the name you pass, and moving it to
 where the application connects is a step you perform yourself. Nothing warns you if you skip it,
 so the failure surfaces later as a connection error blamed on the application.
 
-## 1. There is no restore T-SQL, measured
+## 1. There is no restore T-SQL
 
 | Written from habit | What happens here |
 |---|---|
@@ -46,7 +33,7 @@ so the failure surfaces later as a connection error blamed on the application.
 There is no exception in this family, and the two numbers are the parser's own distinction:
 `Msg 40510` rejects a whole statement, `Msg 40517` rejects one option of a statement that is
 otherwise supported, which is why `ALTER DATABASE` still renames a database in section 5. Every
-row is a signal the agent is solving the wrong problem.
+row is a signal you are solving the wrong problem.
 
 ## 2. Find the restore point before you name it
 
@@ -138,7 +125,7 @@ the CLI's own help and the Learn pages below.
 ## 5. The swap nobody automates
 
 The restore leaves two databases: the broken one and the new one holding the data. Learn names the
-rename as the way to finish it. In T-SQL, measured on the engine above:
+rename as the way to finish it. In T-SQL:
 
 ```sql
 ALTER DATABASE [app-db] MODIFY NAME = [app-db-broken];
@@ -188,11 +175,12 @@ Expect `status` `Online`. Expect empty tags even on a healthy restore: Learn sta
 not carry the source's tags, so their absence is not a failure.
 
 The rows are the rows you wanted, which the control plane cannot tell you. Run this against the
-restored name and again against the name the application uses, after the swap in section 5:
+restored name and again against the name the application uses, after the swap in section 5, with
+the password in `SQLCMDPASSWORD` (read from the environment, never passed with `-P`):
 
 ```bash
 sqlcmd -S <server>.database.windows.net -d <database>-restored -U <user> \
-  -P "$SQLCMD_PASSWORD" -Q "SELECT DB_NAME() AS connected_to,
+  -Q "SELECT DB_NAME() AS connected_to,
   SUM(p.rows) AS row_count, COUNT(DISTINCT t.object_id) AS table_count
 FROM sys.tables AS t JOIN sys.partitions AS p
   ON p.object_id = t.object_id AND p.index_id IN (0, 1);"
@@ -205,14 +193,13 @@ the second run returns the restored data, the recovery is not finished.
 ## Do not
 
 - Do not write `RESTORE DATABASE`, `BACKUP DATABASE`, any `RESTORE ... ONLY` variant, or
-  `SET RECOVERY` as the recovery step. All of them are refused, measured.
+  `SET RECOVERY` as the recovery step. All of them are refused.
 - Do not say a restore updates the existing database. Learn says outright that you can't overwrite
   an existing database during restore.
 - Do not stop when the restored database exists. The rename or connection string swap is part of
   the recovery.
 - Do not promise a geo-restore carries firewall rules, the Microsoft Entra administrator, or server
-  level logins to a different logical server. Those are server scoped, contained users are not, and
-  none of it was verified here.
+  level logins to a different logical server. Those are server scoped; contained users are not.
 - Do not quote a fixed geo-restore RPO or RTO. Learn's figures for this service are "typically
   minutes or hours", dependent on storage replication and backup size; a fixed pair of hours comes
   from a different product's page.
@@ -221,9 +208,9 @@ the second run returns the restored data, the recovery is not finished.
 
 ## References
 
-- [references/backup-restore-tsql-errors.md](references/backup-restore-tsql-errors.md): open before
-  restating any error number here as measured, or when an engine answers differently from the
-  table in section 1.
+- [references/backup-restore-tsql-errors.md](references/backup-restore-tsql-errors.md): open for
+  the full message text behind an error number here, or when an engine answers differently from
+  the table in section 1.
 - [Recover using automated database backups](https://learn.microsoft.com/azure/azure-sql/database/recovery-using-backups):
   read it before a restore that crosses a server, a subscription or a region; it is where the scope
   limits in section 3 come from.

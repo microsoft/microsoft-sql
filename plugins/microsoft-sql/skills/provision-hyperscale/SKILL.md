@@ -1,16 +1,6 @@
 ---
 name: provision-hyperscale
-description: >-
-  Puts a real workload on the Hyperscale service tier of Azure SQL Database: when to choose it, how
-  to size it, and how to convert an existing database without walking through a door that does not
-  open again. Use when a user asks "should I use Hyperscale", "convert my database to Hyperscale",
-  "we are close to the 4 TB ceiling", "how many vCores for Hyperscale", "Hyperscale serverless or
-  provisioned", "add a read replica", "elastic pool for Hyperscale", or "can I go back from
-  Hyperscale". Also use when a free offer database has to become a real one, because the free limit
-  must be turned off before the tier can change and that step cannot be undone. Covers the
-  eligibility rules for reverse migration, controlling the cutover, replica-based read scale-out,
-  and what actually limits write throughput. Creating the server, the database and the firewall
-  rule belongs to provision-azure-sql-db.
+description: "Use when choosing or moving to Hyperscale in Azure SQL Database: should I use Hyperscale, convert or move back, near 4 TB, vCores, serverless, read replicas, outgrowing the free offer."
 ---
 
 # Put a workload on Hyperscale
@@ -18,8 +8,7 @@ description: >-
 Choosing Hyperscale is easy. Two things go wrong: **the way you arrive decides whether you can ever
 leave**, and **scaling up does not buy the throughput people expect**.
 
-Verified on 2026-08-28 against a live Azure SQL Database logical server with Azure CLI 2.89.1, and
-every flag below was re-read from Azure CLI 2.90.0 help on 2026-09-03.
+The `az` flags below are as of Azure CLI 2.90.0.
 
 Hyperscale exists in Azure SQL Database, and not in Azure SQL Managed Instance.
 
@@ -29,7 +18,7 @@ Hyperscale exists in Azure SQL Database, and not in Azure SQL Managed Instance.
 |---|---|
 | Creating the logical server, the database, the firewall rule, the free offer, and how many free databases a subscription gets | `provision-azure-sql-db` |
 | Retry, pool sizing, connection strings, what `ApplicationIntent` means per driver | `connect-to-azure-sql` |
-| A database that is already slow or already throttled | `diagnose-resource-pressure` |
+| A database that is already slow or already throttled | `resource-usage-sqlserver` |
 | Running a restore, and why `BACKUP` and `RESTORE` T-SQL are refused on the service | `restore-and-recover` |
 
 ## The decision: is this a Hyperscale workload
@@ -48,8 +37,13 @@ That does not make it automatic. Four things decide it:
 Three counter-signals that surprise people:
 
 - **Durable and non-durable memory-optimized tables are not supported.** A database holding any
-  In-Memory OLTP objects cannot be converted from Premium or Business Critical until they are
-  dropped. Memory-optimized table types, table variables and natively compiled modules do come.
+  In-Memory OLTP object cannot be converted from Premium or Business Critical until every one of
+  them, and everything that depends on them, is dropped. Learn says the tables must be changed to
+  disk-based tables. Do that before dropping anything: create the disk-based table, copy the rows,
+  compare row counts, then swap the names. Dropping a memory-optimized table drops its data.
+  Hyperscale does support memory-optimized table types, table variables and natively compiled
+  modules, but they have to be dropped for the conversion too. Script them out first and recreate
+  them afterwards.
 - **`DBCC CHECKDB` is not available.** `DBCC CHECKTABLE ('TableName') WITH TABLOCK` is the
   documented workaround.
 - **Restore does not cross the tier boundary either way**: no restore into Hyperscale, and none out
@@ -58,22 +52,22 @@ Three counter-signals that surprise people:
 ## The one-way door, which is about how you arrived
 
 **This is the correction.** "Hyperscale is one way" is not true, and neither is "it is a tier change
-like any other". The exit depends on how the database got there, and both cases were run.
+like any other". The exit depends on how the database got there.
 
 | How the database got to Hyperscale | Can it leave |
 |---|---|
 | **Converted** from another tier | Yes, for 45 days after the conversion, to General Purpose only, single database only, 2 vCores or more, no geo-replication and no named replicas |
 | **Created** as Hyperscale | **No.** Refused outright, at any age |
 
-A converted database comes back with a plain update, which ran successfully in about nine minutes
-while empty:
+A converted database comes back with a plain update, which takes minutes even when the database is
+empty:
 
 ```bash
 az sql db update -g <rg> -s <server> -n <database> \
   --edition GeneralPurpose --service-objective GP_Gen5_2 --compute-model Provisioned
 ```
 
-The same command against a database **created** as Hyperscale is refused in about two seconds:
+The same command against a database **created** as Hyperscale is refused at once:
 
 ```
 ERROR: (ProvisioningDisabled) Hyperscale database '<database>' is ineligible for reverse
@@ -165,8 +159,7 @@ can change later; the exit rules above do not.
 
 ## Read scale-out is a replica count, not a switch
 
-**The second silent failure, verified by running it.** Read scale-out follows the high availability
-replica count:
+**The second silent failure.** Read scale-out follows the high availability replica count:
 
 ```bash
 # provision the replica that read-intent connections will land on
@@ -235,8 +228,8 @@ During the conversion `az sql db show` reports `sku` and `edition` as the **targ
   "currentServiceObjectiveName": "GP_S_Gen5_2", "status": "Online" }
 ```
 
-An agent that queries `sku` has reported success before the cutover happened. The pending manual
-cutover is not in the database resource at all: `manualCutover` reads `null` throughout.
+Reading `sku` reports success before the cutover has happened. The pending manual cutover is not in
+the database resource at all: `manualCutover` reads `null` throughout.
 
 - **Billing begins only after cutover**, so waiting is not expensive, but the source switches from
   asynchronous to synchronous copying while it waits, which can raise write latency under load.
@@ -266,10 +259,12 @@ Right for many small databases with uneven demand. Four rules that catch people:
 
 A command that returned is not a database on Hyperscale.
 
-**The tier the engine itself reports.** Connect to the database and ask the catalog view:
+**The tier the engine itself reports.** Connect to the database and ask the catalog view. The
+`sqlcmd` checks here read the password from `SQLCMDPASSWORD` in the environment, so it never appears
+on the command line:
 
 ```bash
-sqlcmd -S <server>.database.windows.net -d <database> -U <user> -P "$SQLCMD_PASSWORD" -Q \
+sqlcmd -S <server>.database.windows.net -d <database> -U <user> -Q \
   "SELECT d.name, dso.edition, dso.service_objective
    FROM sys.database_service_objectives AS dso
    JOIN sys.databases AS d ON dso.database_id = d.database_id
@@ -279,12 +274,14 @@ sqlcmd -S <server>.database.windows.net -d <database> -U <user> -P "$SQLCMD_PASS
 Expect exactly one row, `edition` reading `Hyperscale` and `service_objective` reading the objective
 you asked for, `HS_Gen5_2` above. Any other edition means the cutover has not happened. From
 `master` the same query returns every database on the server. Microsoft Learn says the view returns
-data only on Azure SQL Database, so this is not a check to run against the local container.
+data only on Azure SQL Database, so this is not a check to run against the local container: the
+container answers with a placeholder for every database, and build 18.0.310.0_253 reports
+`Hyperscale` and `HS_Gen5_8` whatever was provisioned.
 
 **The cutover, if you asked for a manual one.** From `master`:
 
 ```bash
-sqlcmd -S <server>.database.windows.net -d master -U <user> -P "$SQLCMD_PASSWORD" -Q \
+sqlcmd -S <server>.database.windows.net -d master -U <user> -Q \
   "SELECT TOP 5 operation, state_desc, phase_desc, percent_complete
    FROM sys.dm_operation_status
    WHERE major_resource_id = '<database>' ORDER BY start_time DESC;"
@@ -320,8 +317,8 @@ flight, whatever `edition` says.
 
 - Before you tell anyone a Hyperscale database can or cannot go back, open
   [references/exit-paths-and-eligibility.md](references/exit-paths-and-eligibility.md) for the full
-  eligibility matrix, what repeated conversions do to restorable backups, the verified transcripts,
-  and the pinned Microsoft Learn sources.
+  eligibility matrix, what repeated conversions do to restorable backups, what each step of a
+  conversion and reverse migration returns, and the pinned Microsoft Learn sources.
 
 Resource limits, premium-series regional availability and the preview boundaries move. Fetch the
 resource limits article rather than recalling numbers from this file.

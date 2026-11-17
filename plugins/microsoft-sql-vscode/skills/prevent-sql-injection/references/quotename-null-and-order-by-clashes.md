@@ -1,25 +1,19 @@
-# QUOTENAME returning NULL, and the ORDER BY type clashes: the measured runs
+# QUOTENAME returning NULL, and ORDER BY type clashes: checks you can run
 
 ## Contents
 
-- [How this was measured](#how-this-was-measured)
-- [QUOTENAME above 128 characters](#quotename-above-128-characters)
-- [The silent no-op, end to end](#the-silent-no-op-end-to-end)
-- [QUOTENAME with an embedded closing bracket](#quotename-with-an-embedded-closing-bracket)
+- [Setup](#setup)
+- [QUOTENAME returns NULL above 128 characters](#quotename-returns-null-above-128-characters)
+- [A NULL batch executes as a silent no-op](#a-null-batch-executes-as-a-silent-no-op)
+- [QUOTENAME escapes an embedded closing bracket](#quotename-escapes-an-embedded-closing-bracket)
 - [CASE in ORDER BY mixing types](#case-in-order-by-mixing-types)
 - [The safe pattern, with OFFSET FETCH](#the-safe-pattern-with-offset-fetch)
-- [What is documented rather than measured](#what-is-documented-rather-than-measured)
+- [Always Encrypted rejects a literal](#always-encrypted-rejects-a-literal)
 
-## How this was measured
+## Setup
 
-One engine, reachable over the network, reporting:
-
-```text
-SERVERPROPERTY('EngineEdition') = 5
-SERVERPROPERTY('Edition')       = SQL Azure
-```
-
-Date of the run: 2026-08-29. A dedicated database, `dq_injection`, carried a table:
+The checks apply to Azure SQL Database. Run them in a scratch database. The
+`ORDER BY` checks use this table:
 
 ```sql
 CREATE TABLE dbo.Grid (id INT, name NVARCHAR(50), amount DECIMAL(10,2), created DATE);
@@ -28,7 +22,10 @@ ALTER TABLE dbo.Grid ADD nickname NVARCHAR(50) NULL;
 UPDATE dbo.Grid SET nickname = name;
 ```
 
-## QUOTENAME above 128 characters
+## QUOTENAME returns NULL above 128 characters
+
+`QUOTENAME` brackets an input of up to 128 characters and returns `NULL` for
+anything longer. It does not truncate the input and raises no error.
 
 ```sql
 DECLARE @n128 NVARCHAR(200) = REPLICATE(N'a', 128);
@@ -37,12 +34,14 @@ SELECT LEN(@n128) AS len128, QUOTENAME(@n128) AS q128, LEN(QUOTENAME(@n128)) AS 
 SELECT LEN(@n129) AS len129, QUOTENAME(@n129) AS q129, LEN(QUOTENAME(@n129)) AS qlen129;
 ```
 
-Result: at exactly 128 characters, `QUOTENAME` returns the bracketed string (130
-characters once wrapped) with no complaint. At exactly 129 characters, `QUOTENAME`
-returns `NULL`. The boundary is precise, not approximate, and it is `NULL`, not a
-truncated or escaped value.
+At exactly 128 characters you get the bracketed string, 130 characters once
+wrapped. At exactly 129 characters you get `NULL`. The boundary is exact, and the
+result is `NULL`, not a truncated or escaped value.
 
-## The silent no-op, end to end
+## A NULL batch executes as a silent no-op
+
+A dynamic batch built from a `NULL` identifier is itself `NULL`, and executing it
+does nothing and reports nothing.
 
 ```sql
 DECLARE @tbl NVARCHAR(400) = REPLICATE(N'x', 129);
@@ -52,15 +51,15 @@ EXEC sp_executesql @sql;
 PRINT 'executed with no error, @@ERROR=' + CAST(@@ERROR AS NVARCHAR(10));
 ```
 
-Output:
+You will see:
 
 ```text
 sql value is: <<NULL>>
 executed with no error, @@ERROR=0
 ```
 
-No rows, no error, no non-zero `@@ERROR`, exit code 0. `sp_executesql` was given a
-`NULL` batch and treated it as nothing to do, not as a malformed call.
+No rows, no error, no non-zero `@@ERROR`, exit code 0. `sp_executesql` treats a `NULL`
+batch as nothing to do, not as a malformed call.
 
 This is not specific to `sp_executesql`. The same `NULL` batch handed to `EXEC(@sql)`
 behaves identically: control reaches the next statement, `@@ERROR` is 0, and sqlcmd's
@@ -70,7 +69,7 @@ concatenated identifier can silently become `NULL` (a bad `QUOTENAME` call is th
 common source, but plain string concatenation with a `NULL` variable does the same
 thing), the statement built from it disappears without a trace at any severity level.
 
-## QUOTENAME with an embedded closing bracket
+## QUOTENAME escapes an embedded closing bracket
 
 ```sql
 SELECT QUOTENAME(N'my]col') AS escaped;
@@ -83,20 +82,18 @@ convention, so escaping itself is not the defect. The defect is exclusively the
 
 ## CASE in ORDER BY mixing types
 
-Four columns: `id INT`, `name NVARCHAR(50)`, `amount DECIMAL(10,2)`, `created DATE`.
-Each test picks a column at runtime with `CASE @col WHEN 'x' THEN colx WHEN 'y' THEN
-coly END`, the shape an agent reaches for to make `ORDER BY` accept a user-chosen
-column without ever putting an identifier in a parameter.
+The usual way to make `ORDER BY` accept a user-chosen column without putting an
+identifier in a parameter is one `CASE @col WHEN 'x' THEN colx WHEN 'y' THEN coly
+END`. Whether it fails depends on the types it mixes. `dbo.Grid` supplies `id INT`,
+`name NVARCHAR(50)`, `amount DECIMAL(10,2)` and `created DATE`; the checks below
+also use a second table, `dbo.T (i INT, d DATE, s NVARCHAR(50))`, holding two rows,
+`(1, '2026-01-01', N'Ann')` and `(2, '2026-02-01', N'Bob')`.
 
-The first pass at this (below, "mixed at all") only asked whether a pairing fails.
-Re-measured with the sort key varied across its own possible values, on a second
-table, `dbo.T (i INT, d DATE, s NVARCHAR(50))` holding two rows, `(1, '2026-01-01',
-N'Ann')` and `(2, '2026-02-01', N'Bob')`: the runtime pairings do not fail
-unconditionally. They fail only for the sort key value that selects the
-lower-precedence branch, and the exact same statement runs clean for the other
-value. Presenting a runtime pairing as "fails" without both values is exactly the
-setup where a reader tests the passing value, ships it, and only hits the failing
-value in production.
+The runtime pairings do not fail unconditionally. They fail only for the sort key
+value that selects the lower-precedence branch, and the exact same statement runs
+clean for the other value. Calling a runtime pairing "fails" without naming both
+values is exactly the setup where a reader tests the passing value, ships it, and
+only hits the failing value in production.
 
 ### int mixed with date, or decimal mixed with date: unconditional, compile time
 
@@ -106,7 +103,7 @@ SELECT * FROM dbo.T
 ORDER BY CASE @c WHEN N'a' THEN i WHEN N'b' THEN d END;
 ```
 
-`Msg 206, Level 16: Operand type clash: int is incompatible with date.` Fires for
+You get `Msg 206, Level 16: Operand type clash: int is incompatible with date.` for
 every value of `@c`, including one that matches neither branch, because there is
 no implicit conversion between `int` and `date` at all: the clash is detected
 compiling the expression, before any row or any branch selection is evaluated.
@@ -130,13 +127,12 @@ END CATCH
 ### int or date mixed with a string column: only when the matched branch is the string
 
 ```sql
--- branches: 'a' -> s (nvarchar), 'b' -> d (date)
+-- one CASE, branches: 'a' -> s (nvarchar), 'b' -> d (date)
 DECLARE @c CHAR(1) = N'a';  -- selects s, the lower-precedence branch
 SELECT sample.s, sample.d
 FROM (VALUES (N'Ann', CONVERT(date, '2026-01-01')),
              (N'Bob', CONVERT(date, '2026-01-02'))) AS sample(s, d)
-ORDER BY CASE WHEN @c = N'a' THEN sample.s END,
-         CASE WHEN @c = N'b' THEN sample.d END;
+ORDER BY CASE @c WHEN N'a' THEN sample.s WHEN N'b' THEN sample.d END;
 ```
 
 | Branches | `@c` | Branch selected | Result |
@@ -169,8 +165,20 @@ not changed.
 One `CASE` **per candidate column**, each with a single type across its own
 branches, has no mixed-type common type to coerce toward, at compile time or at
 runtime. That is true whichever sort key is passed, so the fix is not "avoid the
-failing value," it is "make there be no failing value." See
-[the safe pattern below](#the-safe-pattern-with-offset-fetch).
+failing value," it is "make there be no failing value." The same sort as two
+expressions returns rows for `@c = 'a'` and for `@c = 'b'`:
+
+```sql
+DECLARE @c CHAR(1) = N'a';  -- or 'b'
+SELECT sample.s, sample.d
+FROM (VALUES (N'Ann', CONVERT(date, '2026-01-01')),
+             (N'Bob', CONVERT(date, '2026-01-02'))) AS sample(s, d)
+ORDER BY CASE WHEN @c = N'a' THEN sample.s END,
+         CASE WHEN @c = N'b' THEN sample.d END;
+```
+
+See [the safe pattern below](#the-safe-pattern-with-offset-fetch) for the full form with
+sort direction and paging.
 
 ## The safe pattern, with OFFSET FETCH
 
@@ -187,9 +195,9 @@ ORDER BY
 OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY;
 ```
 
-Ran cleanly, correctly sorted by `created`, three rows returned. This is the fix that
-actually works: one `CASE` expression **per candidate column**, each with a single
-type in its `THEN`, rather than one `CASE` with every candidate column as a branch.
+It runs cleanly and returns all three rows sorted by `created`. This is the fix
+that works: one `CASE` expression **per candidate column**, each with a single type
+in its `THEN`, rather than one `CASE` with every candidate column as a branch.
 The columns that do not match `@col` evaluate to `NULL` for every row and sort as
 ties, so ordering by the chosen column is unaffected. `OFFSET`/`FETCH` composes with
 this pattern without any further interaction; it does not need `ORDER BY` to name a
@@ -201,15 +209,12 @@ approaches that hold. Neither ever puts a column name where a parameter would go
 neither depends on `QUOTENAME` at all, so the 128-character defect above does not
 apply to either.
 
-## What is documented rather than measured
+## Always Encrypted rejects a literal
 
-**Always Encrypted and a literal predicate.** Microsoft Learn documents that a query
-comparing an Always Encrypted column to a literal fails, because the literal is never
-encrypted client-side and the comparison becomes a plaintext-to-ciphertext operand type
-clash; only a parameter passed through a driver with `Column Encryption Setting=Enabled`
-is encrypted before it reaches the server, so parameterisation is required for the
-query to run at all, not merely safer. **This was not reproduced against the engine
-used for the rest of this file**, because Always Encrypted needs a column master key
-provisioned outside the database (a certificate store, Azure Key Vault, or an HSM),
-which this run did not set up. Treat the QUOTENAME and CASE findings above as measured,
-and this one as documented.
+A query comparing an Always Encrypted column to a literal fails, because the literal
+is never encrypted client-side and the comparison becomes a plaintext-to-ciphertext
+operand type clash. Only a parameter passed through a driver with `Column Encryption
+Setting=Enabled` is encrypted before it reaches the server, so parameterisation is
+required for the query to run at all, not merely safer. Trying it needs a column
+master key provisioned outside the database (a certificate store, Azure Key Vault, or
+an HSM).

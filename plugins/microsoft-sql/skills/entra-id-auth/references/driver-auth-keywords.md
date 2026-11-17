@@ -160,7 +160,7 @@ straight through, so the driver's list above is the authority.
 
 ## sqlcmd
 
-Verified by running the tool at version 1.10.0. Supplying an invalid value prints the accepted set:
+With `sqlcmd` 1.10.0, supplying an invalid value prints the accepted set:
 
 ```text
 Invalid federated authentication type 'NotARealMode': expected one of [ActiveDirectoryApplication
@@ -205,7 +205,7 @@ managed identity on Azure, and a service principal with a certificate rather tha
 
 ## Sources
 
-All read on 2026-08-27. Fetch rather than trust this summary when a value is load-bearing.
+Fetch rather than trust this summary when a value is load-bearing.
 
 - SqlClient: `/sql/connect/ado-net/sql/azure-active-directory-authentication`, which carries the value table, the version column and the 7.0 migration section.
 - ODBC: `/sql/connect/odbc/using-azure-active-directory`, which carries the keyword table and the managed identity id rule.

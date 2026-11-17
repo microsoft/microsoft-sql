@@ -43,7 +43,7 @@ Title prefix is `[Skill]: ` (preserve it).
 | --- | --- | --- |
 | `skill` | dropdown | **Verbatim.** See below. |
 | `problem-type` | dropdown | **Verbatim.** See below. |
-| `agent` | dropdown | **Verbatim.** Which harness you are. |
+| `agent` | dropdown | **Verbatim.** Which agent you are. |
 | `install-method` | dropdown | **Verbatim.** |
 | `what-happened` | textarea | What the user asked, and what the agent did. |
 | `skill-said` | textarea | **The most valuable field.** The instruction that was wrong or missing, quoted, and what actually worked instead. |

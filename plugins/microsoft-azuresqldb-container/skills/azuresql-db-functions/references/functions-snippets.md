@@ -14,7 +14,7 @@
 
 ```bash
 func init MyApi --worker-runtime dotnet-isolated   # or node / python / powershell
-cd MyApi
+cd MyApi || exit 1
 
 # .NET isolated: add the SQL bindings package
 dotnet add package Microsoft.Azure.Functions.Worker.Extensions.Sql
@@ -31,7 +31,7 @@ func new --name Books        # choose an HTTP trigger template, then add binding
   "Values": {
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
-    "SqlConnectionString": "Server=localhost,1433;Database=appdb;User Id=sa;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true"
+    "SqlConnectionString": "Server=localhost,1433;Database=appdb;User Id=sa;Password=<sa-password>;TrustServerCertificate=true"
   }
 }
 ```
@@ -131,6 +131,6 @@ curl -X POST http://localhost:7071/api/todo \
 
 # Trigger check: insert a row, watch func output log the Insert change
 docker exec -i sqldb /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
-  -P YourStr0ng_Passw0rd -C -b -d appdb -Q \
+  -P "$MSSQL_SA_PASSWORD" -C -b -d appdb -Q \
   "INSERT INTO dbo.ToDo(Id,title,completed) VALUES (NEWID(),N'via trigger',0);"
 ```

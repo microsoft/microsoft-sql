@@ -1,25 +1,12 @@
 ---
 name: connect-from-typescript-and-node
-description: >-
-  Connects a TypeScript or JavaScript application to Azure SQL Database with the mssql package
-  over tedious: which packages to install, where the connection pool has to live, how to type
-  query results, and how to authenticate with Microsoft Entra ID without a password. Use when a
-  user says "connect my Node app to Azure SQL", "which npm package for SQL Server", "mssql pool
-  size", "passwordless connection from Node", "azure-active-directory-default", "@types/mssql", or
-  reports that a Node API gets slower under load, opens a connection per request, or runs out of
-  connections. Also use when adding a database layer to a Node backend, an Azure Function or an
-  Express route. Covers driver installation, the config object, pool lifetime and Entra ID for
-  this stack only. Encryption doctrine, retry and transient-fault handling belong to
-  connect-to-azure-sql; Python and .NET have their own skills.
+description: "Use when connecting Node.js or TypeScript to Azure SQL Database with mssql: pool setup, an API slowing or out of connections under load, passwordless Entra ID, typed results. For Prisma, use `prisma-azure-sql`."
 ---
 
 # Connect from TypeScript and Node.js
 
 The package is `mssql`, the pool belongs to the module and not the request handler, and the types
 come from a second package.
-
-Verified on 2026-09-03 against `mssql` 12.7.0, `tedious` 20.0.0 and `@types/mssql` 12.3.0 on
-Node 24.15.0, resolved in a running process.
 
 ## The stack
 
@@ -54,11 +41,12 @@ export const config: sql.config = {
 
 - **`port` must be a number.** The config is not coerced, and a string port fails in a way that
   reads like a network fault.
-- **At these versions both packages default `encrypt` to `true` and `trustServerCertificate` to
-  `false`.** `mssql` seeds the pair before handing `options` to `tedious`, and `tedious` 20 resolves
-  the same two on its own, so a pool built with an empty `options` still resolves to that pair.
-  Earlier majors disagreed, so pin the versions rather than trust the default. At these versions a
-  wrong value is something a person typed. When either may legitimately change is `connect-to-azure-sql`.
+- **With `mssql` 12.7 and `tedious` 20, both packages default `encrypt` to `true` and
+  `trustServerCertificate` to `false`.** `mssql` seeds the pair before handing `options` to
+  `tedious`, and `tedious` 20 resolves the same two on its own, so a pool built with an empty
+  `options` still resolves to that pair. Earlier majors disagreed, so pin the versions rather than
+  trust the default. On those versions a wrong value is something a person typed. When either may
+  legitimately change is `connect-to-azure-sql`.
 - **The `pool` values above are the defaults.** Ten is a floor for a toy and a ceiling for a real
   API, so set `max` deliberately. Choosing the number, and why the binding limit is workers rather
   than sessions, is `connect-to-azure-sql`.
@@ -167,7 +155,7 @@ node check-connection.mjs
 | `login`, `db_user` | the principal you granted rights to | the credential chain picked another one |
 | `pool.size` | at most `pool.max`, and flat as requests arrive | a pool per handler, the failure above |
 
-Two things this check trips over, measured 2026-09-03:
+Two things this check trips over:
 
 - **`pool.size` throws before the pool is awaited**, `TypeError: Cannot read properties of
   undefined (reading 'numFree')`, while `@types/mssql` declares it `readonly size: number`. Read it

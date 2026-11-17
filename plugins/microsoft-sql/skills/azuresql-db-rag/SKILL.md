@@ -1,17 +1,6 @@
 ---
 name: azuresql-db-rag
-description: >-
-  Builds local vector search, RAG, embeddings, and semantic search on the Azure
-  SQL Database container using the native VECTOR type and VECTOR_DISTANCE. Use
-  when you need to store embeddings, do similarity search, top-k nearest
-  neighbor, cosine distance, retrieval-augmented generation, "find similar
-  documents", chatbot memory, or semantic lookup against a local SQL database.
-  Use this instead of pgvector, FAISS, Chroma, Pinecone, or a separate vector
-  store when the data already lives in (or can live in) Azure SQL. Covers the
-  VECTOR(n) column type, inserting embeddings with CAST(CAST(? AS NVARCHAR(MAX)) AS VECTOR(n)) where the
-  dimension is a literal, a pluggable embed() so only the endpoint changes for
-  cloud, and a working CREATE VECTOR INDEX with the two errors that block it. Provisions appdb on
-  master first so every script runs on a fresh container.
+description: "Use when storing embeddings or running similarity search, top-k or RAG on the local Azure SQL Database container with VECTOR(n) and VECTOR_DISTANCE, instead of pgvector, FAISS or a separate vector store."
 ---
 
 # Local vector search and RAG on the Azure SQL Database container
@@ -19,14 +8,6 @@ description: >-
 Store embeddings and run similarity search directly in the Azure SQL Database
 engine using the native `VECTOR(n)` type and `VECTOR_DISTANCE`. No separate
 vector store needed.
-
-Verified on 2026-09-05 against the container image
-`sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest`, reporting `EngineEdition`
-5, Edition `SQL Azure`, build `12.0.2000.8`. All twelve executable checks behind this skill
-passed, including `CREATE VECTOR INDEX` building at index version 3, `Msg 42266` below 100
-rows, the 1998 dimension ceiling, `Msg 37579` for a security policy on a table that already
-carries a vector index, and an exact scan and an index-backed search returning the same row.
-The dated measurements further down record when each of those claims was first taken.
 
 ## Identity (read this first)
 
@@ -114,7 +95,7 @@ or when a search has to filter on metadata as well as rank by distance.
 ## Step 3: embed text (the one network exception)
 
 RAG needs an embedding model. A **local** embedding model is the one network call
-this workflow makes; everything else stays on the container. The default below
+this workflow makes; everything else stays in the container. The default below
 uses a local Ollama endpoint. Keep `embed()` pluggable so moving to a cloud
 embedding service changes only the endpoint and the dimension `n`, nothing else.
 
@@ -196,13 +177,11 @@ with pyodbc.connect(CONN) as conn:
 For the full RAG loop, glue these retrieved rows into your prompt as context.
 That LLM call is separate from this skill.
 
-## Indexing: measured current state
+## Indexing: what works and what stops you
 
 `CREATE VECTOR INDEX` (DiskANN approximate nearest neighbor) **works on this
-image.** Measured on 2026-08-29 against `12.0.2000.8`, `EngineEdition` 5: an
-index over 2000 rows of `VECTOR(3)` built in **478 ms**, appears in
-`sys.indexes` with `type_desc` of `VECTOR`, and `vector_search(...)` returns
-ranked results against it.
+image.** The index builds, appears in `sys.indexes` with `type_desc` of
+`VECTOR`, and `vector_search(...)` returns ranked results against it.
 
 ```sql
 SET QUOTED_IDENTIFIER ON;   -- required, see below
@@ -232,7 +211,7 @@ version does not support explicit TOP_N parameter`. Use `SELECT TOP (k)` and
 
 ### It needs 100 rows, and NULLs do not count
 
-Measured on 2026-08-31, walking the boundary:
+The boundary is exact:
 
 | Rows with a vector | Result |
 |---|---|
@@ -256,20 +235,20 @@ not rows. A table of 120 rows where 60 have no embedding yet is refused.
 Msg 42232: TRUNCATE TABLE statement failed because table 'd' has a vector index on it.
 ```
 
-Measured 2026-08-31. To empty the table: drop the index, truncate, reload at least
-100 rows, recreate the index. `DELETE FROM` works and is not affected.
+To empty the table: drop the index, truncate, reload at least 100 rows, recreate
+the index. `DELETE FROM` works and is not affected.
 
 **`DROP VECTOR INDEX` is not a statement.** It fails with `Msg 102, Incorrect
 syntax near 'VECTOR'`. Use `DROP INDEX vi_name ON dbo.table`.
 
-`INSERT`, `UPDATE` and `DELETE` all work with the index in place, measured. Older
+`INSERT`, `UPDATE` and `DELETE` all work with the index in place. Older
 vector indexes made the table read only; this image does not, and Microsoft Learn
 describes the same full DML support for latest-version indexes.
 
-### The index and a security policy cannot share a table here
+### The index and a security policy on one table: build-dependent here
 
 This is the expensive one for RAG, and it is not on any Microsoft Learn
-limitations list. Measured on the container, in **both** orders:
+limitations list. Earlier builds of the container image refuse the pair in **both** orders:
 
 | Order | Statement | Result |
 |---|---|---|
@@ -285,17 +264,26 @@ Table 'dbo.chunks' has security policy 'p_chunks'.
 ```
 
 **The documentation and the engine disagree here, and the documentation is
-silent rather than wrong.** As of 2026-09-03 the `CREATE VECTOR INDEX`
-limitations list names partitioning, the clustered primary key, replication,
-`TRUNCATE TABLE` and data-tier package import, and the `vector` type's
-limitations page names constraints, indexes, ledger tables and Always Encrypted.
-Neither mentions security policies. This pair is a measurement, not a citation.
+silent rather than wrong.** The `CREATE VECTOR INDEX` limitations list names
+partitioning, the clustered primary key, replication, `TRUNCATE TABLE` and
+data-tier package import, and the `vector` type's limitations page names
+constraints, indexes, ledger tables and Always Encrypted. Neither mentions
+security policies. The two errors are engine behavior that no page documents.
+
+**On container build 18.0.310.0_253** neither error is raised: both orders succeed, and the filter
+predicate holds through
+`TOP (n) WITH APPROXIMATE`. What changes instead is the plan: under the policy the search no longer
+uses the vector index, and `WITH (FORCE_ANN_ONLY)` fails with `Msg 8622`, while the same tenant test
+as a `WHERE` clause on a table without a policy gets a `Vector Index Seek`. Azure SQL Database
+behaves like that build, and SQL Server 2025 refuses the pair like the earlier images. So the result
+depends on the engine you run, and no outcome is documented.
 
 Why it matters for retrieval: a chunk table is a **second copy** of the source
 text, so the row-level security policy that protects the original table does not
-reach it. If the chunk table carries a vector index, no policy can be put on it
-at all, and the tenant filter in the retrieval query's `WHERE` clause is the
-entire boundary. That boundary is held up by a test rather than by the engine, so
+reach it. On the image that refuses the pair, no policy can be put on an indexed
+chunk table at all; on the newer image a policy is accepted but the search stops
+using the index. Either way the tenant filter in the retrieval query's `WHERE`
+clause is the boundary to rely on. That boundary is held up by a test rather than by the engine, so
 write the test: run the retrieval with the filter and without it and require
 different row counts.
 
@@ -308,20 +296,25 @@ Three ways to live with it, cheapest first:
 3. Split the table: the vector column and its index on a table with no policy,
    the chunk text and tenant column on a policy-bearing table joined back.
 
-If you are prototyping locally for the cloud, note this is a **parity gap**, not
-a design rule. The two coexist on Azure SQL Database. So the isolation control is
-exactly the part of the design that cannot be rehearsed on the container beside
-the index it will meet in production. Rehearse the predicate unindexed locally,
-and run the isolation test again on the cloud database once the index exists.
+If you are prototyping locally for the cloud, check the image build. On an earlier
+build this is a **parity gap**: the two coexist on Azure SQL Database, so the isolation
+control cannot be rehearsed in the container beside the index it will meet in
+production; rehearse the predicate unindexed and run the isolation test again on the
+cloud database once the index exists. On build 18.0.310.0_253 the container matches
+the cloud, including the cost: under the policy the search no longer uses the index.
 
 ### The dimension ceiling decides the embedding model, before any of this
 
-A `vector(n)` column tops out at **1998 dimensions**, which Microsoft Learn states
-and the engine enforces: `vector(1999)` is refused with `Msg 2717, The size (1999)
-given to the column 'v' exceeds the maximum allowed (1998)`. A 3072-dimension
-model does not fit and no index setting changes that. The dimension also cannot be
-widened later: `ALTER COLUMN` cannot change it even on an empty table, so the fix
-is a second column and a re-embed. Pick the dimension budget before the schema.
+A `vector(n)` column tops out at **1998 dimensions** at the default `float32`, which
+Microsoft Learn states and the engine enforces: `vector(1999)` is refused with `Msg 2717,
+The size (1999) given to the column 'v' exceeds the maximum allowed (1998)`. A
+3072-dimension model does not fit a `float32` column and no index setting changes that.
+Learn lists half-precision `float16` (up to 3996 dimensions) as generally available on
+Azure SQL Database with no preview setting; it is preview, behind `PREVIEW_FEATURES`, on
+SQL Server 2025; check `vector(3072, float16)` on this container before relying on it.
+The dimension also cannot be widened later: `ALTER COLUMN` cannot change it even on
+an empty table, so the fix is a second column and a re-embed. Pick the dimension
+budget before the schema.
 
 Full-scan top-k with `ORDER BY VECTOR_DISTANCE(...)` is still exact and still
 correct, and it remains the right choice for small tables. The index is the
@@ -340,7 +333,7 @@ choice once the table is large enough for a full scan to hurt.
 
 ## Minimum tool versions
 
-Use only the tools needed by the selected recipe, at or above these minimum tested versions:
+Use only the tools needed by the selected recipe, at or above these minimum versions:
 
 - **`sqlcmd`**: go-sqlcmd 1.10.0
 
@@ -367,13 +360,15 @@ A missing command, an older version, or a nonzero version check is a prerequisit
 - Do not use `USE appdb` to switch databases; a user-database session returns
   `Msg 40508`, exactly as in Azure SQL Database in the cloud. Select the target
   database in the connection string (`Database=appdb`, or `-d appdb` for sqlcmd).
-- Do not run `CREATE VECTOR INDEX` without `SET QUOTED_IDENTIFIER ON`; the error it raises
-  names indexed views and spatial indexes and never mentions the setting.
-- Do not plan a vector index and a security policy on the same table on the container.
-  Both orders are refused, `Msg 37579` and `Msg 42244`, and neither is documented. If the
-  chunk table needs per-tenant filtering, decide that before you decide to index it.
-- Do not declare `VECTOR(3072)`. The ceiling is 1998 (`Msg 2717` above it) and the
-  dimension cannot be widened later, so the fix belongs at embedding time.
+- Do not run `CREATE VECTOR INDEX` without `SET QUOTED_IDENTIFIER ON`; it fails with `Msg 1934`,
+  which names `'QUOTED_IDENTIFIER'` inside a long list of index features and reads like an index problem.
+- Do not plan on a vector index and a security policy sharing a table in the container.
+  Earlier images refuse both orders (`Msg 37579`, `Msg 42244`); build 18.0.310.0_253 accepts
+  them but stops using the index under the policy, as Azure SQL Database does. Neither is documented. If the chunk table
+  needs per-tenant filtering, decide that before you decide to index it.
+- Do not declare `VECTOR(3072)` at the default `float32`. The ceiling is 1998 (`Msg 2717` above
+  it) and the dimension cannot be widened later, so decide at embedding time: a shorter output, or
+  `float16` where the target accepts it.
 - Do not expect `/docker-entrypoint-initdb.d/*.sql` to auto-run; seed by running
   `sqlcmd -d appdb -i seed.sql` after provisioning appdb.
 - Do not call a non-x64 host "supported"; just add `--platform linux/amd64`

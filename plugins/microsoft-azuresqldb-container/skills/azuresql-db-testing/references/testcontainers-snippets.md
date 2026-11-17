@@ -12,7 +12,9 @@ The engine is **not ready when the container starts**, and it does **not auto-cr
 databases**: each recipe attaches a wait strategy and then runs
 `IF DB_ID('appdb') IS NULL CREATE DATABASE appdb;` on a master connection. The host port is
 random; each recipe reads the mapped port and builds
-`Server=localhost,<mappedPort>;Database=appdb;User Id=sa;Password=YourStr0ng_Passw0rd;TrustServerCertificate=true`.
+`Server=localhost,<mappedPort>;Database=appdb;User Id=sa;Password=<sa-password>;TrustServerCertificate=true`.
+Every recipe reads `<sa-password>` from the `MSSQL_SA_PASSWORD` environment variable and stops if it
+is unset, rather than carrying a literal password in test code.
 
 ## Contents
 
@@ -35,7 +37,8 @@ using Xunit;
 
 public sealed class AzureSqlFixture : IAsyncLifetime
 {
-    private const string Sa = "YourStr0ng_Passw0rd";
+    private static readonly string Sa = Environment.GetEnvironmentVariable("MSSQL_SA_PASSWORD")
+        ?? throw new InvalidOperationException("Set MSSQL_SA_PASSWORD");
     private IContainer _container = null!;
     public string ConnectionString { get; private set; } = "";
 
@@ -116,7 +119,8 @@ module.exports = {
 import { GenericContainer, Wait } from "testcontainers";
 import sql from "mssql";
 
-const SA = "YourStr0ng_Passw0rd";
+const SA = process.env.MSSQL_SA_PASSWORD ?? "";
+if (!SA) throw new Error("Set MSSQL_SA_PASSWORD");
 const IMAGE = "sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest";
 
 export default async function globalSetup() {
@@ -174,7 +178,7 @@ test("engine is azure sql", async () => {
     server: host[1],
     port: Number(host[2]),
     user: "sa",
-    password: "YourStr0ng_Passw0rd",
+    password: process.env.MSSQL_SA_PASSWORD!,
     database: "appdb",                 // selected here, never via USE
     options: { trustServerCertificate: true },
   });
@@ -191,12 +195,13 @@ Packages: `testcontainers`, `pyodbc` (with ODBC Driver 18), `pytest`. Use the ge
 waits until `SELECT 1` works, provisions `appdb`, yields the connection string, and disposes.
 
 ```python
+import os
 import time
 import pyodbc
 import pytest
 from testcontainers.core.container import DockerContainer
 
-SA = "YourStr0ng_Passw0rd"
+SA = os.environ["MSSQL_SA_PASSWORD"]  # KeyError when unset: no literal fallback
 IMAGE = "sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest"
 
 
@@ -281,7 +286,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 @Testcontainers
 class WidgetIT {
 
-    private static final String SA = "YourStr0ng_Passw0rd";
+    private static final String SA = java.util.Objects.requireNonNull(
+        System.getenv("MSSQL_SA_PASSWORD"), "Set MSSQL_SA_PASSWORD");
     private static final String IMAGE =
         "sqldbpreview-dpgaeqhmgphzd4bk.azurecr.io/azure-sql/db-dev:latest";
 

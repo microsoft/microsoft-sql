@@ -1,14 +1,6 @@
 ---
 name: azure-sql
-description: >-
-  Orients an agent starting work on Azure SQL Database and hands the task to the catalog skill that
-  owns it. Use when someone names the product with no task attached, asks what Azure SQL Database
-  can do, whether a capability is generally available or still preview, which service tier to start
-  on, which tool does a job, or where something is documented. Also use before answering any
-  question about a capability, a default or a limit from memory, because those move faster than
-  training data does. This catalog covers Azure SQL Database only, not Azure SQL Managed Instance
-  and not self-managed SQL Server, so say plainly that no skill here owns those rather than
-  handing over one written for the database.
+description: "Use when Azure SQL Database comes up without a specific task: what it can do today, GA or preview, which tier, tool or skill fits, current limits and defaults. Routes to the owning skill. Not Managed Instance or SQL Server."
 ---
 
 # Working with Azure SQL Database
@@ -17,9 +9,8 @@ The front door. It answers two questions and hands everything else on: **what is
 and **which skill owns the task**. It holds little content of its own, because the content that
 would live here is the content that goes stale.
 
-Currency below checked against Microsoft Learn on 2026-09-03. Tool builds measured the same day:
-sqlpackage 170.4.83.3, sqlcmd 1.10.0, dotnet 8.0.421, dab 2.0.9, prisma 8.0.0-rc.12, azd, Azure CLI
-2.90.0. If today is far from that date, refetch before repeating anything below.
+The capability facts below move with releases. Refetch them from Microsoft Learn before repeating
+anything below.
 
 ## The first rule: ask, do not recall
 
@@ -30,11 +21,13 @@ deployment, in review, or in a bill.
 - **Never state general availability from memory.** Preview against generally available is the most
   consequential distinction in this service and the one that changes most often.
 - **Never quote a service limit from memory.** Read it from the resource limits article, or ask the
-  running system. Help text is not authoritative either: this catalog has caught a flag whose help
-  text names a value the command rejects, and a limit stated as one where the real number is ten.
+  running system. Help text is not authoritative either: it can name a flag value the command
+  rejects, or state a limit as one where the real number is ten.
 
-Ask the database in front of you rather than yourself. `EngineEdition` is the one value that settles
-which product this is, and everything in this catalog is written for `5`:
+Ask the database in front of you rather than yourself. `EngineEdition` separates the products of
+this family, and everything in this catalog is written for `5`. It does not separate the local Azure
+SQL Database container from the service: both report `5`, `Edition` `SQL Azure` and `@@VERSION`
+`12.0.2000.8`. The server name settles that one: a `*.database.windows.net` host is the service.
 
 ```sql
 SELECT SERVERPROPERTY('EngineEdition') AS engine_edition,   -- 5 is Azure SQL Database
@@ -54,7 +47,7 @@ dotnet --version
 dab --version
 azd version
 az version --query '"azure-cli"' --output tsv
-prisma --version || npx --yes prisma --version
+prisma --version || npx --no-install prisma --version
 ```
 
 `prisma` is normally a project-local dependency rather than a command on `PATH`, which is why the
@@ -69,8 +62,8 @@ Database container for local development. It is not Azure SQL Managed Instance, 
 virtual machines, which reports 2 or 3.
 
 This matters more than tidiness: capabilities are announced across the family in one blog post and
-then arrive at different times, or never. An agent that reads "announced for SQL" and writes it into
-an Azure SQL Database design has invented a feature. Name the other members of the family only to
+then arrive at different times, or never. Reading "announced for SQL" and writing it into an Azure
+SQL Database design invents a feature. Name the other members of the family only to
 exclude them, and say which product an announcement was actually about.
 
 Two traps that follow from the product being database-scoped rather than instance-scoped:
@@ -82,18 +75,18 @@ Two traps that follow from the product being database-scoped rather than instanc
   documented only under a different product's namespace, it does not exist here until a page that
   applies to Azure SQL Database says so.
 
-## Capability currency, as of 2026-09-03
+## Capability currency
 
-**The only dated content in this file, written to be lifted out whole.** If release announcements
-start churning it, it becomes its own skill and this file keeps the routing.
+**The only time-sensitive content in this file, written to be lifted out whole.** If release
+announcements start churning it, it becomes its own skill and this file keeps the routing.
 
-| Fact | State on 2026-09-03 | Refetch from |
+| Fact | State | Refetch from |
 |---|---|---|
 | Engine version and default compatibility level | Engine version 17. New databases default to **170**; 170 down to 100 are supported | The `ALTER DATABASE` compatibility level reference |
 | A database that arrived from somewhere else | Keeps the compatibility level it had. Neither a migration nor a tier conversion raises it | The same page, plus `sys.databases` |
 | Default tier advice | Learn names Hyperscale **"the recommended and default service tier for all new and modernizing OLTP and HTAP workloads"**, reversing older advice to start on General Purpose | The Hyperscale service tier article |
 | Native vectors | The `vector` type and `VECTOR_DISTANCE` are **generally available**. `VECTOR_DISTANCE` is always exact and never uses an index, whatever indexes exist | The vectors article |
-| Approximate vector search | The DiskANN vector index and `VECTOR_SEARCH` are **preview**, and rolling out by region | The same article |
+| Approximate vector search | The DiskANN vector index and `VECTOR_SEARCH` are **generally available** in Azure SQL Database and SQL database in Fabric. They remain **preview** in SQL Server 2025, and so on the local container | The `CREATE VECTOR INDEX` reference, *Feature availability* |
 | The free offer | Up to **10** free databases per subscription, each with 100,000 vCore seconds, 32 GB data and 32 GB backup storage a month, on General Purpose serverless | The free offer FAQ |
 | Versioning | Evergreen. There is no version to pin and no release to wait for | The what is new article |
 
@@ -120,7 +113,7 @@ Every name below is a directory in this catalog. Nothing routes at a name that d
 | Start from a ready-made local development environment with a database in it | `dev-container-templates` |
 | Driver choice, connection string, encryption, retry, pool sizing | `connect-to-azure-sql` |
 | The same for one language | `connect-from-dotnet`, `connect-from-python`, `connect-from-typescript-and-node` |
-| A connection already failed and there is an error number to read | `diagnose-connection-errors` |
+| A connection already failed and there is an error number to read | `connectivity-troubleshoot` |
 | Passwordless connection, managed identity, a database user for an application identity | `entra-id-auth` |
 
 ### Writing SQL and modelling data
@@ -151,6 +144,8 @@ Every name below is a directory in this catalog. Nothing routes at a name that d
 |---|---|
 | Sequencing the whole job of standing up a new application on this service | `build-app-on-azure-sql` |
 | A REST or GraphQL API over the schema without writing one | `dab-rest-and-graphql` |
+| Hosting that generated API, or its SQL MCP Server endpoint, in Azure Container Apps | `deploy-dab-to-azure` |
+| Connecting an AI agent or MCP client to a hosted Data API builder `/mcp` endpoint | `dab-mcp-endpoint` |
 | Serverless function bindings, and reacting to row changes | `azure-functions-sql-bindings` |
 | Deploying the application and its database to Azure | `deploy-app-to-azure` |
 | A source-controlled database project, its target platform, pre and post deployment scripts | `sql-database-projects` |
@@ -163,11 +158,12 @@ Every name below is a directory in this catalog. Nothing routes at a name that d
 
 | Task | Route to |
 |---|---|
-| One query is slow, and nobody has triaged why yet | `diagnose-slow-query` |
+| One query is slow, and nobody has triaged why yet | `slow-query-investigation` |
 | Reading the execution plan itself | `read-execution-plan` |
-| Who is blocking whom right now, or a deadlock that already happened | `diagnose-blocking-and-deadlocks` |
-| CPU, data or log IO, memory, worker and session limits | `diagnose-resource-pressure` |
-| Capturing events over a window rather than sampling now | `capture-with-extended-events` |
+| Who is blocking whom right now | `check-live-blocking` |
+| A deadlock that already happened | `deadlock-analysis-azuresql` |
+| CPU, data or log IO, memory, worker and session limits | `resource-usage-sqlserver` |
+| Capturing events over a window rather than sampling now | `create-xe-session` |
 | Point-in-time restore, geo-restore, long-term retention | `restore-and-recover` |
 | A skill in this catalog was wrong, or the job has no skill | `skill-feedback` |
 
@@ -184,8 +180,8 @@ living document. Read the security best practices article, and treat these four 
 2. **Encryption on, certificate validation on.** A certificate error is a name problem, not a trust
    problem.
 3. **Least privilege.** The administrator login is not an application identity.
-4. **Every statement parameterized.** Concatenating user input into T-SQL is the vulnerability an
-   agent is most likely to write.
+4. **Every statement parameterized.** Concatenating user input into T-SQL is the vulnerability you
+   are most likely to write.
 
 ## Check it worked
 
@@ -229,3 +225,9 @@ a neighbour owns and should not have.
   answering a currency question, or whenever the honest answer is "I would be guessing". It holds
   the pinned first-party pages by subject and the four questions that decide whether a capability
   exists in this product at all.
+
+## Operational handoffs to microsoft-sql-admin
+
+Install `microsoft-sql-admin` alongside `microsoft-sql` for operational diagnostics. These tasks now have one owner with Azure-specific references: `slow-query-investigation`, `check-live-blocking`, `resource-usage-sqlserver`, `create-xe-session`, and `connectivity-troubleshoot`. Use `deadlock-analysis-azuresql` for a completed Azure deadlock and `authentication-diagnostics` for login/token/principal failures. A combined blocking/deadlock incident may require both skills; live blocking alone does not retrieve an old deadlock graph. If the owning skill is not installed, identify the missing dependency rather than claim it was loaded. VS Code's curated plugin includes these operational owners and uses the host's SQL tools; it does not require the SQL Tools MCP server.
+
+The two plugins run side by side. `microsoft-sql-admin` ships the SQL Tools MCP server (NuGet package `Microsoft.SqlServer.SQLtools.MCPserver`, started from the plugin's MCP configuration); when that server is connected, the T-SQL in these skills can run through its `mssql_execute_query` tool, which is read-only by default, instead of `sqlcmd`, and its `sql-tools-mcp-setup` skill enables the server with the user's permission. Nothing else in `microsoft-sql` changes, and these skills never require that server.

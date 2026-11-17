@@ -12,21 +12,21 @@
 - [Property names in one table](#property-names-in-one-table)
 - [Host settings](#host-settings)
 
-Verified against the Microsoft Learn binding reference on 2026-09-03, and the C# rows built on
-Core Tools 4.12.0 with .NET SDK 8.0.421. The bindings require version 4.x or later of
-the Functions runtime. Go support is not available for these bindings.
+From the Microsoft Learn binding reference; the C# declarations compile as written. The bindings
+require version 4.x or later of the Functions runtime. Go support is not available for these
+bindings.
 
 ## What you install
 
 | Language | What to add |
 |---|---|
-| C#, isolated worker | `dotnet add package Microsoft.Azure.Functions.Worker.Extensions.Sql` (3.1.536 on 2026-09-03) |
+| C#, isolated worker | `dotnet add package Microsoft.Azure.Functions.Worker.Extensions.Sql` |
 | C#, in-process | `dotnet add package Microsoft.Azure.WebJobs.Extensions.Sql` |
 | Java | The extension bundle, plus `com.microsoft.azure.functions:azure-functions-java-library-sql` |
 | Python, JavaScript, TypeScript, PowerShell | The extension bundle only |
 
-The extension bundle reference lives in `host.json`. This is what `func init --worker-runtime node`
-wrote on Core Tools 4.12.0, measured 2026-09-03:
+The extension bundle reference lives in `host.json`. With Core Tools 4.12,
+`func init --worker-runtime node` writes:
 
 ```json
 {
@@ -43,7 +43,7 @@ Every function targeting the same database must use the same extension version.
 The in-process C# model reaches end of support on 10 November 2026, so new work belongs on the
 isolated worker model.
 
-Core Tools 4.12.0 scaffolds none of these: `func new --template "SQL Trigger"` fails with
+Core Tools 4.12 scaffolds none of these: `func new --template "SQL Trigger"` fails with
 `Unknown template 'SQLTrigger' (Parameter 'templateName')` though `func templates list` prints the
 name. Write the declaration below by hand.
 
@@ -179,5 +179,5 @@ Under `extensions.Sql` in `host.json`:
 
 The same three exist under `Sql_Trigger_` names in `local.settings.json` for local runs.
 **Microsoft Learn contradicts itself on the first**: its settings table says
-`Sql_Trigger_BatchSize`, its own example on the same page says `Sql_Trigger_MaxBatchSize`. Neither
-is measured here, so set it and confirm the batch size changed rather than trusting a spelling.
+`Sql_Trigger_BatchSize`, its own example on the same page says `Sql_Trigger_MaxBatchSize`. Set it
+and confirm the batch size changed rather than trusting either spelling.
