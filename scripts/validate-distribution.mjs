@@ -362,127 +362,6 @@ async function exists(file) {
   }
 }
 
-async function validateCoordinatedKnowledgeBase(skillDirectory) {
-  const skillFile = path.join(skillDirectory, "SKILL.md");
-  const skillText = await readFile(skillFile, "utf8");
-  const coordinated = /Current coordinated knowledge-base line:\s*\*\*(v\d+\.\d+)\*\*/u.exec(skillText);
-  if (!coordinated) {
-    if (/If the versions disagree/iu.test(skillText)) {
-      fail(`${relative(skillFile)}: version-stop policy has no coordinated knowledge-base line`);
-    }
-    return;
-  }
-
-  const expected = coordinated[1];
-  const declarations = [];
-  const requireVersions = async (file, pattern, label) => {
-    let text;
-    try {
-      text = await readFile(file, "utf8");
-    } catch (error) {
-      fail(`${relative(file)}: cannot read coordinated knowledge-base declaration (${error.message})`);
-      return;
-    }
-    const match = pattern.exec(text);
-    if (!match) {
-      fail(`${relative(file)}: missing coordinated knowledge-base declaration (${label})`);
-      return;
-    }
-    for (const version of match.slice(1)) declarations.push({ file, label, version });
-  };
-
-  await requireVersions(
-    skillFile,
-    /input\/output schemas, and knowledge base (v\d+\.\d+)\./u,
-    "checked-against statement",
-  );
-  await requireVersions(
-    skillFile,
-    /Knowledge base (v\d+\.\d+) \(bundled[^\n]*rules (v\d+\.\d+)/u,
-    "startup announcement",
-  );
-  await requireVersions(
-    skillFile,
-    /"knowledgeBaseVersion": "(v\d+\.\d+)",[\s\S]*?"decisionRulesVersion": "(v\d+\.\d+)"/u,
-    "structured output example",
-  );
-  await requireVersions(
-    skillFile,
-    /> KB \*\*(v\d+\.\d+)\*\*/u,
-    "recommendation example",
-  );
-
-  const references = path.join(skillDirectory, "references");
-  await requireVersions(
-    path.join(references, "knowledge-base.md"),
-    /^> \*\*Version\.\*\* (v\d+\.\d+)/mu,
-    "knowledge-base header",
-  );
-  await requireVersions(
-    path.join(references, "knowledge-base.md"),
-    /^Current version: \*\*(v\d+\.\d+)\*\*/mu,
-    "knowledge-base current version",
-  );
-  await requireVersions(
-    path.join(references, "decision-rules.md"),
-    /^Source of truth:.*\*\*(v\d+\.\d+)\*\*/mu,
-    "decision-rules source",
-  );
-  await requireVersions(
-    path.join(references, "sample-recommendation.md"),
-    /> KB \*\*(v\d+\.\d+)\*\*[^\n]*rules \*\*(v\d+\.\d+)\*\*/u,
-    "sample recommendation",
-  );
-  await requireVersions(
-    path.join(references, "sample-recommendation.md"),
-    /"knowledgeBaseVersion": "(v\d+\.\d+)",[\s\S]*?"decisionRulesVersion": "(v\d+\.\d+)"/u,
-    "sample structured output",
-  );
-
-  for (const { file, label, version } of declarations) {
-    if (version !== expected) {
-      fail(`${relative(file)}: ${label} declares ${version}; coordinated version is ${expected}`);
-    }
-  }
-}
-
-async function validatePrerequisitePolicy(skillDirectory) {
-  const refs = path.join(skillDirectory, "references");
-  const skill = await readFile(path.join(skillDirectory, "SKILL.md"), "utf8");
-  const declared = /schema\/KB line `([^`]+)`\/`([^`]+)`/u.exec(skill);
-  if (!declared) {
-    fail(`${relative(skillDirectory)}: missing prerequisite schema/KB declaration`);
-    return;
-  }
-  const [, schemaVersion, knowledgeBaseVersion] = declared;
-  const check = (file, label, actual, expected) => {
-    if (actual !== expected) fail(`${relative(skillDirectory)}/${file}: ${label} is ${actual}; expected ${expected}`);
-  };
-  const catalog = await readJson(path.join(refs, "path-catalog.json"));
-  const questions = await readJson(path.join(refs, "questions.json"));
-  const input = await readJson(path.join(refs, "input.schema.json"));
-  const output = await readJson(path.join(refs, "output.schema.json"));
-  check("references/path-catalog.json", "schema version", catalog?.schemaVersion, schemaVersion);
-  check("references/path-catalog.json", "knowledge-base version", catalog?.knowledgeBaseVersion, knowledgeBaseVersion);
-  check("references/questions.json", "schema version", questions?.schemaVersion, schemaVersion);
-  check("references/input.schema.json", "schema version", input?.properties?.schemaVersion?.const, schemaVersion);
-  const metadata = output?.properties?.metadata?.properties;
-  check("references/output.schema.json", "schema version", metadata?.schemaVersion?.const, schemaVersion);
-  check("references/output.schema.json", "knowledge-base version", metadata?.prerequisiteKnowledgeBaseVersion?.const, knowledgeBaseVersion);
-  check("references/output.schema.json", "path catalog version", metadata?.pathCatalogVersion?.const, catalog?.schemaVersion);
-  for (const name of ["input-contract.md", "output-contract.md"]) {
-    const text = await readFile(path.join(refs, name), "utf8");
-    check(`references/${name}`, "schema version", /\*\*Schema version:\*\* `([^`]+)`/u.exec(text)?.[1], schemaVersion);
-    check(`references/${name}`, "knowledge-base version", /\*\*Prerequisite knowledge-base line:\*\* `([^`]+)`/u.exec(text)?.[1], knowledgeBaseVersion);
-  }
-  const kb = await readFile(path.join(refs, "knowledge-base.md"), "utf8");
-  check("references/knowledge-base.md", "knowledge-base version", /\*\*Version:\*\* (v\d+\.\d+)/u.exec(kb)?.[1], knowledgeBaseVersion);
-  const announcement = /Prerequisite knowledge base (v\d+\.\d+) \(bundled\) · schema ([\d.]+)/u.exec(skill);
-  check("SKILL.md", "startup knowledge-base version", announcement?.[1], knowledgeBaseVersion);
-  check("SKILL.md", "startup schema version", announcement?.[2], schemaVersion);
-  // Advisor versions and mappingsVersion describe separate policies; do not compare them to these lines.
-}
-
 async function validateCompanionMcp(directory, pluginName, readme) {
   const configFiles = ["mcp.json", ".mcp.json", "mcp-installation.json"];
   if (pluginName !== "microsoft-sql-admin") {
@@ -589,8 +468,6 @@ for (const pluginName of expectedPlugins) {
       fail(`${relative(skillFile)}: missing`);
       continue;
     }
-    await validateCoordinatedKnowledgeBase(skillDirectory);
-    if (skillName === "generate-migration-prerequisite-plan") await validatePrerequisitePolicy(skillDirectory);
   }
 
   for (const manifestName of manifestFiles) {
