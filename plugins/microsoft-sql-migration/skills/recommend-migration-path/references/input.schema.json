@@ -264,7 +264,7 @@
     },
     "database_count": {
       "type": "integer",
-      "description": "Read against MI Link capacity: 100 links on General Purpose and Business Critical, 500 on Next-gen General Purpose."
+      "description": "Read against MI Link capacity: 100 databases on General Purpose and Business Critical, 500 on Next-gen General Purpose, in either link mode."
     },
     "migration_batch_size": {
       "type": "integer",
@@ -293,7 +293,7 @@
         "PREVIEW_REFUSED",
         "UNKNOWN"
       ],
-      "description": "Whether the customer accepts a service or capability still in preview. Two indexed rules read it, MI-TIER for zone redundancy and COPILOT-AGENT for the control-plane branch, and the profile could not carry it: additionalProperties is false, so a decision those rules made could not be reproduced from a schema-valid input. UNKNOWN holds the preview option rather than granting it."
+      "description": "Whether the customer accepts a service or capability still in preview. COPILOT-AGENT reads it for the control-plane branch, and it gates the Arc to Azure SQL Database orchestration and the Hyperscale cross-database limited preview. UNKNOWN holds the preview option rather than granting it."
     },
     "recovery_model": {
       "enum": [

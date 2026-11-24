@@ -15,8 +15,6 @@ The single source of truth for what the interview collects, what each field mean
 
 `SKILL.md` shows human labels and records **IDs**. The decision rules match on IDs. A label can be translated or reworded without touching a rule; an ID cannot drift.
 
-**Version:** coordinated with the knowledge base line stated in `SKILL.md`.
-
 ---
 
 ## 1. Contract principles
@@ -65,7 +63,7 @@ Show the label. Record the ID.
 | GCP Compute Engine | `GCP_COMPUTE` |
 | GCP Cloud SQL | `GCP_CLOUD_SQL` |
 
-`AZURE_VM` was added in v2.12. It had been folded into `ON_PREM` through the shared
+`AZURE_VM` was added later. It had been folded into `ON_PREM` through the shared
 "on-prem / Azure VM" label, even though several rules turn on whether the source is already in
 Azure — the network path to a Managed Instance, the Blob upload route, and whether a data-center
 exit driver applies at all. `ON_PREM` keeps its old meaning, so an existing answer stays valid;
@@ -120,7 +118,7 @@ a source already running in Azure should now say so.
 
 ### Largest database size — `size`
 
-**The classes do not overlap.** Until v2.1 the question offered both `> 4 TB` and `> 128 TB`, so a 200 TB database matched two answers and the reader chose which one meant it.
+**The classes do not overlap.** Earlier, the question offered both `> 4 TB` and `> 128 TB`, so a 200 TB database matched two answers and the reader chose which one meant it.
 
 | Label | ID |
 |---|---|
@@ -191,7 +189,7 @@ Three questions ask whether something exists before asking what it is, so that *
 | `management_model` | ID | 3 model IDs | PaaS vs IaaS vs Kubernetes family | Blocks the family split; return a shortlist |
 | `feature_dependencies` | list | See §5 | Phase A eligibility for SQL MI and SQL DB | SQL MI and SQL DB held at `unknown_requires_assessment` |
 | `feature_dependencies_state` | ID | `ANSWERED` · `NONE_CONFIRMED` · `UNKNOWN` · `NOT_APPLICABLE` | Says why the list is empty, which the list itself cannot | Treated as `UNKNOWN`: an empty list without a state is not a confirmed absence |
-| `preview_acceptable` | ID | `PREVIEW_ACCEPTED` · `PREVIEW_REFUSED` · `UNKNOWN` | `MI-TIER` zone redundancy, `COPILOT-AGENT` control-plane branch | Preview options stay unavailable; the GA route is unaffected |
+| `preview_acceptable` | ID | `PREVIEW_ACCEPTED` · `PREVIEW_REFUSED` · `UNKNOWN` | `COPILOT-AGENT` control-plane branch, the Arc → Azure SQL Database orchestration (documented, not handed off), the Hyperscale cross-database limited preview | Preview options stay unavailable; the GA route is unaffected |
 | `recovery_model` | ID | `FULL` · `BULK_LOGGED` · `SIMPLE` · `UNKNOWN` | `DMS-MODE`: online DMS requires `FULL`. Log shipping also accepts `BULK_LOGGED`, so the field carries the answer, not a verdict | Online mode is never assumed; the gate holds at `unknown_requires_assessment` |
 | `log_chain_status` | ID | `CHAIN_INTACT` · `CHAIN_BROKEN` · `UNKNOWN` | `DMS-MODE`: the second half of the online requirement, independent of the recovery model | Online mode is never assumed; the gate holds at `unknown_requires_assessment` |
 | `ancillary_services` | list | SSIS · SSRS · SSAS · TDE · SQL Agent jobs · logins · others named by the user | Remediation scope and what the prerequisite plan inherits | Nothing is assumed present or absent |
